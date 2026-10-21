@@ -17,7 +17,7 @@ export function ScreenHead({
         <div className="kicker">{kicker}</div>
         <h1>{title}</h1>
       </div>
-      {meta ? <div className="screen-meta mono">{meta}</div> : null}
+      {meta ? <div className="screen-meta">{meta}</div> : null}
     </div>
   );
 }

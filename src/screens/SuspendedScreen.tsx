@@ -1,6 +1,7 @@
 import { usePermits } from "../state/PermitStore";
+import { permitType } from "../permitTypes";
 import { kindShort } from "../workflow";
-import { ScreenHead } from "../components/ui";
+import { Kv, ScreenHead } from "../components/ui";
 
 export function SuspendedScreen() {
   const { permits, openPermit } = usePermits();
@@ -13,7 +14,11 @@ export function SuspendedScreen() {
         <p className="empty">No permits are suspended.</p>
       ) : (
         held.map((permit) => {
-          const place = [permit.area, permit.location || permit.equipment].filter(Boolean).join(" / ");
+          const placeLabel = permitType(permit.kind).place === "location" ? "Location" : "Equipment";
+          const place =
+            permitType(permit.kind).place === "location"
+              ? permit.location || permit.equipment
+              : permit.equipment || permit.location;
           return (
             <button
               key={permit.id}
@@ -27,18 +32,33 @@ export function SuspendedScreen() {
                 <span className="row-status">
                   <span className="state state-alert">
                     <span className="lamp lamp-alert" />
-                    SUSPENDED {permit.suspension?.time}
+                    SUSPENDED <span className="mono">{permit.suspension?.time}</span>
                   </span>
                 </span>
               </div>
-              <div className="hold-place mono">{place}</div>
+              <div className="row-work">{permit.work}</div>
+              <div className="row-fields">
+                <div className="row-band">
+                  <Kv label="Area" value={permit.area} />
+                  <Kv label={placeLabel} value={place} mono />
+                  <Kv label="Work Order" value={permit.workOrder} mono />
+                </div>
+                <div className="row-band">
+                  <Kv label="Company" value={permit.company} />
+                  <Kv label="Requester" value={permit.requesterGroup || permit.requester} />
+                </div>
+                <div className="row-band row-window">
+                  <Kv label="Started" value={permit.started} mono />
+                  <Kv label="Expires" value={permit.expires} mono />
+                </div>
+              </div>
               <div className="reason">
                 <div className="k">Reason</div>
                 <p>{permit.suspension?.reason}</p>
               </div>
               <div className="hold-meta">
                 <span>Suspended by {permit.suspension?.by}</span>
-                <span className="mono">Previous status {permit.suspension?.previous}</span>
+                <span>Previous status {permit.suspension?.previous}</span>
               </div>
             </button>
           );

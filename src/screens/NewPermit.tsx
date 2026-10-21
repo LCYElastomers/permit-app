@@ -167,7 +167,7 @@ function ScopeStep({
         </label>
         <label className="form-field">
           <span>Equipment / location</span>
-          <input value={form.place} onChange={(event) => patch({ place: event.target.value })} />
+          <input className="mono-input" value={form.place} onChange={(event) => patch({ place: event.target.value })} />
         </label>
         <label className="form-field">
           <span>Work order</span>
@@ -228,11 +228,11 @@ function ScopeStep({
         </label>
         <label className="form-field">
           <span>Planned start</span>
-          <input type="time" value={form.plannedStart} onChange={(event) => patch({ plannedStart: event.target.value })} />
+          <input className="mono-input" type="time" value={form.plannedStart} onChange={(event) => patch({ plannedStart: event.target.value })} />
         </label>
         <label className="form-field">
           <span>Planned expiration</span>
-          <input type="time" value={form.plannedEnd} onChange={(event) => patch({ plannedEnd: event.target.value })} />
+          <input className="mono-input" type="time" value={form.plannedEnd} onChange={(event) => patch({ plannedEnd: event.target.value })} />
         </label>
       </div>
       {form.kind === "general" ? <ExclusionList form={form} setField={setField} /> : null}

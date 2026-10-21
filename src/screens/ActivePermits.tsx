@@ -92,13 +92,19 @@ function PermitRow({
       </div>
       <div className="row-work">{permit.work}</div>
       <div className="row-fields">
-        <Kv label="Area" value={permit.area} />
-        <Kv label={placeLabel} value={place} mono />
-        <Kv label="Work Order" value={permit.workOrder} mono />
-        <Kv label="Company" value={permit.company} />
-        <Kv label="Requester" value={permit.requesterGroup || permit.requester} />
-        <Kv label="Started" value={permit.started} mono />
-        <Kv label="Expires" value={permit.expires} mono />
+        <div className="row-band">
+          <Kv label="Area" value={permit.area} />
+          <Kv label={placeLabel} value={place} mono />
+          <Kv label="Work Order" value={permit.workOrder} mono />
+        </div>
+        <div className="row-band">
+          <Kv label="Company" value={permit.company} />
+          <Kv label="Requester" value={permit.requesterGroup || permit.requester} />
+        </div>
+        <div className="row-band row-window">
+          <Kv label="Started" value={permit.started} mono />
+          <Kv label="Expires" value={permit.expires} mono />
+        </div>
       </div>
     </button>
   );

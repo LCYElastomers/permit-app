@@ -44,12 +44,16 @@ export function PendingReview() {
               </div>
               <div className="row-work">{permit.work}</div>
               <div className="row-fields">
-                <Kv label="Area" value={permit.area} />
-                <Kv label={permitType(permit.kind).place === "location" ? "Location" : "Equipment"} value={place} mono />
-                <Kv label="Work Order" value={permit.workOrder} mono />
-                <Kv label="Company" value={permit.company} />
-                <Kv label="Requester" value={permit.requester || permit.requesterGroup} />
-                <Kv label="Signed" value={`${signed.length} of ${permit.signoffs.length}`} mono />
+                <div className="row-band">
+                  <Kv label="Area" value={permit.area} />
+                  <Kv label={permitType(permit.kind).place === "location" ? "Location" : "Equipment"} value={place} mono />
+                  <Kv label="Work Order" value={permit.workOrder} mono />
+                </div>
+                <div className="row-band">
+                  <Kv label="Company" value={permit.company} />
+                  <Kv label="Requester" value={permit.requester || permit.requesterGroup} />
+                  <Kv label="Signed" value={`${signed.length} of ${permit.signoffs.length}`} />
+                </div>
               </div>
               <div className="sig-row">
                 {permit.signoffs.map((signoff) => (
