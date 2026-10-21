@@ -8,6 +8,7 @@ import {
   type SetStateAction,
 } from "react";
 import { initialDrafts, initialPermits, templates } from "../data/mock";
+import { GENERAL_EXCLUSIONS, permitType } from "../permitTypes";
 import { plantClock } from "../plantClock";
 import type { ListScreen, Permit, PermitDraft, Screen } from "../types";
 import {
@@ -61,11 +62,18 @@ function nextDraftCode(drafts: PermitDraft[]): string {
   return `DFT-2026-${String(max + 1).padStart(3, "0")}`;
 }
 
+function ppeFrom(fields: Record<string, string>, controls: string[]): string[] {
+  const listed = [fields.ppe, fields.electricalPpe].filter((item): item is string => Boolean(item?.trim()));
+  if (listed.length > 0) return listed;
+  return controls.includes("PPE") ? ["As stated on the JSA"] : [];
+}
+
 function permitFromDraft(draft: PermitDraft, id: string, time: string): Permit {
-  const confined = draft.kind === "confined-space";
+  const spec = permitType(draft.kind);
   const fields = draft.fields;
-  const equipment = confined ? fields.vesselId || draft.place : "";
-  const location = confined ? "" : fields.digLocation || draft.place;
+  const equipment =
+    spec.place === "equipment" ? fields.vesselId || fields.equipmentSystem || fields.panel || draft.place : "";
+  const location = spec.place === "location" ? fields.digLocation || draft.place : "";
   const roles = authorizationRoles(draft);
   const signoffs = roles.map((role) => {
     const signature = draft.signatures[role.id];
@@ -82,32 +90,16 @@ function permitFromDraft(draft: PermitDraft, id: string, time: string): Permit {
     }))
     .sort((a, b) => a.time.localeCompare(b.time));
 
-  const conditions = (confined
-    ? [
-        ["Material previously in service", fields.previousService],
-        ["Mechanical isolation", fields.mechanical],
-        ["Continuous monitoring", fields.continuous],
-        ["Rescue availability", fields.rescue],
-        ["Hot work controls", fields.hotWork],
-        ["Initial atmosphere test", fields.initialTest],
-      ]
-    : [
-        ["Excavation location", fields.digLocation],
-        ["Expected depth", fields.depth],
-        ["Competent person", fields.competentPerson],
-        ["One-call / locate ticket", fields.locateTicket],
-        ["Underground drawings", fields.drawings],
-        ["Underground hazards", fields.undergroundHazards],
-        ["Protective system", fields.protectiveSystem],
-        ["Soil classification", fields.soil],
-        ["Access / egress", fields.access],
-        ["Barricades", fields.barricades],
-        ["Traffic control", fields.traffic],
-        ["Atmospheric monitoring", fields.monitoring],
-      ]
-  )
-    .filter((entry): entry is [string, string] => Boolean(entry[1]?.trim()))
-    .map(([label, value]) => ({ label, value }));
+  const conditions = spec.fields
+    .filter((item) => fields[item.key]?.trim())
+    .map((item) => ({ label: item.label, value: fields[item.key].trim() }));
+  if (draft.kind === "general") {
+    for (const exclusion of GENERAL_EXCLUSIONS) {
+      const value = fields[exclusion.key];
+      if (value === "included") conditions.push({ label: exclusion.label, value: "Included" });
+      if (value === "excluded") conditions.push({ label: exclusion.label, value: "Not included" });
+    }
+  }
 
   if (draft.fields.otherHazard?.trim()) {
     conditions.push({ label: "Other hazard", value: draft.fields.otherHazard.trim() });
@@ -134,8 +126,8 @@ function permitFromDraft(draft: PermitDraft, id: string, time: string): Permit {
     craft: draft.craft.trim(),
     shiftSupervisor: draft.signatures.supervisor?.name ?? "",
     attendant: draft.signatures.attendant?.name || fields.attendant || "",
-    entrants: [],
-    fireWatch: draft.signatures.firewatch?.name ?? "",
+    entrants: fields.entrant?.trim() ? [fields.entrant.trim()] : [],
+    fireWatch: draft.signatures.firewatch?.name || fields.fireWatch || "",
     started: time,
     expires: draft.plannedEnd,
     issued: "21 Oct 2026",
@@ -143,15 +135,15 @@ function permitFromDraft(draft: PermitDraft, id: string, time: string): Permit {
     issuedKey: "20261021",
     year: 2026,
     isolation: {
-      required: fields.energyIsolation || (draft.controls.includes("LOTO") ? "Yes" : confined ? "Yes" : "No"),
-      plan: confined ? "Assigned at issue" : "—",
+      required: fields.energyIsolation || fields.loto || (draft.controls.includes("LOTO") ? "Yes" : "—"),
+      plan: "—",
       lockBox: fields.lockBox || "—",
-      zeroEnergy: confined ? time : "—",
-      blinds: fields.blinds || "—",
+      zeroEnergy: fields.zeroEnergy || "—",
+      blinds: fields.blinds || fields.blindRequirements || "—",
     },
     readings: [],
     hazards: draft.hazards.map(titleCase),
-    ppe: fields.ppe ? [fields.ppe] : draft.controls.includes("PPE") ? ["As stated on the JSA"] : [],
+    ppe: ppeFrom(fields, draft.controls),
     precautions: draft.controls.map(titleCase),
     attachments: [{ name: "JSA.pdf", note: "Job safety analysis referenced by this permit." }],
     history: [

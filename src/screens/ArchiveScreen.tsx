@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { usePermits } from "../state/PermitStore";
 import type { PermitKind, PermitStatus } from "../types";
+import { PERMIT_TYPES } from "../permitTypes";
 import { kindShort } from "../workflow";
 import { ScreenHead, StateMark } from "../components/ui";
 
@@ -65,8 +66,11 @@ export function ArchiveScreen() {
           <span>Permit Type</span>
           <select value={type} onChange={(event) => setType(event.target.value as "" | PermitKind)}>
             <option value="">All</option>
-            <option value="confined-space">Confined Space</option>
-            <option value="excavation">Excavation</option>
+            {PERMIT_TYPES.map((type) => (
+              <option key={type.id} value={type.id}>
+                {type.title}
+              </option>
+            ))}
           </select>
         </label>
         <label className="filter">

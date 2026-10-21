@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { usePermits } from "../state/PermitStore";
 import type { Permit } from "../types";
+import { permitType, personName } from "../permitTypes";
 import { assetLine, kindTitle, screenLabel } from "../workflow";
 import { Field, Section, StateMark } from "../components/ui";
 
@@ -281,22 +282,9 @@ export function PermitDetail() {
               <Person role="Shift Supervisor" name={permit.shiftSupervisor} />
               <Person role="Requester" name={requester} />
               <Person role="Craft / Permit Receiver" name={permit.craft} />
-              {permit.kind === "confined-space" ? (
-                <>
-                  <Person role="Attendant" name={permit.attendant || "Not assigned"} />
-                  <Person
-                    role="Authorized Entrants"
-                    name={permit.entrants.length ? permit.entrants.join(", ") : "None listed"}
-                  />
-                </>
-              ) : null}
-              <Person role="Fire Watch" name={permit.fireWatch || "Not required"} />
-              {permit.kind === "excavation" ? (
-                <Person
-                  role="Competent Person"
-                  name={permit.conditions.find((item) => item.label === "Competent person")?.value || "Not listed"}
-                />
-              ) : null}
+              {permitType(permit.kind).personnel.map((slot) => (
+                <Person key={slot.role} role={slot.role} name={personName(permit, slot)} />
+              ))}
             </ul>
           </Section>
 

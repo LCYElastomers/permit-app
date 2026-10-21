@@ -2,6 +2,7 @@ import { useState } from "react";
 import { usePlantClock } from "../plantClock";
 import { usePermits } from "../state/PermitStore";
 import type { Permit } from "../types";
+import { permitType } from "../permitTypes";
 import { expiryState, kindShort } from "../workflow";
 import { Kv, ScreenHead, StateMark } from "../components/ui";
 
@@ -71,8 +72,11 @@ function PermitRow({
   expiry: "ok" | "soon" | "overdue" | "none";
   onOpen: () => void;
 }) {
-  const placeLabel = permit.kind === "excavation" ? "Location" : "Equipment";
-  const place = permit.kind === "excavation" ? permit.location || permit.equipment : permit.equipment || permit.location;
+  const placeLabel = permitType(permit.kind).place === "location" ? "Location" : "Equipment";
+  const place =
+    permitType(permit.kind).place === "location"
+      ? permit.location || permit.equipment
+      : permit.equipment || permit.location;
   const rail = expiry === "overdue" ? "is-overdue" : expiry === "soon" ? "is-soon" : "";
 
   return (

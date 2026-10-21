@@ -1,4 +1,5 @@
 import { usePermits } from "../state/PermitStore";
+import { permitType } from "../permitTypes";
 import { kindShort } from "../workflow";
 import { Kv, ScreenHead, StateMark } from "../components/ui";
 
@@ -22,7 +23,8 @@ export function PendingReview() {
         pending.map((permit) => {
           const outstanding = permit.signoffs.filter((signoff) => signoff.state === "outstanding");
           const signed = permit.signoffs.filter((signoff) => signoff.state === "signed");
-          const place = permit.kind === "excavation" ? permit.location : permit.equipment;
+          const place =
+            permitType(permit.kind).place === "location" ? permit.location || permit.equipment : permit.equipment || permit.location;
           return (
             <button
               key={permit.id}
@@ -43,7 +45,7 @@ export function PendingReview() {
               <div className="row-work">{permit.work}</div>
               <div className="row-fields">
                 <Kv label="Area" value={permit.area} />
-                <Kv label={permit.kind === "excavation" ? "Location" : "Equipment"} value={place} mono />
+                <Kv label={permitType(permit.kind).place === "location" ? "Location" : "Equipment"} value={place} mono />
                 <Kv label="Work Order" value={permit.workOrder} mono />
                 <Kv label="Company" value={permit.company} />
                 <Kv label="Requester" value={permit.requester || permit.requesterGroup} />

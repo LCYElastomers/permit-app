@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { contractors } from "../data/mock";
+import { GENERAL_EXCLUSIONS, PERMIT_TYPES, typeRecommendations } from "../permitTypes";
 import { plantClock } from "../plantClock";
 import { usePermits } from "../state/PermitStore";
-import type { PermitDraft } from "../types";
+import type { PermitDraft, PermitKind } from "../types";
 import {
   AREAS,
   CONTROLS,
@@ -23,7 +24,6 @@ export function NewPermit() {
   const [saved, setSaved] = useState("");
   const [signError, setSignError] = useState("");
   const blockers = issueBlockers(form);
-  const fields = detailFields(form.kind);
 
   const patch = (partial: Partial<PermitDraft>) => {
     updateForm((current) => ({ ...current, ...partial }));
@@ -50,15 +50,15 @@ export function NewPermit() {
       </div>
 
       <div className="kind-bar">
-        <div className="kind-switch" role="group" aria-label="Permit type">
-          {(["confined-space", "excavation"] as const).map((kind) => (
+        <div className="kind-switch type-switch" role="group" aria-label="Permit type">
+          {PERMIT_TYPES.map((type) => (
             <button
-              key={kind}
+              key={type.id}
               type="button"
-              className={form.kind === kind ? "on" : ""}
-              onClick={() => patch({ kind, fields: {} })}
+              className={form.kind === type.id ? "on" : ""}
+              onClick={() => patch({ kind: type.id })}
             >
-              {kindTitle(kind)}
+              {type.short}
             </button>
           ))}
         </div>
@@ -70,7 +70,8 @@ export function NewPermit() {
 
       <div className="workflow-body">
         {saved ? <div className="notice">Draft {saved} saved on this station.</div> : null}
-        {form.step === 0 && <ScopeStep form={form} patch={patch} />}
+        <TypeRecommendationNotice form={form} onUse={(kind) => patch({ kind })} />
+        {form.step === 0 && <ScopeStep form={form} patch={patch} setField={setField} />}
         {form.step === 1 && (
           <ChoiceStep
             index="02"
@@ -97,18 +98,7 @@ export function NewPermit() {
             onOther={(value) => setField("otherControl", value)}
           />
         )}
-        {form.step === 3 && (
-          <Section index="04" title="PERMIT DETAILS">
-            <div className="form-grid">
-              {fields.map(([key, label]) => (
-                <label key={key} className="form-field">
-                  <span>{label}</span>
-                  <input value={form.fields[key] ?? ""} onChange={(event) => setField(key, event.target.value)} />
-                </label>
-              ))}
-            </div>
-          </Section>
-        )}
+        {form.step === 3 && <DetailStep form={form} setField={setField} />}
         {form.step === 4 && <ReviewStep form={form} />}
         {form.step === 5 && (
           <AuthorizationStep form={form} signError={signError} setSignError={setSignError} blockers={blockers} />
@@ -153,9 +143,11 @@ export function NewPermit() {
 function ScopeStep({
   form,
   patch,
+  setField,
 }: {
   form: PermitDraft;
   patch: (partial: Partial<PermitDraft>) => void;
+  setField: (key: string, value: string) => void;
 }) {
   return (
     <Section index="01" title="SCOPE">
@@ -243,6 +235,100 @@ function ScopeStep({
           <input type="time" value={form.plannedEnd} onChange={(event) => patch({ plannedEnd: event.target.value })} />
         </label>
       </div>
+      {form.kind === "general" ? <ExclusionList form={form} setField={setField} /> : null}
+    </Section>
+  );
+}
+
+function ExclusionList({
+  form,
+  setField,
+}: {
+  form: PermitDraft;
+  setField: (key: string, value: string) => void;
+}) {
+  return (
+    <div className="exclusion-block">
+      <div className="subhead">CONFIRM THE WORK DOES NOT INCLUDE</div>
+      <div className="exclusion-list">
+        {GENERAL_EXCLUSIONS.map((item) => {
+          const value = form.fields[item.key] ?? "";
+          return (
+            <div key={item.key} className={value === "included" ? "exclusion included" : "exclusion"}>
+              <span>{item.label}</span>
+              <div className="kind-switch compact">
+                <button
+                  type="button"
+                  className={value === "excluded" ? "on" : ""}
+                  onClick={() => setField(item.key, "excluded")}
+                >
+                  Not included
+                </button>
+                <button
+                  type="button"
+                  className={value === "included" ? "on is-included" : ""}
+                  onClick={() => setField(item.key, "included")}
+                >
+                  Included
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function TypeRecommendationNotice({
+  form,
+  onUse,
+}: {
+  form: PermitDraft;
+  onUse: (kind: PermitKind) => void;
+}) {
+  const items = typeRecommendations(form);
+  if (items.length === 0) return null;
+  return (
+    <div className="recommend">
+      <div className="kicker">TYPE RECOMMENDATION</div>
+      <p>This scope sits outside General Work. The same job can move onto the permit that covers it.</p>
+      {items.map((item) => (
+        <div key={item.kind} className="recommend-row">
+          <div>
+            <strong>{kindTitle(item.kind)}</strong>
+            <div className="recommend-reason">{item.reasons.join(" · ")}</div>
+          </div>
+          <button type="button" className="btn btn-hold" onClick={() => onUse(item.kind)}>
+            Use this type
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function DetailStep({
+  form,
+  setField,
+}: {
+  form: PermitDraft;
+  setField: (key: string, value: string) => void;
+}) {
+  return (
+    <Section index="04" title="PERMIT DETAILS">
+      <div className="form-grid">
+        {detailFields(form.kind).map((item) => (
+          <label key={item.key} className={item.wide ? "form-field span-2" : "form-field"}>
+            <span>{item.label}</span>
+            {item.wide ? (
+              <textarea value={form.fields[item.key] ?? ""} onChange={(event) => setField(item.key, event.target.value)} />
+            ) : (
+              <input value={form.fields[item.key] ?? ""} onChange={(event) => setField(item.key, event.target.value)} />
+            )}
+          </label>
+        ))}
+      </div>
     </Section>
   );
 }
@@ -294,7 +380,7 @@ function ChoiceStep({
 }
 
 function ReviewStep({ form }: { form: PermitDraft }) {
-  const details = detailFields(form.kind).filter(([key]) => (form.fields[key] ?? "").trim());
+  const details = detailFields(form.kind).filter((item) => (form.fields[item.key] ?? "").trim());
   return (
     <div className="review-grid">
       <Section index="01" title="SCOPE">
@@ -310,6 +396,15 @@ function ReviewStep({ form }: { form: PermitDraft }) {
           <Field label="Craft / permit receiver" value={form.craft} />
           <Field label="Planned start" value={form.plannedStart} mono />
           <Field label="Planned expiration" value={form.plannedEnd} mono />
+          {form.kind === "general"
+            ? GENERAL_EXCLUSIONS.map((item) => (
+                <Field
+                  key={item.key}
+                  label={item.label}
+                  value={form.fields[item.key] === "included" ? "Included" : form.fields[item.key] === "excluded" ? "Not included" : ""}
+                />
+              ))
+            : null}
         </div>
       </Section>
       <Section index="02" title="HAZARDS">
@@ -341,8 +436,8 @@ function ReviewStep({ form }: { form: PermitDraft }) {
           <p className="empty tight">No detail fields entered.</p>
         ) : (
           <div className="field-grid">
-            {details.map(([key, label]) => (
-              <Field key={key} label={label} value={form.fields[key] ?? ""} />
+            {details.map((item) => (
+              <Field key={item.key} label={item.label} value={form.fields[item.key] ?? ""} wide={item.wide} />
             ))}
           </div>
         )}

@@ -1,4 +1,10 @@
-export type PermitKind = "confined-space" | "excavation";
+export type PermitKind =
+  | "general"
+  | "hot-work"
+  | "confined-space"
+  | "opening-blinding"
+  | "excavation"
+  | "live-electrical";
 
 export type PermitStatus =
   | "active"
