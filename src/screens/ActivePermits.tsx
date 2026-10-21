@@ -1,31 +1,46 @@
-import { useState } from "react";
 import { usePlantClock } from "../plantClock";
 import { usePermits } from "../state/PermitStore";
 import type { Permit } from "../types";
 import { permitType } from "../permitTypes";
-import { expiryState, kindShort } from "../workflow";
-import { Kv, ScreenHead, StateMark } from "../components/ui";
+import { expiryLabel, expiryState, kindShort } from "../workflow";
+import { Kv, ScreenHead } from "../components/ui";
 
 export function ActivePermits() {
-  const { permits, openPermit, go } = usePermits();
+  const { permits, openPermit, go, showActive, listArea, activeView } = usePermits();
   const clock = usePlantClock();
-  const [mode, setMode] = useState<"all" | "expiring">("all");
 
   const active = permits
     .filter((permit) => permit.status === "active")
+    .filter((permit) => (listArea ? permit.area === listArea : true))
     .slice()
     .sort((a, b) => b.started.localeCompare(a.started));
   const pending = permits.filter((permit) => permit.status === "pending").length;
   const suspended = permits.filter((permit) => permit.status === "suspended").length;
-  const expiring = active.filter((permit) => expiryState(permit.expires, clock.hm) !== "ok").length;
-  const shown = mode === "expiring" ? active.filter((permit) => expiryState(permit.expires, clock.hm) !== "ok") : active;
+  const expiring = permits.filter(
+    (permit) => permit.status === "active" && expiryState(permit.expires, clock.hm) !== "ok" && (listArea ? permit.area === listArea : true),
+  ).length;
+  const shown = activeView === "expiring" ? active.filter((permit) => expiryState(permit.expires, clock.hm) !== "ok") : active;
 
   return (
     <div className="screen">
       <div className="sticky-head">
-        <ScreenHead kicker="OPERATIONS" title="Active Permits" meta={`SHIFT B · ${shown.length} SHOWN`} />
+        <ScreenHead
+          kicker="OPERATIONS"
+          title="Active Permits"
+          meta={listArea ? `${listArea.toUpperCase()} · ${shown.length} SHOWN` : `SHIFT B · ${shown.length} SHOWN`}
+        />
+        {listArea ? (
+          <div className="list-filter">
+            <span>
+              Area <strong>{listArea}</strong>
+            </span>
+            <button type="button" className="btn btn-ghost" onClick={() => showActive("all")}>
+              Clear
+            </button>
+          </div>
+        ) : null}
         <div className="metrics">
-          <button type="button" className={mode === "all" ? "metric on" : "metric"} onClick={() => setMode("all")}>
+          <button type="button" className={activeView === "all" ? "metric on" : "metric"} onClick={() => showActive("all", listArea)}>
             <span className="metric-value">{active.length}</span>
             <span className="metric-label">Active</span>
           </button>
@@ -39,8 +54,8 @@ export function ActivePermits() {
           </button>
           <button
             type="button"
-            className={mode === "expiring" ? "metric on" : "metric"}
-            onClick={() => setMode("expiring")}
+            className={activeView === "expiring" ? "metric on" : "metric"}
+            onClick={() => showActive("expiring", listArea)}
           >
             <span className="metric-value">{expiring}</span>
             <span className="metric-label">Expiring Soon</span>
@@ -55,6 +70,7 @@ export function ActivePermits() {
             key={permit.id}
             permit={permit}
             expiry={expiryState(permit.expires, clock.hm)}
+            remaining={expiryLabel(permit.expires, clock.hm)}
             onOpen={() => openPermit(permit.id, "active")}
           />
         ))
@@ -66,17 +82,17 @@ export function ActivePermits() {
 function PermitRow({
   permit,
   expiry,
+  remaining,
   onOpen,
 }: {
   permit: Permit;
   expiry: "ok" | "soon" | "overdue" | "none";
+  remaining: string | null;
   onOpen: () => void;
 }) {
-  const placeLabel = permitType(permit.kind).place === "location" ? "Location" : "Equipment";
-  const place =
-    permitType(permit.kind).place === "location"
-      ? permit.location || permit.equipment
-      : permit.equipment || permit.location;
+  const prefersLocation = permitType(permit.kind).place === "location" || !permit.equipment;
+  const placeLabel = prefersLocation ? "Location" : "Equipment";
+  const place = prefersLocation ? permit.location || permit.equipment : permit.equipment;
   const rail = expiry === "overdue" ? "is-overdue" : expiry === "soon" ? "is-soon" : "";
 
   return (
@@ -85,9 +101,18 @@ function PermitRow({
         <span className="pid mono">{permit.id}</span>
         <span className="kind">{kindShort(permit.kind)}</span>
         <span className="row-status">
-          {expiry === "soon" ? <span className="soon-tag">EXPIRING</span> : null}
-          {expiry === "overdue" ? <span className="soon-tag overdue">OVERDUE</span> : null}
-          <StateMark status={permit.status} />
+          {expiry === "soon" && remaining ? (
+            <span className="expiry-flag">
+              <strong>{remaining}</strong>
+              <span>EXPIRING</span>
+            </span>
+          ) : null}
+          {expiry === "overdue" ? (
+            <span className="expiry-flag overdue">
+              <strong>EXPIRED</strong>
+              <span>WORK NOT AUTHORIZED</span>
+            </span>
+          ) : null}
         </span>
       </div>
       <div className="row-work">{permit.work}</div>

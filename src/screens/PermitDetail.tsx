@@ -2,7 +2,8 @@ import { useState } from "react";
 import { usePermits } from "../state/PermitStore";
 import type { Permit } from "../types";
 import { permitType, personName } from "../permitTypes";
-import { assetLine, kindTitle, screenLabel } from "../workflow";
+import { usePlantClock } from "../plantClock";
+import { assetLine, authorizationHold, kindTitle, screenLabel } from "../workflow";
 import { Field, Section, StateMark } from "../components/ui";
 
 export function PermitDetail() {
@@ -17,6 +18,7 @@ export function PermitDetail() {
     closePermit,
     reinstatePermit,
   } = usePermits();
+  const clock = usePlantClock();
   const permit = permits.find((item) => item.id === selectedId);
   const [panel, setPanel] = useState<"none" | "suspend" | "close">("none");
   const [reason, setReason] = useState("");
@@ -36,6 +38,7 @@ export function PermitDetail() {
   }
 
   const locked = readonlyDetail || permit.status === "closed" || permit.status === "expired";
+  const hold = authorizationHold(permit, clock.hm);
   const attachment = permit.attachments.find((item) => item.name === file) ?? null;
   const requester = [permit.requester, permit.requesterGroup].filter(Boolean).join(" · ");
 
@@ -52,7 +55,14 @@ export function PermitDetail() {
             <span className="rev mono">REV {permit.revision}</span>
           </h1>
           <div className="status-row">
-            <StateMark status={permit.status} />
+            {hold ? (
+              <div className={`stop-mark${hold === "expired" ? " is-expired" : ""}`}>
+                <strong>{hold === "suspended" ? "SUSPENDED" : "EXPIRED"}</strong>
+                <span>WORK NOT AUTHORIZED</span>
+              </div>
+            ) : (
+              <StateMark status={permit.status} />
+            )}
           </div>
           <div className="asset-line mono">{assetLine(permit)}</div>
           <div className="wo-line mono">{permit.workOrder}</div>
@@ -61,6 +71,7 @@ export function PermitDetail() {
           <div className="readonly-plate">
             <span>RECORD</span>
             <strong>{permit.status === "expired" ? "EXPIRED" : "CLOSED"}</strong>
+            {permit.status === "expired" ? <span>WORK NOT AUTHORIZED</span> : null}
           </div>
         ) : (
           <div className="action-bar">

@@ -14,6 +14,7 @@ export type PermitStatus =
   | "expired";
 
 export type Screen =
+  | "command"
   | "active"
   | "pending"
   | "suspended"

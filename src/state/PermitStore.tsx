@@ -27,9 +27,12 @@ interface PermitStoreValue {
   origin: ListScreen;
   selectedId: string | null;
   readonlyDetail: boolean;
+  listArea: string;
+  activeView: "all" | "expiring";
   form: PermitDraft;
   updateForm: Dispatch<SetStateAction<PermitDraft>>;
   go: (screen: ListScreen) => void;
+  showActive: (view?: "all" | "expiring", area?: string) => void;
   openPermit: (id: string, from: ListScreen, readonly?: boolean) => void;
   suspendPermit: (id: string, reason: string) => void;
   extendPermit: (id: string) => string;
@@ -160,15 +163,29 @@ function permitFromDraft(draft: PermitDraft, id: string, time: string): Permit {
 export function PermitProvider({ children }: { children: ReactNode }) {
   const [permits, setPermits] = useState<Permit[]>(() => structuredClone(initialPermits));
   const [drafts, setDrafts] = useState<PermitDraft[]>(() => structuredClone(initialDrafts));
-  const [screen, setScreen] = useState<Screen>("active");
-  const [origin, setOrigin] = useState<ListScreen>("active");
+  const [screen, setScreen] = useState<Screen>("command");
+  const [origin, setOrigin] = useState<ListScreen>("command");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [readonlyDetail, setReadonlyDetail] = useState(false);
+  const [listArea, setListArea] = useState("");
+  const [activeView, setActiveView] = useState<"all" | "expiring">("all");
   const [form, setForm] = useState<PermitDraft>(() => emptyDraft());
 
   const go = (next: ListScreen) => {
     setScreen(next);
     setOrigin(next);
+    setSelectedId(null);
+    if (next === "active") {
+      setListArea("");
+      setActiveView("all");
+    }
+  };
+
+  const showActive = (view: "all" | "expiring" = "all", area = "") => {
+    setListArea(area);
+    setActiveView(view);
+    setScreen("active");
+    setOrigin("active");
     setSelectedId(null);
   };
 
@@ -314,9 +331,12 @@ export function PermitProvider({ children }: { children: ReactNode }) {
         origin,
         selectedId,
         readonlyDetail,
+        listArea,
+        activeView,
         form,
         updateForm: setForm,
         go,
+        showActive,
         openPermit,
         suspendPermit,
         extendPermit,

@@ -89,6 +89,8 @@ export function statusFromLabel(label: string): PermitStatus {
 
 export function screenLabel(screen: ListScreen): string {
   switch (screen) {
+    case "command":
+      return "Command Center";
     case "active":
       return "Active Permits";
     case "pending":
@@ -125,17 +127,39 @@ export function shiftTime(value: string, minutes: number): string {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 
-export function expiryState(
-  expires: string,
-  nowHm: string,
-): "ok" | "soon" | "overdue" | "none" {
+export type ExpiryState = "ok" | "soon" | "overdue" | "none";
+
+export function minutesUntil(expires: string, nowHm: string): number | null {
   const end = parseHm(expires);
   const now = parseHm(nowHm);
-  if (end === null || now === null) return "none";
-  const diff = end - now;
+  if (end === null || now === null) return null;
+  return end - now;
+}
+
+export function expiryState(expires: string, nowHm: string): ExpiryState {
+  const diff = minutesUntil(expires, nowHm);
+  if (diff === null) return "none";
   if (diff < 0) return "overdue";
   if (diff <= 120) return "soon";
   return "ok";
+}
+
+export function expiryLabel(expires: string, nowHm: string): string | null {
+  const diff = minutesUntil(expires, nowHm);
+  const state = expiryState(expires, nowHm);
+  if (diff === null || state === "ok" || state === "none") return null;
+  if (state === "overdue") return "EXPIRED";
+  return `${diff} MIN REMAINING`;
+}
+
+export function authorizationHold(
+  permit: Pick<Permit, "status" | "expires">,
+  nowHm: string,
+): "suspended" | "expired" | null {
+  if (permit.status === "suspended") return "suspended";
+  if (permit.status === "expired") return "expired";
+  if (permit.status === "active" && expiryState(permit.expires, nowHm) === "overdue") return "expired";
+  return null;
 }
 
 export function assetLine(permit: Pick<Permit, "kind" | "equipment" | "location" | "area">): string {
