@@ -932,6 +932,7 @@ select {
   letter-spacing: 0.06em;
   font-size: 12px;
 }
+.save-status.is-failed { color: var(--amber); }
 .foot-save { align-self: center; }
 
 .network.is-storage-failed {

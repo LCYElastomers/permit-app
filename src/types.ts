@@ -110,6 +110,7 @@ export interface Permit {
 }
 
 export interface PermitDraft {
+  id: string;
   code: string;
   kind: PermitKind;
   step: number;

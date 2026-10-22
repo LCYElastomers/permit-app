@@ -6,7 +6,11 @@ use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 
 const MIGRATION_1: &str = include_str!("migrations/001_initial.sql");
+const MIGRATION_2: &str = include_str!("migrations/002_general_work.sql");
 const AREA_NAME_MAX: usize = 120;
+const TEXT_MAX: usize = 200;
+const DESCRIPTION_MAX: usize = 4000;
+const WORK_ORDER_MAX: usize = 80;
 
 pub const DATABASE_FILE_NAME: &str = "permit-control.sqlite";
 
@@ -14,7 +18,6 @@ pub const DATABASE_FILE_NAME: &str = "permit-control.sqlite";
 pub enum StoreError {
     Unavailable,
     InvalidCatalog,
-    #[allow(dead_code)]
     InvalidChange,
     InvalidPhase,
 }
@@ -58,9 +61,59 @@ pub struct AreaRow {
 pub struct LocalStatus {
     pub pending_count: i64,
     pub sync_state: String,
-    pub last_successful_sync_at: Option<String>,
+    pub last_plant_contact_at: Option<String>,
+    pub last_reference_sync_at: Option<String>,
+    pub last_permit_sync_at: Option<String>,
     pub last_attempted_sync_at: Option<String>,
     pub reference_areas_synced_at: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GeneralWorkDraftInput {
+    pub id: String,
+    pub event_id: String,
+    pub outbox_id: String,
+    #[serde(default)]
+    pub area_id: Option<String>,
+    pub area_name: String,
+    pub equipment_tag: String,
+    pub work_order: String,
+    pub job_description: String,
+    pub company_type: String,
+    pub company_name: String,
+    pub requester: String,
+    pub craft: String,
+    #[serde(default)]
+    pub planned_start: Option<String>,
+    #[serde(default)]
+    pub expires_at: Option<String>,
+    pub working_state: serde_json::Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DraftRecord {
+    pub id: String,
+    pub permit_number: Option<String>,
+    pub permit_type: String,
+    pub status: String,
+    pub sync_state: String,
+    pub area_id: Option<String>,
+    pub area_name: String,
+    pub equipment_tag: String,
+    pub work_order: String,
+    pub job_description: String,
+    pub company_type: String,
+    pub company_name: String,
+    pub requester: String,
+    pub craft: String,
+    pub planned_start: Option<String>,
+    pub expires_at: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+    pub current_revision: i64,
+    pub working_state: serde_json::Value,
 }
 
 #[derive(Debug, Clone)]
@@ -122,16 +175,19 @@ impl LocalDatabase {
         let pending_count = self.pending_count()?;
         self.conn
             .query_row(
-                "SELECT current_sync_state, last_successful_sync_at, last_attempted_sync_at, reference_areas_synced_at
+                "SELECT current_sync_state, last_plant_contact_at, last_reference_sync_at, last_permit_sync_at,
+                        last_attempted_sync_at, reference_areas_synced_at
                  FROM sync_state WHERE id = 1",
                 [],
                 |row| {
                     Ok(LocalStatus {
                         pending_count,
                         sync_state: row.get(0)?,
-                        last_successful_sync_at: row.get(1)?,
-                        last_attempted_sync_at: row.get(2)?,
-                        reference_areas_synced_at: row.get(3)?,
+                        last_plant_contact_at: row.get(1)?,
+                        last_reference_sync_at: row.get(2)?,
+                        last_permit_sync_at: row.get(3)?,
+                        last_attempted_sync_at: row.get(4)?,
+                        reference_areas_synced_at: row.get(5)?,
                     })
                 },
             )
@@ -175,7 +231,9 @@ impl LocalDatabase {
             .map_err(fail)?;
         }
         tx.execute(
-            "UPDATE sync_state SET reference_areas_synced_at = ?1 WHERE id = 1",
+            "UPDATE sync_state
+             SET reference_areas_synced_at = ?1, last_reference_sync_at = ?1
+             WHERE id = 1",
             params![now],
         )
         .map_err(fail)?;
@@ -187,35 +245,179 @@ impl LocalDatabase {
         let now = utc_now();
         let pending = self.pending_count()?;
         let resting = if pending > 0 { "PENDING" } else { "IDLE" };
-        let (state, mark_success) = match phase {
-            "start" => ("SYNCING", false),
-            "succeeded" => (resting, true),
-            "stopped" => (resting, false),
+        let state = match phase {
+            "start" => "SYNCING",
+            "stopped" => resting,
             _ => return Err(StoreError::InvalidPhase),
         };
-        if mark_success {
-            self.conn
-                .execute(
-                    "UPDATE sync_state
-                     SET last_attempted_sync_at = ?1,
-                         last_successful_sync_at = ?1,
-                         current_sync_state = ?2
-                     WHERE id = 1",
-                    params![now, state],
-                )
-                .map_err(fail)?;
-        } else {
-            self.conn
-                .execute(
-                    "UPDATE sync_state
-                     SET last_attempted_sync_at = ?1,
-                         current_sync_state = ?2
-                     WHERE id = 1",
-                    params![now, state],
-                )
-                .map_err(fail)?;
-        }
+        self.conn
+            .execute(
+                "UPDATE sync_state
+                 SET last_attempted_sync_at = ?1,
+                     current_sync_state = ?2
+                 WHERE id = 1",
+                params![now, state],
+            )
+            .map_err(fail)?;
         self.status()
+    }
+
+    /// Records that the API process answered. This is not a permit sync and not a reference sync.
+    pub fn note_plant_contact(&mut self) -> Result<LocalStatus, StoreError> {
+        self.conn
+            .execute(
+                "UPDATE sync_state SET last_plant_contact_at = ?1 WHERE id = 1",
+                params![utc_now()],
+            )
+            .map_err(fail)?;
+        self.status()
+    }
+
+    pub fn list_drafts(&self) -> Result<Vec<DraftRecord>, StoreError> {
+        let mut statement = self
+            .conn
+            .prepare(
+                "SELECT id, permit_number, permit_type, status, sync_state, area_id, area_name, equipment_tag,
+                        work_order, job_description, company_type, company_name, requester, craft,
+                        planned_start, expires_at, created_at, updated_at, current_revision, working_state
+                 FROM local_permits
+                 WHERE status = 'DRAFT' AND permit_type = 'GENERAL_WORK'
+                 ORDER BY updated_at DESC, id",
+            )
+            .map_err(fail)?;
+        let rows = statement
+            .query_map([], draft_from_row)
+            .map_err(fail)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(fail)?;
+        Ok(rows)
+    }
+
+    /// Creates or updates a General Work draft on this device.
+    /// The first save writes the permit, PERMIT_CREATED, and a PENDING outbox row in one transaction.
+    /// A later save updates the permit row only. Nothing here contacts the network or acknowledges the outbox.
+    pub fn save_general_work_draft(&mut self, draft: GeneralWorkDraftInput) -> Result<DraftRecord, StoreError> {
+        let prepared = prepare_general_work(draft)?;
+        let exists = self.permit_exists(&prepared.id)?;
+        if exists {
+            self.update_general_work(&prepared)?;
+        } else {
+            self.create_general_work(&prepared)?;
+        }
+        self.read_draft(&prepared.id)
+    }
+
+    fn permit_exists(&self, id: &str) -> Result<bool, StoreError> {
+        let count: i64 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM local_permits WHERE id = ?1", params![id], |row| row.get(0))
+            .map_err(fail)?;
+        Ok(count > 0)
+    }
+
+    fn create_general_work(&mut self, draft: &PreparedDraft) -> Result<(), StoreError> {
+        if !is_uuid(&draft.event_id) || !is_uuid(&draft.outbox_id) || draft.event_id == draft.outbox_id {
+            return Err(StoreError::InvalidChange);
+        }
+        let now = utc_now();
+        let tx = self.conn.transaction().map_err(fail)?;
+        tx.execute(
+            "INSERT INTO local_permits (
+                id, permit_number, permit_type, status, area_id, equipment_id, work_order,
+                job_description, created_by, created_at, updated_at, planned_start, expires_at,
+                current_revision, sync_state, area_name, equipment_tag, company_type, company_name,
+                requester, craft, working_state
+             ) VALUES (
+                ?1, NULL, 'GENERAL_WORK', 'DRAFT', ?2, NULL, ?3,
+                ?4, NULL, ?5, ?5, ?6, ?7,
+                1, 'PENDING', ?8, ?9, ?10, ?11,
+                ?12, ?13, ?14
+             )",
+            params![
+                draft.id,
+                draft.area_id,
+                draft.work_order,
+                draft.job_description,
+                now,
+                draft.planned_start,
+                draft.expires_at,
+                draft.area_name,
+                draft.equipment_tag,
+                draft.company_type,
+                draft.company_name,
+                draft.requester,
+                draft.craft,
+                draft.working_state,
+            ],
+        )
+        .map_err(fail)?;
+        tx.execute(
+            "INSERT INTO local_permit_events (
+                id, permit_id, permit_revision, event_type, occurred_at, recorded_at,
+                user_id, device_id, payload, sync_state
+             ) VALUES (?1, ?2, 1, 'PERMIT_CREATED', ?3, ?3, NULL, NULL, NULL, 'PENDING')",
+            params![draft.event_id, draft.id, now],
+        )
+        .map_err(fail)?;
+        tx.execute(
+            "INSERT INTO outbox (
+                id, event_id, entity_type, entity_id, operation, created_at,
+                attempt_count, last_attempt_at, status, last_error_code
+             ) VALUES (?1, ?2, 'permit', ?3, 'create', ?4, 0, NULL, 'PENDING', NULL)",
+            params![draft.outbox_id, draft.event_id, draft.id, now],
+        )
+        .map_err(fail)?;
+        tx.execute("UPDATE sync_state SET current_sync_state = 'PENDING' WHERE id = 1", [])
+            .map_err(fail)?;
+        tx.commit().map_err(fail)?;
+        Ok(())
+    }
+
+    fn update_general_work(&mut self, draft: &PreparedDraft) -> Result<(), StoreError> {
+        let changed = self
+            .conn
+            .execute(
+                "UPDATE local_permits
+                 SET area_id = ?1, area_name = ?2, equipment_tag = ?3, work_order = ?4,
+                     job_description = ?5, company_type = ?6, company_name = ?7, requester = ?8,
+                     craft = ?9, planned_start = ?10, expires_at = ?11, working_state = ?12,
+                     updated_at = ?13, sync_state = 'PENDING'
+                 WHERE id = ?14 AND permit_type = 'GENERAL_WORK' AND status = 'DRAFT'",
+                params![
+                    draft.area_id,
+                    draft.area_name,
+                    draft.equipment_tag,
+                    draft.work_order,
+                    draft.job_description,
+                    draft.company_type,
+                    draft.company_name,
+                    draft.requester,
+                    draft.craft,
+                    draft.planned_start,
+                    draft.expires_at,
+                    draft.working_state,
+                    utc_now(),
+                    draft.id,
+                ],
+            )
+            .map_err(fail)?;
+        if changed != 1 {
+            return Err(StoreError::InvalidChange);
+        }
+        Ok(())
+    }
+
+    fn read_draft(&self, id: &str) -> Result<DraftRecord, StoreError> {
+        self.conn
+            .query_row(
+                "SELECT id, permit_number, permit_type, status, sync_state, area_id, area_name, equipment_tag,
+                        work_order, job_description, company_type, company_name, requester, craft,
+                        planned_start, expires_at, created_at, updated_at, current_revision, working_state
+                 FROM local_permits WHERE id = ?1",
+                params![id],
+                draft_from_row,
+            )
+            .map_err(fail)
     }
 
     /// Saves a permit change, its domain event, and the outbox row in one transaction.
@@ -296,16 +498,150 @@ impl LocalDatabase {
     }
 }
 
-fn migrate(conn: &Connection) -> Result<(), rusqlite::Error> {
-    let current = current_version(conn)?;
-    if current >= 1 {
-        return Ok(());
+struct PreparedDraft {
+    id: String,
+    event_id: String,
+    outbox_id: String,
+    area_id: Option<String>,
+    area_name: String,
+    equipment_tag: String,
+    work_order: String,
+    job_description: String,
+    company_type: String,
+    company_name: String,
+    requester: String,
+    craft: String,
+    planned_start: Option<String>,
+    expires_at: Option<String>,
+    working_state: String,
+}
+
+fn prepare_general_work(draft: GeneralWorkDraftInput) -> Result<PreparedDraft, StoreError> {
+    if !is_uuid(&draft.id) {
+        return Err(StoreError::InvalidChange);
     }
+    let area_id = match draft.area_id {
+        Some(id) if !id.trim().is_empty() => {
+            if !is_uuid(id.trim()) {
+                return Err(StoreError::InvalidChange);
+            }
+            Some(id.trim().to_string())
+        }
+        _ => None,
+    };
+    let company_type = draft.company_type.trim().to_string();
+    if company_type != "LCY" && company_type != "Contractor" {
+        return Err(StoreError::InvalidChange);
+    }
+    let working_state = canonical_working_state(&draft.working_state)?;
+    Ok(PreparedDraft {
+        id: draft.id,
+        event_id: draft.event_id,
+        outbox_id: draft.outbox_id,
+        area_id,
+        area_name: bounded(&draft.area_name, AREA_NAME_MAX)?,
+        equipment_tag: bounded(&draft.equipment_tag, TEXT_MAX)?,
+        work_order: bounded(&draft.work_order, WORK_ORDER_MAX)?,
+        job_description: bounded(&draft.job_description, DESCRIPTION_MAX)?,
+        company_type,
+        company_name: bounded(&draft.company_name, TEXT_MAX)?,
+        requester: bounded(&draft.requester, TEXT_MAX)?,
+        craft: bounded(&draft.craft, TEXT_MAX)?,
+        planned_start: blank_to_none(draft.planned_start),
+        expires_at: blank_to_none(draft.expires_at),
+        working_state,
+    })
+}
+
+fn canonical_working_state(value: &serde_json::Value) -> Result<String, StoreError> {
+    let Some(object) = value.as_object() else {
+        return Err(StoreError::InvalidChange);
+    };
+    if object.get("version").and_then(serde_json::Value::as_i64) != Some(1) {
+        return Err(StoreError::InvalidChange);
+    }
+    let step = object.get("step").and_then(serde_json::Value::as_i64);
+    if step.is_none_or(|step| !(0..=5).contains(&step)) {
+        return Err(StoreError::InvalidChange);
+    }
+    if !object.get("hazards").is_some_and(serde_json::Value::is_array)
+        || !object.get("controls").is_some_and(serde_json::Value::is_array)
+    {
+        return Err(StoreError::InvalidChange);
+    }
+    if !object.get("fields").is_some_and(serde_json::Value::is_object)
+        || !object.get("names").is_some_and(serde_json::Value::is_object)
+        || !object.get("signatures").is_some_and(serde_json::Value::is_object)
+    {
+        return Err(StoreError::InvalidChange);
+    }
+    serde_json::to_string(value).map_err(|error| {
+        log::error!("working state could not be stored: {error}");
+        StoreError::InvalidChange
+    })
+}
+
+fn bounded(value: &str, max: usize) -> Result<String, StoreError> {
+    let trimmed = value.trim();
+    if trimmed.chars().count() > max {
+        return Err(StoreError::InvalidChange);
+    }
+    Ok(trimmed.to_string())
+}
+
+fn blank_to_none(value: Option<String>) -> Option<String> {
+    value.and_then(|item| {
+        let trimmed = item.trim().to_string();
+        if trimmed.is_empty() { None } else { Some(trimmed) }
+    })
+}
+
+fn draft_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<DraftRecord> {
+    let raw: String = row.get(19)?;
+    let working_state = serde_json::from_str(&raw).map_err(|error| {
+        log::error!("working state unreadable: {error}");
+        rusqlite::Error::InvalidColumnType(19, "working_state".to_string(), rusqlite::types::Type::Text)
+    })?;
+    Ok(DraftRecord {
+        id: row.get(0)?,
+        permit_number: row.get(1)?,
+        permit_type: row.get(2)?,
+        status: row.get(3)?,
+        sync_state: row.get(4)?,
+        area_id: row.get(5)?,
+        area_name: row.get(6)?,
+        equipment_tag: row.get(7)?,
+        work_order: row.get::<_, Option<String>>(8)?.unwrap_or_default(),
+        job_description: row.get(9)?,
+        company_type: row.get(10)?,
+        company_name: row.get(11)?,
+        requester: row.get(12)?,
+        craft: row.get(13)?,
+        planned_start: row.get(14)?,
+        expires_at: row.get(15)?,
+        created_at: row.get(16)?,
+        updated_at: row.get(17)?,
+        current_revision: row.get(18)?,
+        working_state,
+    })
+}
+
+fn migrate(conn: &Connection) -> Result<(), rusqlite::Error> {
+    if current_version(conn)? < 1 {
+        apply_migration(conn, 1, MIGRATION_1)?;
+    }
+    if current_version(conn)? < 2 {
+        apply_migration(conn, 2, MIGRATION_2)?;
+    }
+    Ok(())
+}
+
+fn apply_migration(conn: &Connection, version: i64, script: &str) -> Result<(), rusqlite::Error> {
     let tx = conn.unchecked_transaction()?;
-    tx.execute_batch(MIGRATION_1)?;
+    tx.execute_batch(script)?;
     tx.execute(
-        "INSERT INTO schema_migrations (version, applied_at) VALUES (1, ?1)",
-        params![utc_now()],
+        "INSERT INTO schema_migrations (version, applied_at) VALUES (?1, ?2)",
+        params![version, utc_now()],
     )?;
     tx.commit()?;
     Ok(())
@@ -475,16 +811,18 @@ mod tests {
     #[test]
     fn fresh_database_applies_initial_migration() {
         let (_dir, database) = temp_store();
-        assert_eq!(database.schema_version().unwrap(), 1);
+        assert_eq!(database.schema_version().unwrap(), 2);
         let migrations: i64 = database
             .conn
             .query_row("SELECT COUNT(*) FROM schema_migrations", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(migrations, 1);
+        assert_eq!(migrations, 2);
         let status = database.status().unwrap();
         assert_eq!(status.sync_state, "IDLE");
         assert_eq!(status.pending_count, 0);
-        assert_eq!(status.last_successful_sync_at, None);
+        assert_eq!(status.last_plant_contact_at, None);
+        assert_eq!(status.last_reference_sync_at, None);
+        assert_eq!(status.last_permit_sync_at, None);
         assert_eq!(status.reference_areas_synced_at, None);
         assert!(database.list_areas().unwrap().is_empty());
     }
@@ -495,12 +833,12 @@ mod tests {
         let path = dir.path().join(DATABASE_FILE_NAME);
         LocalDatabase::open(&path).unwrap();
         let database = LocalDatabase::open(&path).unwrap();
-        assert_eq!(database.schema_version().unwrap(), 1);
+        assert_eq!(database.schema_version().unwrap(), 2);
         let migrations: i64 = database
             .conn
             .query_row("SELECT COUNT(*) FROM schema_migrations", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(migrations, 1);
+        assert_eq!(migrations, 2);
     }
 
     #[test]
@@ -574,18 +912,18 @@ mod tests {
             let syncing = database.note_sync_cycle("start").unwrap();
             assert_eq!(syncing.sync_state, "SYNCING");
             assert!(syncing.last_attempted_sync_at.is_some());
-            assert!(syncing.last_successful_sync_at.is_none());
+            assert!(syncing.last_permit_sync_at.is_none());
             let stopped = database.note_sync_cycle("stopped").unwrap();
             assert_eq!(stopped.sync_state, "PENDING");
             assert_eq!(stopped.pending_count, 1);
-            assert!(stopped.last_successful_sync_at.is_none());
+            assert!(stopped.last_permit_sync_at.is_none());
         }
         let database = LocalDatabase::open(&path).unwrap();
         let status = database.status().unwrap();
         assert_eq!(status.pending_count, 1);
         assert_eq!(status.sync_state, "PENDING");
         assert!(status.last_attempted_sync_at.is_some());
-        assert!(status.last_successful_sync_at.is_none());
+        assert!(status.last_permit_sync_at.is_none());
         let outbox_status: String = database
             .conn
             .query_row("SELECT status FROM outbox", [], |row| row.get(0))
@@ -632,24 +970,173 @@ mod tests {
     }
 
     #[test]
-    fn successful_cycle_records_success_without_dropping_pending_work() {
+    fn finished_cycle_does_not_record_permit_sync_or_drop_pending_work() {
         let (_dir, mut database) = temp_store();
         let (permit, event, outbox) = change("111111111111");
         database.record_local_change(&permit, &event, &outbox).unwrap();
         database.note_sync_cycle("start").unwrap();
-        let succeeded = database.note_sync_cycle("succeeded").unwrap();
-        assert_eq!(succeeded.pending_count, 1);
-        assert_eq!(succeeded.sync_state, "PENDING");
-        assert!(succeeded.last_successful_sync_at.is_some());
+        let stopped = database.note_sync_cycle("stopped").unwrap();
+        assert_eq!(stopped.pending_count, 1);
+        assert_eq!(stopped.sync_state, "PENDING");
+        assert!(stopped.last_permit_sync_at.is_none());
+        assert!(stopped.last_reference_sync_at.is_none());
     }
 
     #[test]
     fn idle_cycle_with_an_empty_outbox_does_not_invent_pending_work() {
         let (_dir, mut database) = temp_store();
         database.note_sync_cycle("start").unwrap();
-        let succeeded = database.note_sync_cycle("succeeded").unwrap();
-        assert_eq!(succeeded.pending_count, 0);
-        assert_eq!(succeeded.sync_state, "IDLE");
-        assert!(succeeded.last_successful_sync_at.is_some());
+        let stopped = database.note_sync_cycle("stopped").unwrap();
+        assert_eq!(stopped.pending_count, 0);
+        assert_eq!(stopped.sync_state, "IDLE");
+        assert!(stopped.last_permit_sync_at.is_none());
+    }
+
+    fn sample_draft(suffix: &str) -> GeneralWorkDraftInput {
+        GeneralWorkDraftInput {
+            id: format!("44444444-4444-4444-8444-{suffix}"),
+            event_id: format!("55555555-5555-4555-8555-{suffix}"),
+            outbox_id: format!("66666666-6666-4666-8666-{suffix}"),
+            area_id: Some("0b6d1a22-1111-4a1b-9c1d-111111111111".to_string()),
+            area_name: "Unit 2".to_string(),
+            equipment_tag: "P-210".to_string(),
+            work_order: "WO-104700".to_string(),
+            job_description: "Gauge glass inspection".to_string(),
+            company_type: "Contractor".to_string(),
+            company_name: "Gulf Industrial Services".to_string(),
+            requester: "Elena Voss".to_string(),
+            craft: "Jordan Peck".to_string(),
+            planned_start: Some("15:00".to_string()),
+            expires_at: Some("19:00".to_string()),
+            working_state: serde_json::json!({
+                "version": 1,
+                "step": 3,
+                "hazards": ["slip/trip"],
+                "controls": ["barricade"],
+                "fields": {
+                    "taskType": "Inspection",
+                    "excludeOpening": "excluded",
+                    "excludeHotWork": "excluded",
+                    "ppe": "Gloves"
+                },
+                "names": { "requester": "Elena Voss" },
+                "signatures": {}
+            }),
+        }
+    }
+
+    fn counts(database: &LocalDatabase) -> (i64, i64, i64) {
+        let permits: i64 = database.conn.query_row("SELECT COUNT(*) FROM local_permits", [], |row| row.get(0)).unwrap();
+        let events: i64 = database
+            .conn
+            .query_row("SELECT COUNT(*) FROM local_permit_events", [], |row| row.get(0))
+            .unwrap();
+        let outbox: i64 = database.conn.query_row("SELECT COUNT(*) FROM outbox", [], |row| row.get(0)).unwrap();
+        (permits, events, outbox)
+    }
+
+    #[test]
+    fn general_work_draft_is_created_locally_as_one_pending_change() {
+        let (_dir, mut database) = temp_store();
+        let saved = database.save_general_work_draft(sample_draft("111111111111")).unwrap();
+        assert_eq!(saved.id, "44444444-4444-4444-8444-111111111111");
+        assert_eq!(saved.permit_number, None);
+        assert_eq!(saved.permit_type, "GENERAL_WORK");
+        assert_eq!(saved.status, "DRAFT");
+        assert_eq!(saved.sync_state, "PENDING");
+        assert_eq!(saved.area_id.as_deref(), Some("0b6d1a22-1111-4a1b-9c1d-111111111111"));
+        assert_eq!(saved.area_name, "Unit 2");
+        assert_eq!(saved.current_revision, 1);
+        assert_eq!(saved.working_state["version"], 1);
+        assert_eq!(saved.working_state["step"], 3);
+        assert_eq!(saved.working_state["fields"]["taskType"], "Inspection");
+        let (permits, events, outbox_rows) = counts(&database);
+        assert_eq!((permits, events, outbox_rows), (1, 1, 1));
+        let event_type: String = database
+            .conn
+            .query_row("SELECT event_type FROM local_permit_events", [], |row| row.get(0))
+            .unwrap();
+        let payload: Option<String> = database
+            .conn
+            .query_row("SELECT payload FROM local_permit_events", [], |row| row.get(0))
+            .unwrap();
+        let outbox_status: String = database.conn.query_row("SELECT status FROM outbox", [], |row| row.get(0)).unwrap();
+        assert_eq!(event_type, "PERMIT_CREATED");
+        assert_eq!(payload, None);
+        assert_eq!(outbox_status, "PENDING");
+        assert_eq!(database.status().unwrap().pending_count, 1);
+        assert!(database.status().unwrap().last_permit_sync_at.is_none());
+    }
+
+    #[test]
+    fn failed_general_work_create_rolls_back_permit_event_and_outbox() {
+        let (_dir, mut database) = temp_store();
+        let (permit, event, outbox) = change("111111111111");
+        database.record_local_change(&permit, &event, &outbox).unwrap();
+        let mut draft = sample_draft("222222222222");
+        draft.event_id = event.id;
+        let failed = database.save_general_work_draft(draft);
+        assert!(failed.is_err());
+        assert_eq!(counts(&database), (1, 1, 1));
+        let created: i64 = database
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM local_permits WHERE id = '44444444-4444-4444-8444-222222222222'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(created, 0);
+        assert_eq!(database.status().unwrap().pending_count, 1);
+    }
+
+    #[test]
+    fn draft_survives_reopen_and_a_later_edit_does_not_add_an_event() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(DATABASE_FILE_NAME);
+        {
+            let mut database = LocalDatabase::open(&path).unwrap();
+            database.save_general_work_draft(sample_draft("111111111111")).unwrap();
+        }
+        let mut database = LocalDatabase::open(&path).unwrap();
+        let listed = database.list_drafts().unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].job_description, "Gauge glass inspection");
+        assert_eq!(listed[0].working_state["step"], 3);
+        let mut edited = sample_draft("111111111111");
+        edited.job_description = "Gauge glass and local valve".to_string();
+        edited.working_state["step"] = serde_json::json!(4);
+        edited.working_state["fields"]["ppe"] = serde_json::json!("Gloves, faceshield");
+        edited.event_id.clear();
+        edited.outbox_id.clear();
+        let saved = database.save_general_work_draft(edited).unwrap();
+        assert_eq!(saved.job_description, "Gauge glass and local valve");
+        assert_eq!(saved.working_state["step"], 4);
+        assert_eq!(saved.permit_number, None);
+        assert_eq!(saved.sync_state, "PENDING");
+        assert_eq!(counts(&database), (1, 1, 1));
+        let outbox_status: String = database.conn.query_row("SELECT status FROM outbox", [], |row| row.get(0)).unwrap();
+        assert_eq!(outbox_status, "PENDING");
+    }
+
+    #[test]
+    fn area_refresh_and_plant_contact_do_not_acknowledge_a_draft() {
+        let (_dir, mut database) = temp_store();
+        database.save_general_work_draft(sample_draft("111111111111")).unwrap();
+        database
+            .replace_areas(&[area("0b6d1a22-1111-4a1b-9c1d-111111111111", "Unit 2")])
+            .unwrap();
+        let contacted = database.note_plant_contact().unwrap();
+        database.note_sync_cycle("start").unwrap();
+        let finished = database.note_sync_cycle("stopped").unwrap();
+        assert!(contacted.last_plant_contact_at.is_some());
+        assert!(finished.last_reference_sync_at.is_some());
+        assert!(finished.last_permit_sync_at.is_none());
+        assert_eq!(finished.pending_count, 1);
+        let outbox_status: String = database.conn.query_row("SELECT status FROM outbox", [], |row| row.get(0)).unwrap();
+        assert_eq!(outbox_status, "PENDING");
+        let listed = database.list_drafts().unwrap();
+        assert_eq!(listed[0].area_id.as_deref(), Some("0b6d1a22-1111-4a1b-9c1d-111111111111"));
+        assert_eq!(listed[0].working_state["fields"]["excludeOpening"], "excluded");
     }
 }

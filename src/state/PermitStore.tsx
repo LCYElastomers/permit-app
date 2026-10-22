@@ -2,12 +2,14 @@
 import {
   createContext,
   useContext,
+  useEffect,
   useState,
   type Dispatch,
   type ReactNode,
   type SetStateAction,
 } from "react";
-import { initialDrafts, initialPermits, templates } from "../data/mock";
+import { initialPermits, templates } from "../data/mock";
+import { listLocalDrafts, persistGeneralWorkDraft } from "../services/generalWorkDraft";
 import { GENERAL_EXCLUSIONS, permitType } from "../permitTypes";
 import { plantClock } from "../plantClock";
 import type { ListScreen, Permit, PermitDraft, Screen } from "../types";
@@ -38,8 +40,8 @@ interface PermitStoreValue {
   extendPermit: (id: string) => string;
   closePermit: (id: string) => void;
   reinstatePermit: (id: string) => void;
-  saveDraft: () => string;
-  loadDraft: (code: string) => void;
+  saveDraft: () => Promise<PermitDraft>;
+  loadDraft: (id: string) => void;
   applyTemplate: (id: string) => void;
   issuePermit: () => string;
   resetForm: () => void;
@@ -54,15 +56,6 @@ function nextPermitId(permits: Permit[]): string {
     if (match) max = Math.max(max, Number(match[1]));
   }
   return `PTW-2026-${String(max + 1).padStart(5, "0")}`;
-}
-
-function nextDraftCode(drafts: PermitDraft[]): string {
-  let max = 0;
-  for (const draft of drafts) {
-    const match = /^DFT-2026-(\d+)$/.exec(draft.code);
-    if (match) max = Math.max(max, Number(match[1]));
-  }
-  return `DFT-2026-${String(max + 1).padStart(3, "0")}`;
 }
 
 function ppeFrom(fields: Record<string, string>, controls: string[]): string[] {
@@ -163,7 +156,7 @@ function permitFromDraft(draft: PermitDraft, id: string, time: string): Permit {
 
 export function PermitProvider({ children }: { children: ReactNode }) {
   const [permits, setPermits] = useState<Permit[]>(() => structuredClone(initialPermits));
-  const [drafts, setDrafts] = useState<PermitDraft[]>(() => structuredClone(initialDrafts));
+  const [drafts, setDrafts] = useState<PermitDraft[]>([]);
   const [screen, setScreen] = useState<Screen>("command");
   const [origin, setOrigin] = useState<ListScreen>("command");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -172,10 +165,25 @@ export function PermitProvider({ children }: { children: ReactNode }) {
   const [activeView, setActiveView] = useState<"all" | "expiring">("all");
   const [form, setForm] = useState<PermitDraft>(() => emptyDraft());
 
+  useEffect(() => {
+    let stopped = false;
+    void listLocalDrafts()
+      .then((rows) => {
+        if (!stopped) setDrafts(rows);
+      })
+      .catch(() => {
+        if (!stopped) setDrafts([]);
+      });
+    return () => {
+      stopped = true;
+    };
+  }, []);
+
   const go = (next: ListScreen) => {
     setScreen(next);
     setOrigin(next);
     setSelectedId(null);
+    if (next === "new") setForm(emptyDraft());
     if (next === "active") {
       setListArea("");
       setActiveView("all");
@@ -272,20 +280,15 @@ export function PermitProvider({ children }: { children: ReactNode }) {
     );
   };
 
-  const saveDraft = () => {
-    const time = plantClock().hm;
-    const code = form.code || nextDraftCode(drafts);
-    const saved: PermitDraft = { ...form, code, updated: time };
-    setDrafts((list) => {
-      const exists = list.some((draft) => draft.code === code);
-      return exists ? list.map((draft) => (draft.code === code ? saved : draft)) : [saved, ...list];
-    });
+  const saveDraft = async () => {
+    const saved = await persistGeneralWorkDraft(form);
+    setDrafts((list) => [saved, ...list.filter((draft) => draft.id !== saved.id)]);
     setForm(saved);
-    return code;
+    return saved;
   };
 
-  const loadDraft = (code: string) => {
-    const draft = drafts.find((item) => item.code === code);
+  const loadDraft = (id: string) => {
+    const draft = drafts.find((item) => item.id === id);
     if (!draft) return;
     setForm(structuredClone(draft));
     setScreen("new");
@@ -306,6 +309,7 @@ export function PermitProvider({ children }: { children: ReactNode }) {
   };
 
   const issuePermit = () => {
+    if (form.id) return "";
     const time = plantClock().hm;
     const id = nextPermitId(permits);
     const permit = permitFromDraft(form, id, time);

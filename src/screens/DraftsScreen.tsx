@@ -1,5 +1,5 @@
+import { localDraftLabel, localSavedLabel } from "../services/generalWorkDraft";
 import { usePermits } from "../state/PermitStore";
-import { STEPS, kindShort } from "../workflow";
 import { ScreenHead } from "../components/ui";
 
 export function DraftsScreen() {
@@ -9,20 +9,17 @@ export function DraftsScreen() {
     <div className="screen">
       <ScreenHead kicker="PERMITS" title="Drafts" meta={`${drafts.length} OPEN`} />
       {drafts.length === 0 ? (
-        <p className="empty">No drafts saved on this station.</p>
+        <p className="empty">No drafts saved on this device.</p>
       ) : (
         drafts.map((draft) => (
-          <button key={draft.code} type="button" className="permit-row" onClick={() => loadDraft(draft.code)}>
+          <button key={draft.id} type="button" className="permit-row" onClick={() => loadDraft(draft.id)}>
             <div className="row-top">
-              <span className="pid mono">{draft.code}</span>
-              <span className="kind">{kindShort(draft.kind)}</span>
+              <span className="kind">GENERAL WORK</span>
               <span className="row-status">
-                <span className="screen-meta">
-                  {STEPS[draft.step]?.num} {STEPS[draft.step]?.label}
-                </span>
+                <span className="screen-meta">DRAFT</span>
               </span>
             </div>
-            <div className="row-work">{draft.description || "Scope not entered"}</div>
+            <div className="row-work">{draft.description || "Job description not entered"}</div>
             <div className="row-fields">
               <div className="row-band">
                 <div className="kv">
@@ -30,7 +27,7 @@ export function DraftsScreen() {
                   <span className="v">{draft.area || "—"}</span>
                 </div>
                 <div className="kv">
-                  <span className="k">Equipment / location</span>
+                  <span className="k">Equipment</span>
                   <span className="v mono">{draft.place || "—"}</span>
                 </div>
                 <div className="kv">
@@ -40,14 +37,22 @@ export function DraftsScreen() {
               </div>
               <div className="row-band">
                 <div className="kv">
-                  <span className="k">Company</span>
-                  <span className="v">{draft.company || "—"}</span>
+                  <span className="k">Saved on this device</span>
+                  <span className="v mono">{localSavedLabel(draft.updated) || "—"}</span>
+                </div>
+                <div className="kv">
+                  <span className="k">Local status</span>
+                  <span className="v">SAVED LOCALLY</span>
+                </div>
+                <div className="kv">
+                  <span className="k">Sync</span>
+                  <span className="v">PENDING SYNC</span>
                 </div>
               </div>
-              <div className="row-band row-window">
+              <div className="row-band">
                 <div className="kv">
-                  <span className="k">Updated</span>
-                  <span className="v mono">{draft.updated || "—"}</span>
+                  <span className="k">Local id</span>
+                  <span className="v mono">{localDraftLabel(draft.id)}</span>
                 </div>
               </div>
             </div>

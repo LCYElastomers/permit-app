@@ -187,6 +187,7 @@ export function authorizationRoles(draft: PermitDraft): AuthRole[] {
 
 export function emptyDraft(kind: PermitKind = "general"): PermitDraft {
   return {
+    id: "",
     code: "",
     kind,
     step: 0,

@@ -24,7 +24,10 @@ fn with_store<T>(
     let Some(database) = guard.as_mut() else {
         return Err("local-store-unavailable".to_string());
     };
-    operation(database).map_err(command_code)
+    operation(database).map_err(|error| {
+        log::error!("local store command failed: {error}");
+        command_code(error)
+    })
 }
 
 fn open_database(app: &tauri::AppHandle) -> Result<store::LocalDatabase, store::StoreError> {
@@ -59,6 +62,24 @@ fn note_sync_cycle(store: tauri::State<AppStore>, phase: String) -> Result<store
     with_store(&store, |database| database.note_sync_cycle(&phase))
 }
 
+#[tauri::command]
+fn note_plant_contact(store: tauri::State<AppStore>) -> Result<store::LocalStatus, String> {
+    with_store(&store, |database| database.note_plant_contact())
+}
+
+#[tauri::command]
+fn list_local_drafts(store: tauri::State<AppStore>) -> Result<Vec<store::DraftRecord>, String> {
+    with_store(&store, |database| database.list_drafts())
+}
+
+#[tauri::command]
+fn save_general_work_draft(
+    store: tauri::State<AppStore>,
+    draft: store::GeneralWorkDraftInput,
+) -> Result<store::DraftRecord, String> {
+    with_store(&store, |database| database.save_general_work_draft(draft))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -86,7 +107,10 @@ pub fn run() {
             local_status,
             list_reference_areas,
             replace_reference_areas,
-            note_sync_cycle
+            note_sync_cycle,
+            note_plant_contact,
+            list_local_drafts,
+            save_general_work_draft
         ])
         .run(tauri::generate_context!())
         .expect("error while building tauri application");

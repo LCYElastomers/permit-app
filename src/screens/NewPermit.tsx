@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { contractors } from "../data/mock";
 import { GENERAL_EXCLUSIONS, PERMIT_TYPES, typeRecommendations } from "../permitTypes";
 import { plantClock } from "../plantClock";
 import { areaIdForName, type AreaCatalog } from "../services/areas";
 import { useAreaCatalog } from "../services/useAreaCatalog";
 import { useDevice } from "../services/device";
+import { GeneralWorkOnly, localDraftLabel } from "../services/generalWorkDraft";
 import { usePermits } from "../state/PermitStore";
 import type { PermitDraft, PermitKind } from "../types";
 import {
@@ -22,21 +23,23 @@ import type { PlantLink } from "../lib/connectivity";
 
 const COMPANIES = contractors.filter((item) => item.name !== "LCY").map((item) => item.name);
 
-function localSaveLine(savedCode: string, link: PlantLink): string {
-  if (!savedCode) return "";
+function localSaveLine(saved: boolean, link: PlantLink): string {
+  if (!saved) return "";
   if (link === "unreachable") return "SAVED LOCALLY · PLANT LINK OFFLINE";
-  return "SAVED LOCALLY";
+  return "SAVED LOCALLY · PENDING SYNC";
 }
 
 export function NewPermit() {
   const { form, updateForm, saveDraft, issuePermit, resetForm } = usePermits();
   const catalog = useAreaCatalog();
   const { link } = useDevice();
-  const [saved, setSaved] = useState("");
+  const [saveError, setSaveError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
   const [signError, setSignError] = useState("");
   const blockers = issueBlockers(form);
   const step = STEPS[form.step] ?? STEPS[0];
-  const saveLine = localSaveLine(saved, link.link);
+  const saveLine = saveError || localSaveLine(Boolean(form.id), link.link);
 
   const patch = (partial: Partial<PermitDraft>) => {
     updateForm((current) => ({ ...current, ...partial }));
@@ -93,8 +96,8 @@ export function NewPermit() {
             </button>
           ))}
         </div>
-        <div className="kind-meta mono">{form.code || "UNSAVED"}</div>
-        <button type="button" className="btn btn-ghost" onClick={() => { resetForm(); setSaved(""); }}>
+        <div className="kind-meta mono">{form.id ? `LOCAL DRAFT ${localDraftLabel(form.id)}` : "UNSAVED"}</div>
+        <button type="button" className="btn btn-ghost" onClick={() => { resetForm(); setSaveError(""); }}>
           Clear
         </button>
       </div>
@@ -144,14 +147,33 @@ export function NewPermit() {
         >
           Back
         </button>
-        {saveLine ? <p className="save-status foot-save">{saveLine}</p> : <span className="foot-save" />}
+        {saveLine ? (
+          <p className={saveError ? "save-status foot-save is-failed" : "save-status foot-save"}>{saveLine}</p>
+        ) : (
+          <span className="foot-save" />
+        )}
         <div className="foot-actions">
           <button
             type="button"
             className="btn"
+            disabled={saving}
             onClick={() => {
-              const code = saveDraft();
-              setSaved(code);
+              if (savingRef.current) return;
+              savingRef.current = true;
+              setSaving(true);
+              setSaveError("");
+              void saveDraft()
+                .catch((error: unknown) => {
+                  setSaveError(
+                    error instanceof GeneralWorkOnly
+                      ? "Only General Work can be saved on this device."
+                      : "This draft could not be saved on this device. Local data is unavailable. The form is still here.",
+                  );
+                })
+                .finally(() => {
+                  savingRef.current = false;
+                  setSaving(false);
+                });
             }}
           >
             Save Draft
@@ -161,7 +183,18 @@ export function NewPermit() {
               Continue
             </button>
           ) : (
-            <button type="button" className="btn btn-danger" disabled={blockers.length > 0} onClick={() => issuePermit()}>
+            <button
+              type="button"
+              className="btn btn-danger"
+              disabled={blockers.length > 0 || Boolean(form.id)}
+              onClick={() => {
+                if (form.id) {
+                  setSaveError("This draft stays on the device. It has not been issued.");
+                  return;
+                }
+                issuePermit();
+              }}
+            >
               Issue Permit
             </button>
           )}
@@ -599,7 +632,11 @@ function AuthorizationStep({
           </ul>
         </div>
       ) : (
-        <p className="notice">Required sign-offs are complete. Issue permit will open the active record.</p>
+        <p className="notice">
+          {form.id
+            ? "Required sign-offs are complete. This draft stays on the device until plant synchronization exists."
+            : "Required sign-offs are complete. Issue permit will open the active record."}
+        </p>
       )}
     </Section>
   );

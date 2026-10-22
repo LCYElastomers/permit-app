@@ -19,20 +19,26 @@ SQLite is the device working store. PostgreSQL is the plant record. They share U
 
 The Rust side opens `permit-control.sqlite` with `rusqlite` (bundled SQLite) in the Tauri app-data directory. `app.path().app_data_dir()` uses the bundle identifier `com.lcygroup.permitcontrol`. On Windows that directory is `%APPDATA%\com.lcygroup.permitcontrol`, and the database file is `%APPDATA%\com.lcygroup.permitcontrol\permit-control.sqlite`. The first open creates it. There is no migration from the development identifier `com.tauri.dev`. React calls commands and does not see the path or SQL.
 
-Migration 1 is `src-tauri/src/migrations/001_initial.sql`. `schema_migrations` records the version inside the same transaction that creates the tables. Later versions must be new scripts applied only when the stored version is older. Do not treat `CREATE TABLE IF NOT EXISTS` as an upgrade path.
+Migration 1 is `src-tauri/src/migrations/001_initial.sql`. Migration 2 is `src-tauri/src/migrations/002_general_work.sql`. `schema_migrations` records each version inside the same transaction that applies that script. Later versions must be new scripts applied only when the stored version is older. Do not treat `CREATE TABLE IF NOT EXISTS` as an upgrade path.
 
 | Table | What it stores |
 | --- | --- |
 | `schema_migrations` | Applied versions. |
 | `reference_areas` | `id` (server UUID), `name`, nullable `server_updated_at`, `local_updated_at`. No second local id. No enabled flag. |
-| `local_permits` | Client UUID, nullable permit number, type, status, nullable area and equipment ids, nullable work order, job description, nullable created by, created and updated times, nullable planned start and expiry, revision, and row sync state. |
+| `local_permits` | Client UUID, nullable permit number, type, status, nullable area id, area name snapshot, equipment tag, work order, job description, company type and name, requester, craft, created and updated times, planned start and expiry, revision, row sync state, and versioned `working_state`. |
 | `local_permit_events` | Client UUID, permit id, revision, event type, occurred and recorded times, nullable user, device, and payload, and row sync state. Append-only. Compatible with the central event, not a copy of its columns. |
 | `outbox` | Client UUID, event id, entity type, entity id, operation, created time, attempt count, nullable last attempt, status (`PENDING`, `SENDING`, `ACKNOWLEDGED`, `ATTENTION`), nullable last error code. |
-| `sync_state` | One row: `last_successful_sync_at`, `last_attempted_sync_at`, `current_sync_state`, and `reference_areas_synced_at`. |
+| `sync_state` | One row: `last_plant_contact_at`, `last_reference_sync_at`, `last_permit_sync_at`, `last_attempted_sync_at`, `current_sync_state`, and `reference_areas_synced_at`. `last_successful_sync_at` remains from migration 1 and is not written. |
 
 `current_sync_state` is `IDLE`, `PENDING`, `SYNCING`, `BACKOFF`, or `REQUIRES_ATTENTION`. Pending count is the number of outbox rows whose status is not `ACKNOWLEDGED`. It is not a separate counter. The shell shows that count only after SQLite returns it.
 
-`reference_areas_synced_at` is set in the same transaction as a validated catalog replacement. Null means the device has never stored a catalog. A timestamp with zero rows means the server catalog was empty. `last_successful_sync_at` means the last coordinator cycle finished. Today that cycle is the area refresh only. It does not mean permits were pushed.
+These times are different facts:
+
+- `last_plant_contact_at` is the last time the API process answered a health or readiness probe. It is not a sync.
+- `last_reference_sync_at` and `reference_areas_synced_at` are set in the same transaction as a validated area-catalog replacement. Null means the device has never stored a catalog. A timestamp with zero rows means the server catalog was empty.
+- `last_permit_sync_at` stays null until a future permit push is accepted by the plant record. An area refresh must not set it.
+
+The interface does not show a generic last-sync time. A reference refresh is not a permit upload.
 
 ## Area catalog
 
@@ -51,15 +57,29 @@ The server has no enabled or inactive area. Do not add one on the client. Future
 
 Cached areas stay on screen while Plant Link is `UNREACHABLE`, including when the tablet still has cellular internet. If no catalog has ever been stored, New Permit says the reference data has not been synchronized and does not invent areas.
 
+## General Work drafts
+
+Save Draft is a local operation. It does not call the API, and it does not require Plant Link `READY` or general internet. Plant Link changes only the sentence shown after a successful save.
+
+Opening New Permit does not insert a row. The first Save Draft for a General Work form commits, in one SQLite transaction:
+
+- a `local_permits` row with status `DRAFT`, type `GENERAL_WORK`, a client UUID, and a null permit number
+- a `PERMIT_CREATED` event with its own client UUID, the permit id, revision 1, `occurred_at`, and `recorded_at`
+- a `PENDING` outbox row for that event
+
+The event payload is null. The permit row is the current working state. The event records that the draft was created. `record_local_change` remains the generic atomic insert. General Work creation uses the same transaction shape in `save_general_work_draft`, including the working-state columns from migration 2.
+
+A later Save Draft updates that permit row and `working_state` only. It does not write another event or outbox row. There is no per-keystroke autosave. That keeps the audit trail to the creation, which is the fact the plant record does not have yet. When permit push exists, it should send the current permit row, not rebuild the draft from the event payload.
+
+The outbox row stays `PENDING` after an area refresh and after Plant Link becomes `READY`. This pass never writes `ACKNOWLEDGED` and never sets `last_permit_sync_at`.
+
+Searchable header fields live in columns: area id, area name snapshot, equipment tag, work order, job description, company type, company, requester, craft, planned start, planned expiration, revision, and timestamps. The rest of the General Work form is `working_state`, JSON with `"version": 1`. Version 1 holds the workflow step, hazards, controls, detail fields (including the General Work exclusion answers), names, and signatures. Unknown versions are rejected and are not written. The official permit number stays null. The screen may say `LOCAL DRAFT` and show the first eight characters of the local id. That is not a PTW number.
+
+If the transaction fails, the form stays on screen and the footer says the draft could not be saved on this device. The operator does not see SQL.
+
 ## Local save rule
 
-When the permit editor is connected to this store, one user action must commit all of these in one SQLite transaction:
-
-- the local permit change
-- the local domain event
-- the outbox row
-
-`LocalDatabase::record_local_change` does that. No screen calls it yet. The commit is the save. Network synchronization happens afterward and must not be required for the save to succeed.
+`LocalDatabase::record_local_change` commits a permit, event, and outbox row in one transaction. General Work creation does the same with its extra columns. The commit is the save. Network synchronization happens afterward and must not be required for the save to succeed.
 
 Outbox rows survive process restart. A cycle must not mark a row `ACKNOWLEDGED` until the server has accepted that operation. This pass never acknowledges rows.
 
@@ -120,4 +140,4 @@ Suspension, closure, and reauthorization also have their own tables (`permit_sus
 - Conflict payload returned to the device, recorded as `REQUIRES_ATTENTION`
 - Bounded backoff for transient push failures
 - Attachment bytes synced beside the metadata row
-- Wiring the permit editor to `record_local_change`
+- Permit push of the pending General Work outbox row. The row stays `PENDING` even when Plant Link is `READY`.

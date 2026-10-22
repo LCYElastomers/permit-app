@@ -34,11 +34,11 @@ The six steps stay Scope, Hazards, Controls, Permit Details, Review, and Authori
 
 Field users can see that work is stored on the device without seeing SQLite, paths, or sync internals.
 
-- `SAVED LOCALLY` after a local save.
-- `SAVED LOCALLY · PLANT LINK OFFLINE` when that save happened while Plant Link is unreachable.
+- `SAVED LOCALLY · PENDING SYNC` after a local save while Plant Link is reachable. Pending is normal. The plant record has not accepted the permit.
+- `SAVED LOCALLY · PLANT LINK OFFLINE` when that save is on the device and Plant Link is unreachable.
 - `SYNCHRONIZED` only after the plant record has accepted the work.
 
-Plant Link being unavailable does not mean the draft is unsaved. Permit push is not implemented, so the current editor does not show `SYNCHRONIZED`.
+Plant Link being unavailable does not mean the draft is unsaved. Plant Link being ready does not mean the draft was uploaded. Permit push is not implemented, so the editor does not show `SYNCHRONIZED`. Drafts shows `DRAFT`, `SAVED LOCALLY`, and `PENDING SYNC`.
 
 ## Plant Link
 

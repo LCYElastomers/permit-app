@@ -44,14 +44,14 @@ Local tables:
 | --- | --- |
 | `schema_migrations` | Applied migration versions. |
 | `reference_areas` | Cached plant areas. The id is the server UUID. |
-| `local_permits` | Device permit foundation. Identity is a client UUID. The permit editor does not write this table yet. |
+| `local_permits` | Device permits. Identity is a client UUID. General Work drafts are written here. The permit number stays null. |
 | `local_permit_events` | Append-only local events. Not synchronized yet. |
 | `outbox` | Durable work waiting for a future push. Pending count is `COUNT(*)` of rows that are not `ACKNOWLEDGED`. |
-| `sync_state` | One row: last attempt, last success, coordinator state, and the area-catalog sync time. |
+| `sync_state` | One row: plant contact, reference sync, permit sync, last attempt, coordinator state, and the area-catalog time. |
 
-`sync_state.current_sync_state` is `IDLE`, `PENDING`, `SYNCING`, `BACKOFF`, or `REQUIRES_ATTENTION`. `PENDING` is stored when the outbox has unacknowledged rows. The count itself is always read from the outbox.
+`sync_state.current_sync_state` is `IDLE`, `PENDING`, `SYNCING`, `BACKOFF`, or `REQUIRES_ATTENTION`. `PENDING` is stored when the outbox has unacknowledged rows. The count itself is always read from the outbox. `last_permit_sync_at` stays empty until permit push exists. An area refresh writes `last_reference_sync_at` only.
 
-A local permit save, once the editor is wired, is one SQLite transaction containing the permit change, the domain event, and the outbox row. That commit is the save. The network runs later. `record_local_change` implements that transaction and is covered by Rust tests. No screen calls it yet.
+The first Save Draft for General Work is one SQLite transaction containing the permit, a `PERMIT_CREATED` event, and a `PENDING` outbox row. That commit is the save. The network is not part of it. A later save updates the draft row and does not add another event. See `docs/SYNC.md`.
 
 If the file cannot be opened or a later read or write fails, the shell reports local data unavailable. That is not the same as Plant Link being offline. The UI does not show the SQL exception, does not invent a pending count, and does not treat memory as a substitute database.
 
@@ -85,8 +85,7 @@ Future transient failures (timeout, lost connection, HTTP 502, 503, and 504) sho
 
 - Live PostgreSQL deployment
 - Authentication (local passwords or Entra)
-- Permit-editor writes to `local_permits`
-- Permit push, server pull, and conflict handling
+- Permit push of the pending General Work outbox, server pull, and conflict handling
 - Attachment bytes and file upload
 - Replacing mock permit data
 - Equipment or contractor reference caches

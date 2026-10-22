@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState, type R
 import { checkingPlantLink, syncMayStart, type PlantLink, type PlantLinkSnapshot } from "../lib/connectivity";
 import { presentAreaCatalog, type AreaCatalog, type AreaRecord } from "./areas";
 import { refreshAreaCatalog } from "./areaRefresh";
-import { listCachedAreas, noteSyncCycle, readLocalStatus, type LocalView } from "./localStore";
+import { listCachedAreas, notePlantContact, noteSyncCycle, onLocalStoreChanged, readLocalStatus, type LocalView } from "./localStore";
 import { startPlantLinkMonitor } from "./plantLink";
 import { SyncCoordinator } from "./syncCoordinator";
 
@@ -43,7 +43,7 @@ export function DeviceProvider({ children }: { children: ReactNode }) {
         return;
       }
       try {
-        const status = await noteSyncCycle(outcome === "updated" ? "succeeded" : "stopped");
+        const status = await noteSyncCycle("stopped");
         if (outcome === "updated") setCachedAreas(await listCachedAreas());
         if (!stopped) setLocal({ status: "available", ...status });
       } catch {
@@ -56,6 +56,13 @@ export function DeviceProvider({ children }: { children: ReactNode }) {
       linkRef.current = snapshot.link;
       setLink(snapshot);
       coordinator.onPlantLink(snapshot.link);
+      if (snapshot.link === "ready" || snapshot.link === "api-online") {
+        void notePlantContact()
+          .then((status) => {
+            if (!stopped) setLocal({ status: "available", ...status });
+          })
+          .catch(() => undefined);
+      }
     });
 
     void (async () => {
@@ -71,10 +78,21 @@ export function DeviceProvider({ children }: { children: ReactNode }) {
       }
     })();
 
+    const stopStoreWatch = onLocalStoreChanged(() => {
+      void readLocalStatus()
+        .then((status) => {
+          if (!stopped) setLocal({ status: "available", ...status });
+        })
+        .catch(() => {
+          if (!stopped) setLocal({ status: "failed" });
+        });
+    });
+
     return () => {
       stopped = true;
       coordinator.stop();
       stopMonitor();
+      stopStoreWatch();
     };
   }, []);
 

@@ -6,7 +6,9 @@ export type LocalSyncState = "IDLE" | "PENDING" | "SYNCING" | "BACKOFF" | "REQUI
 export interface LocalStatus {
   pendingCount: number;
   syncState: LocalSyncState;
-  lastSuccessfulSyncAt: string | null;
+  lastPlantContactAt: string | null;
+  lastReferenceSyncAt: string | null;
+  lastPermitSyncAt: string | null;
   lastAttemptedSyncAt: string | null;
   referenceAreasSyncedAt: string | null;
 }
@@ -65,11 +67,26 @@ export async function replaceReferenceAreas(areas: AreaRecord[]): Promise<void> 
   });
 }
 
-export async function noteSyncCycle(phase: "start" | "succeeded" | "stopped"): Promise<LocalStatus> {
+export async function noteSyncCycle(phase: "start" | "stopped"): Promise<LocalStatus> {
   return invokeCommand<LocalStatus>("note_sync_cycle", { phase });
 }
 
-async function invokeCommand<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+export async function notePlantContact(): Promise<LocalStatus> {
+  return invokeCommand<LocalStatus>("note_plant_contact");
+}
+
+const localStoreListeners = new Set<() => void>();
+
+export function onLocalStoreChanged(listener: () => void): () => void {
+  localStoreListeners.add(listener);
+  return () => localStoreListeners.delete(listener);
+}
+
+export function notifyLocalStoreChanged(): void {
+  for (const listener of localStoreListeners) listener();
+}
+
+export async function invokeCommand<T>(command: string, args?: Record<string, unknown>): Promise<T> {
   if (!tauriAvailable()) throw new LocalStoreFailure();
   try {
     return await invoke<T>(command, args);

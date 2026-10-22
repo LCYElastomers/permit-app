@@ -79,6 +79,10 @@ Every permit child foreign key uses `ON DELETE RESTRICT`. Deleting a `permits` r
 
 `user_roles` still cascades when its user or role is deleted. That removes membership rows only. `permits` references to areas, equipment, contractors, and users are also `ON DELETE RESTRICT`.
 
+## Device working state
+
+The desktop store is not a second copy of this PostgreSQL schema. General Work drafts keep the searchable header in SQLite columns and the rest of the open form in `local_permits.working_state`. That value is JSON with a version. Version 1 stores the workflow step, hazards, controls, detail fields, names, and signatures so the draft can be reopened on the device. It is not `permit_events.payload`. The creation event stays a historical action with an empty payload. The official `permit_number` stays null until the plant record assigns one. Details are in `docs/SYNC.md`.
+
 ## Migration
 
 `PermitControl.Infrastructure` contains the EF Core migration `InitialFoundation`. Applying it requires a PostgreSQL database and is not part of the build.
