@@ -1,0 +1,78 @@
+# Data model
+
+The schema is a permit domain, not a copy of a paper form. A permit has one classification, a lifecycle status, and zero or more modules. Historical facts are rows, not overwritten columns.
+
+Identity is a client-generated UUID. `PermitNumber` (for example `PTW-2026-00142`) is a separate human identifier and is unique. There is no integer primary key.
+
+Timestamps are `timestamptz`. Enumerations are stored as strings such as `GENERAL_WORK` and `SUSPENDED`.
+
+`jsonb` is used only for `permit_events.payload`, which carries the optional body of an append-only event.
+
+## Identity and reference data
+
+| Table | Purpose |
+| --- | --- |
+| `users` | Person known to the API. `auth_provider` is `LOCAL` now and can be `ENTRA` later. There is no password column. |
+| `roles` | Named role. |
+| `user_roles` | User-to-role assignment. |
+| `areas` | Plant area. |
+| `equipment` | Tagged equipment in an area. |
+| `contractors` | Contractor company. |
+
+## Permit
+
+`permits` holds the searchable header:
+
+- `id`, `permit_number`, `permit_type`, `status`
+- `area_id`, nullable `equipment_id`
+- `work_order`, `job_description`
+- `company_type`, nullable `contractor_id`
+- `created_by`, `created_at`, `updated_at`
+- `planned_start`, `expires_at`
+- nullable `activated_at`, nullable `closed_at`
+- `current_revision`
+
+Classifications: `GENERAL_WORK`, `HOT_WORK`, `CONFINED_SPACE`, `OPENING_BLINDING`, `EXCAVATION`, `LIVE_ELECTRICAL`.
+
+Statuses: `DRAFT`, `PENDING_REVIEW`, `AUTHORIZED`, `ACTIVE`, `SUSPENDED`, `CLOSED`, `CANCELLED`, `EXPIRED`, `SUPERSEDED`.
+
+Indexes: unique `permit_number`, plus `status`, `permit_type`, `area_id`, `equipment_id`, `work_order`, `created_at`, `closed_at`.
+
+## Revisions and events
+
+`permit_revisions` is one row per revision number for a permit.
+
+`permit_events` is append-only. Columns include `permit_id`, `permit_revision`, `event_type`, `occurred_at`, `recorded_at`, nullable `user_id`, nullable `device_id`, nullable `payload` (`jsonb`), and `sync_source` (`CLIENT` or `SERVER`). The event `id` is the client-generated idempotency key. The application does not update or delete these rows.
+
+Event types include `PERMIT_CREATED`, `PERMIT_UPDATED`, `JSA_VERIFIED`, `ISOLATION_VERIFIED`, `ATMOSPHERE_TEST_RECORDED`, `SUBMITTED`, `AUTHORIZED`, `ACCEPTED`, `ACTIVATED`, `SUSPENDED`, `REAUTHORIZED`, `EXTENDED`, `WORK_COMPLETED`, `CLOSED`, `ATTACHMENT_ADDED`, `ATTACHMENT_SUPERSEDED`, and `ADMINISTRATIVE_AMENDMENT`.
+
+## People, modules, and controls
+
+| Table | Purpose |
+| --- | --- |
+| `permit_participants` | Named role on a permit. |
+| `permit_approvals` | A decision for a role. |
+| `permit_modules` | A module kind attached to the permit, and whether it is required. |
+| `permit_hazards` | Hazard label, optional module. |
+| `permit_controls` | Control label, optional module. |
+| `permit_ppe` | PPE label. |
+
+Module kinds: `CORE`, `JSA`, `PROCEDURE`, `HAZARD_ASSESSMENT`, `PPE`, `LOTO_ISOLATION`, `ATMOSPHERIC_MONITORING`, `HOT_WORK`, `FIRE_WATCH`, `CONFINED_SPACE`, `RESCUE`, `EXCAVATION`, `OPENING_BLINDING`, `LIVE_ELECTRICAL`, `WORKING_AT_HEIGHT`.
+
+## Readings, isolation, and lifecycle records
+
+`atmospheric_tests` is one row per reading. There are no `Test1` / `Test2` columns. Fields: tested time, nullable oxygen percent, LEL percent, carbon monoxide ppm, tester, result (`RECORDED`, `PASS`, or `FAIL`), and notes. This pass does not define pass/fail limits. `PASS` and `FAIL` are stored only when a client already recorded that judgment.
+
+`isolations` stores the energy-control plan, lock box, and when zero energy was verified.
+
+`permit_suspensions`, `permit_extensions`, `permit_reauthorizations`, and `permit_closures` are separate records of those actions. A closure is unique per permit.
+
+## Files, devices, sync
+
+`attachments` stores metadata only: original name, stored name, `storage_provider` (`LOCAL_SERVER`), storage key, MIME type, size, SHA-256, author, time, and nullable `superseded_by`. File bytes are not a `bytea` column.
+
+`devices` identifies a client station. `sync_events` records that the server accepted a client event id. The sync engine that writes these rows is not implemented.
+
+## Migration
+
+`PermitControl.Infrastructure` contains the EF Core migration `InitialFoundation`. Applying it requires a PostgreSQL database and is not part of the build.

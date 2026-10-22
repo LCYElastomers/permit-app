@@ -3,6 +3,7 @@ import { assets, contractors, templates } from "../data/mock";
 import { usePlantClock } from "../plantClock";
 import { usePermits } from "../state/PermitStore";
 import type { ListScreen } from "../types";
+import { connectivityLabel, connectivityLamp, mockConnectivity } from "../lib/connectivity";
 import { plantSnapshot } from "../plantStatus";
 import { ActivePermits } from "../screens/ActivePermits";
 import { CommandCenter } from "../screens/CommandCenter";
@@ -110,14 +111,7 @@ export function Shell() {
             </div>
           ))}
         </div>
-        <div className="network">
-          <div className="network-label">NETWORK</div>
-          <div className="network-state">
-            <span className="lamp lamp-ok" />
-            ONLINE
-          </div>
-          <div className="network-sync mono">Last synced 13:27</div>
-        </div>
+        <NetworkStatus />
       </aside>
       <div className="workspace">
         <OpsBar />
@@ -136,6 +130,20 @@ export function Shell() {
           {screen === "detail" && <PermitDetail key={selectedId ?? "none"} />}
         </main>
       </div>
+    </div>
+  );
+}
+
+function NetworkStatus() {
+  const link = mockConnectivity.current();
+  return (
+    <div className="network">
+      <div className="network-label">NETWORK</div>
+      <div className="network-state">
+        <span className={`lamp lamp-${connectivityLamp(link.state)}`} />
+        {connectivityLabel(link.state)}
+      </div>
+      <div className="network-sync mono">Last synced {link.lastSynced ?? "—"}</div>
     </div>
   );
 }
@@ -165,6 +173,17 @@ function PlantStatus() {
   );
 }
 
+function ServerStatus() {
+  const link = mockConnectivity.current();
+  const label = link.state === "online" ? "SERVER ONLINE" : connectivityLabel(link.state);
+  return (
+    <div className="ops-seg ops-server">
+      <span className={`lamp lamp-${connectivityLamp(link.state)}`} />
+      <span>{label}</span>
+    </div>
+  );
+}
+
 function OpsBar() {
   const clock = usePlantClock();
   return (
@@ -182,10 +201,7 @@ function OpsBar() {
         <span className="mono">{clock.date}</span>
         <span className="mono ops-time">{clock.hms}</span>
       </div>
-      <div className="ops-seg ops-server">
-        <span className="lamp lamp-ok" />
-        <span>SERVER ONLINE</span>
-      </div>
+      <ServerStatus />
     </header>
   );
 }

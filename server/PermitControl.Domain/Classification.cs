@@ -1,0 +1,94 @@
+namespace PermitControl.Domain;
+
+public enum PermitType
+{
+    GENERAL_WORK,
+    HOT_WORK,
+    CONFINED_SPACE,
+    OPENING_BLINDING,
+    EXCAVATION,
+    LIVE_ELECTRICAL,
+}
+
+public enum PermitStatus
+{
+    DRAFT,
+    PENDING_REVIEW,
+    AUTHORIZED,
+    ACTIVE,
+    SUSPENDED,
+    CLOSED,
+    CANCELLED,
+    EXPIRED,
+    SUPERSEDED,
+}
+
+public enum PermitEventType
+{
+    PERMIT_CREATED,
+    PERMIT_UPDATED,
+    JSA_VERIFIED,
+    ISOLATION_VERIFIED,
+    ATMOSPHERE_TEST_RECORDED,
+    SUBMITTED,
+    AUTHORIZED,
+    ACCEPTED,
+    ACTIVATED,
+    SUSPENDED,
+    REAUTHORIZED,
+    EXTENDED,
+    WORK_COMPLETED,
+    CLOSED,
+    ATTACHMENT_ADDED,
+    ATTACHMENT_SUPERSEDED,
+    ADMINISTRATIVE_AMENDMENT,
+}
+
+public enum PermitModuleKind
+{
+    CORE,
+    JSA,
+    PROCEDURE,
+    HAZARD_ASSESSMENT,
+    PPE,
+    LOTO_ISOLATION,
+    ATMOSPHERIC_MONITORING,
+    HOT_WORK,
+    FIRE_WATCH,
+    CONFINED_SPACE,
+    RESCUE,
+    EXCAVATION,
+    OPENING_BLINDING,
+    LIVE_ELECTRICAL,
+    WORKING_AT_HEIGHT,
+}
+
+public enum CompanyType
+{
+    LCY,
+    CONTRACTOR,
+}
+
+public enum AuthProvider
+{
+    LOCAL,
+    ENTRA,
+}
+
+public enum StorageProvider
+{
+    LOCAL_SERVER,
+}
+
+public enum SyncSource
+{
+    CLIENT,
+    SERVER,
+}
+
+public enum TestResult
+{
+    RECORDED,
+    PASS,
+    FAIL,
+}

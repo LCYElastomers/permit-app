@@ -21,5 +21,15 @@ dist-ssr
 *.suo
 *.ntvs*
 *.njsproj
-*.sln
 *.sw?
+
+# Secrets. Examples stay tracked.
+.env
+.env.*
+!.env.example
+appsettings.*.local.json
+
+# .NET build output. The server solution is tracked.
+server/**/bin/
+server/**/obj/
+*.user
