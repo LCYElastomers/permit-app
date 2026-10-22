@@ -1,22 +1,29 @@
 # Design
 
-Permit Control is one installed application with two presentation modes. Portrait use on Getac rugged field tablets is a primary operating mode, alongside desktop and leadership screens. The modes share domain rules, SQLite, synchronization, and permit workflow. Layout may change. Business logic does not fork.
+Permit Control is one installed application with three compositions. Field portrait on rugged Windows tablets is the primary operating mode. Field landscape is a separate touch composition. Desktop and leadership screens are the expanded composition. All three share domain rules, SQLite, synchronization, routes, and permit workflow. Layout may change. Business logic does not fork. Rotation changes presentation only.
 
-The visual language stays industrial: charcoal surfaces, an LCY red structural accent, semantic green, amber, and red, square geometry, and IBM Plex. Do not introduce rounded generic application styling.
+The visual language stays industrial: charcoal surfaces, an LCY red structural accent, semantic green, amber, and red, square geometry, and IBM Plex. Do not introduce rounded generic application styling, generic blue, purple, gradients, or glassmorphism.
+
+Composition comes from width, orientation, and coarse versus fine pointer. It does not read a device model name.
+
+- Field portrait: upright orientation, or a window at most 840px wide. One column, bottom navigation, large controls.
+- Field landscape: a coarse pointer in landscape, or a fine pointer narrower than 1440px. Still touch. The extra width holds a summary, a second selection column, or a detail panel. It is not a stretched portrait form and it is not the desktop density.
+- Desktop: a fine pointer at 1440px or wider. Persistent sidebar, higher density, several sections visible together.
 
 ## Portrait field experience
 
 Portrait layout prioritizes touch, readability, simple navigation, large controls, and clear safety states. Data entry stays sparse. Nothing depends on hover. Targets do not require precise taps.
 
-At portrait-tablet widths:
+At field portrait:
 
-- Hide the persistent desktop sidebar and open navigation with a touch control.
+- Remove the persistent desktop sidebar.
+- Use a compact operations bar and a bottom bar: Home, Permits, New, More.
 - Use one column for data entry.
-- Do not scroll horizontally.
+- Do not scroll the page horizontally.
 - Do not compress a desktop layout until it fits.
 - Do not leave a wide data table unchanged and call it a field screen.
 
-The field presentation applies when the viewport is at most 900px wide, and when the viewport is portrait and at most 1280px wide. Wider landscape screens keep the desktop presentation.
+The Windows touch keyboard must leave the active field and the workflow actions reachable. The shell follows the visible viewport height. Focusing a field scrolls it into view. Rotation does not save, reload, or change the workflow step.
 
 ## Touch
 
@@ -28,7 +35,7 @@ Portrait fields use a visible label above a large control. Placeholder text is n
 
 ## Permit workflow
 
-The six steps stay Scope, Hazards, Controls, Permit Details, Review, and Authorization. Desktop screens may keep the horizontal step row. Portrait screens show the current step as `2 OF 6` and `HAZARDS`, with a compact progress mark, and large Back and Continue actions in a persistent footer. All six full labels are not squeezed into one row.
+The six steps stay Scope, Hazards, Controls, Permit Details, Review, and Authorization. Desktop screens keep the horizontal step row. Field portrait and field landscape show the current step as `2 OF 6` and `HAZARDS`, with a compact progress mark. Portrait uses one column and a Back, Save Draft, and Continue footer. Landscape keeps those touch sizes and places a draft summary beside the form, with hazards and controls in two columns. All six full labels are not squeezed into one row on a tablet.
 
 ## Local save
 
@@ -52,8 +59,8 @@ Suspend stays a direct action on the permit, not an item buried in menus. The co
 
 ## Readings
 
-Future atmospheric and other numeric entry uses large dedicated controls in portrait. Do not turn a paper-form table into the entry surface. History may stay compact. Entry must be built for touch. That entry surface is not implemented yet.
+Future atmospheric and other numeric entry uses large dedicated controls in portrait. The entry control uses a numeric input mode and the `.reading-entry` field size. Do not turn a paper-form table into the entry surface. History may stay compact. That entry surface is not implemented yet.
 
 ## What this pass establishes
 
-New Permit, Drafts, workflow navigation, and the local-save line follow the field pattern. The rest of the shell keeps the existing desktop screens and gains the portrait navigation and Plant Link treatment. This is not a separate tablet product and not a full visual redesign.
+The shell, New Permit, Drafts, Permit Detail, and the portrait Command Center follow the three compositions. Desktop keeps the sidebar and the denser register. This is not a separate tablet product and not a change to permit, sync, or Plant Link behavior.

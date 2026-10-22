@@ -11,6 +11,36 @@ public interface IFileStorage
 {
     StorageProvider Provider { get; }
     Task<StoredFile> SaveAsync(FileSaveRequest request, CancellationToken cancellationToken);
+    Task<byte[]?> ReadAsync(string storageKey, CancellationToken cancellationToken);
+}
+
+public interface IPermitPdfRenderer
+{
+    byte[] Render(PermitDocument document);
+}
+
+public interface IPermitPdfExport
+{
+    Task<PermitPdfPrepared> CreateAsync(Guid permitId, PermitExportType exportType, CancellationToken cancellationToken);
+    Task<PermitPdfFile?> OpenAsync(Guid exportId, CancellationToken cancellationToken);
+}
+
+public sealed class PermitPdfFile
+{
+    public required byte[] Content { get; init; }
+    public required string Filename { get; init; }
+    public string MimeType { get; init; } = "application/pdf";
+}
+
+public sealed class FileStorageException : Exception
+{
+    public FileStorageException(string code)
+        : base(code)
+    {
+        Code = code;
+    }
+
+    public string Code { get; }
 }
 
 /// <summary>

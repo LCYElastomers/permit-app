@@ -64,7 +64,9 @@ export function PermitDetail() {
               <StateMark status={permit.status} />
             )}
           </div>
-          <div className="asset-line mono">{assetLine(permit)}</div>
+          <div className="asset-line">{assetLine(permit)}</div>
+          <p className="detail-work">{permit.jobDescription}</p>
+          <div className="detail-timing mono">{windowOf(permit) || "No window recorded"}</div>
           <div className="wo-line mono">{permit.workOrder}</div>
         </div>
         {locked ? (
@@ -208,7 +210,6 @@ export function PermitDetail() {
         <div className="detail-main">
           <Section index="01" title="OVERVIEW">
             <div className="field-grid">
-              <Field label="Job description" value={permit.jobDescription} wide />
               <Field label="Area" value={permit.area} />
               {permit.equipment ? <Field label="Equipment" value={permit.equipment} mono /> : null}
               {permit.location ? <Field label="Location" value={permit.location} /> : null}
@@ -217,7 +218,6 @@ export function PermitDetail() {
               <Field label="Requested by" value={requester} />
               <Field label="Permit receiver / craft" value={permit.craft} />
               <Field label="Shift supervisor" value={permit.shiftSupervisor} />
-              <Field label="Window" value={windowOf(permit)} mono />
             </div>
           </Section>
 
@@ -245,7 +245,7 @@ export function PermitDetail() {
             {permit.readings.length === 0 ? (
               <p className="empty tight">No instrument readings recorded.</p>
             ) : (
-              <table className="gas">
+              <table className="gas reading-history">
                 <thead>
                   <tr>
                     <th>Time</th>

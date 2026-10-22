@@ -93,6 +93,34 @@ Success shapes, once implemented:
 
 Those routes still use `503` when the database is not configured and `501` with `{ "error": "not-implemented" }` when it is.
 
+## Permit PDF
+
+`POST /api/v1/permits/{id}/exports/pdf`
+
+```json
+{ "exportType": "PRINT" }
+```
+
+`exportType` may be omitted or `PRINT` or `SNAPSHOT`. `FINAL_ARCHIVE` is `400` with `{ "error": "final-archive-not-available" }`. A missing permit is `404` with `{ "error": "permit not found" }`. A permit that is not General Work is `400` with `{ "error": "general-work-only" }`.
+
+Success returns export metadata. It does not return a filesystem path or storage key.
+
+```json
+{
+  "id": "11111111-2222-3333-4444-555555555555",
+  "permitId": "0b6d1a22-1111-4a1b-9c1d-111111111111",
+  "permitRevision": 1,
+  "exportType": "PRINT",
+  "mimeType": "application/pdf",
+  "fileSize": 12000,
+  "sha256": "abc",
+  "generatedAt": "2026-10-22T20:15:00Z",
+  "filename": "PTW-2026-00001-General-Work-Rev-01.pdf"
+}
+```
+
+`GET /api/v1/permit-exports/{exportId}/content` returns `application/pdf` with that download filename. A missing export is `404`. Database or file-storage failure is `503` and does not include a path.
+
 ## Sync
 
 `POST /api/v1/sync/push`
@@ -120,7 +148,7 @@ Push accepts exactly one `PERMIT_CREATED` event for a General Work draft. Pull s
 
 ## Client
 
-`src/lib/api/` wraps these paths. `VITE_PERMIT_API_URL` overrides the production default `https://permit-control.local`. Screens do not call `fetch`. Connectivity and New Permit areas go through services. The other screens still use mock permit data, so a missing API does not stop the desktop app.
+`src/lib/api/` wraps these paths. `VITE_PERMIT_API_URL` overrides the production default `https://permit-control.local`. Connectivity, area refresh, and permit PDF generation go through services. The PDF content request downloads bytes. It does not print the screen. The other screens still use mock permit data, so a missing API does not stop the desktop app.
 
 ## Not exposed
 

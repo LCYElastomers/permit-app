@@ -100,4 +100,6 @@ public sealed record SyncPullResponse(DateTimeOffset Since, IReadOnlyList<SyncEv
 
 public sealed record StoredFile(string StoredFilename, StorageProvider Provider, string StorageKey);
 
-public sealed record FileSaveRequest(Guid Id, string OriginalFilename, string MimeType, byte[] Content);
+public sealed record FileSaveRequest(Guid Id, string OriginalFilename, string MimeType, byte[] Content, string? StorageKey = null);
+
+public sealed record PermitPdfExportBody(string? ExportType);

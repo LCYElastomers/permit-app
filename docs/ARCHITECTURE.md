@@ -30,6 +30,16 @@ The Tauri process must never open a PostgreSQL connection. The API is the only s
 
 Permit Control is used on Getac rugged tablets, including portrait, and on desktop leadership screens. Those are two layouts of the same application. Domain rules, local persistence, synchronization, and the six-step permit workflow stay shared. The portrait layout, touch targets, local-save wording, and safety presentation are specified in `docs/DESIGN.md`.
 
+## Printable permits
+
+Printable permits are controlled document representations generated from structured Permit Control data. The tablet/desktop UI is not the printable document. Generated PDFs must identify the permit UUID/number, revision, lifecycle status, generation timestamp, and applicable permit modules. Closed permits produce an immutable final PDF whose SHA-256 hash is recorded in PostgreSQL.
+
+A synchronized General Work permit can be rendered on the server into a working PDF. The client sends the permit id. The API loads the PostgreSQL permit, its rows, and the `general-work-facts` creation payload. It does not accept a screen, a SQLite working state, or a client-supplied permit body. Each generation writes a new file under the storage key `exports/generated/{permit-id}/{export-id}.pdf`, records a `permit_exports` row, and stores the SHA-256 of the PDF bytes. The physical file is not overwritten. The client receives export metadata and a download name. It does not receive the storage root or the storage key.
+
+`FINAL_ARCHIVE` is reserved and refused. When a General Work permit can be closed, closure will generate one final PDF, hash it, store it in the archive namespace, record that export, preserve attachments, and later write `manifest.json`. That final artifact is not replaced. Closure does not exist yet, so that archive path is not built.
+
+A draft PDF states `DRAFT` and `NOT AUTHORIZED FOR WORK`. Synchronization does not authorize work. Plant Link must be ready before the desktop app can ask for the PDF. A failed request leaves the local draft unchanged. There is no offline renderer.
+
 ## Local database
 
 The desktop store is one SQLite file for one device, opened by the Rust side of the Tauri app through `rusqlite` with the bundled SQLite library. React calls application commands. It does not see SQL, the database path, PostgreSQL, or server file paths.
@@ -87,6 +97,7 @@ A timeout, lost connection, or HTTP 502, 503, or 504 leaves the row pending and 
 - Authentication (local passwords or Entra)
 - Server pull, and synchronization of any event other than General Work `PERMIT_CREATED`
 - Attachment bytes and file upload
+- Final closed-permit archive PDF, manifest, and attachment preservation
 - Replacing mock permit data
 - Equipment or contractor reference caches
 - Command Center live permit metrics

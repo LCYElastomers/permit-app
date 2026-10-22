@@ -3,6 +3,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using PermitControl.Application;
 using PermitControl.Infrastructure.Areas;
+using PermitControl.Infrastructure.Documents;
 using PermitControl.Infrastructure.Persistence;
 using PermitControl.Infrastructure.Sync;
 using PermitControl.Infrastructure.Storage;
@@ -22,6 +23,8 @@ public static class DependencyInjection
         services.AddSingleton<IFileStorage>(_ => new LocalFileStorage(configuration["PERMIT_FILE_ROOT"] ?? configuration["FileStorage:Root"]));
         services.AddScoped<IAreaCatalog, AreaCatalog>();
         services.AddScoped<IGeneralWorkSync, GeneralWorkSync>();
+        services.AddSingleton<IPermitPdfRenderer, PdfSharpPermitRenderer>();
+        services.AddScoped<IPermitPdfExport, PermitPdfExportService>();
         services.AddScoped<IDatabaseProbe, DatabaseProbe>();
         return services;
     }

@@ -276,6 +276,20 @@ internal static class ModelConfiguration
             Timestamp(entity.Property(item => item.LastSeenAt));
         });
 
+        model.Entity<PermitExport>(entity =>
+        {
+            entity.ToTable("permit_exports");
+            entity.HasKey(item => item.Id);
+            entity.Property(item => item.StorageKey).HasMaxLength(300).IsRequired();
+            entity.Property(item => item.MimeType).HasMaxLength(120).IsRequired();
+            entity.Property(item => item.Sha256).HasMaxLength(64).IsRequired();
+            entity.Property(item => item.DocumentClassification).HasMaxLength(40).IsRequired();
+            EnumString(entity.Property(item => item.ExportType));
+            Timestamp(entity.Property(item => item.GeneratedAt));
+            entity.HasIndex(item => item.PermitId);
+            entity.HasOne(item => item.Permit).WithMany().HasForeignKey(item => item.PermitId).OnDelete(DeleteBehavior.Restrict);
+        });
+
         model.Entity<PermitNumberCounter>(entity =>
         {
             entity.ToTable("permit_number_counters");

@@ -80,6 +80,13 @@ public enum StorageProvider
     LOCAL_SERVER,
 }
 
+public enum PermitExportType
+{
+    PRINT,
+    SNAPSHOT,
+    FINAL_ARCHIVE,
+}
+
 public enum SyncSource
 {
     CLIENT,

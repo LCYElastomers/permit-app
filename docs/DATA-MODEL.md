@@ -71,11 +71,13 @@ Module kinds: `CORE`, `JSA`, `PROCEDURE`, `HAZARD_ASSESSMENT`, `PPE`, `LOTO_ISOL
 
 `attachments` stores metadata only: original name, stored name, `storage_provider` (`LOCAL_SERVER`), storage key, MIME type, size, SHA-256, author, time, and nullable `superseded_by`. File bytes are not a `bytea` column.
 
+`permit_exports` is one generated PDF: permit id, revision, export type (`PRINT`, `SNAPSHOT`, or the reserved `FINAL_ARCHIVE`), storage key, MIME type, byte size, SHA-256 of the PDF bytes, generation time, nullable generated-by, and the permit status at generation. A new generation inserts a new row. The foreign key to `permits` is `ON DELETE RESTRICT`.
+
 `devices` identifies a client station. `sync_events` records that the server accepted a client event id. `PermitId` on that table is nullable and is not a foreign key. A sync event is an idempotency receipt, not a historical child of a permit. When the accepted event belongs to a permit, the receipt uses the same id as `permit_events` and may store that permit id. A null permit id is valid for accepted activity that does not belong to a permit. `ON DELETE CASCADE` would erase the receipt and let a retry look new. `ON DELETE RESTRICT` would block permit deletion because of the sync log rather than because permit history still exists. The sync engine that writes these rows is not implemented.
 
 ## Referential integrity
 
-Every permit child foreign key uses `ON DELETE RESTRICT`. Deleting a `permits` row is rejected while any of these rows still reference it: `atmospheric_tests`, `attachments`, `isolations`, `permit_approvals`, `permit_events`, `permit_modules`, `permit_participants`, `permit_revisions`, `permit_hazards`, `permit_controls`, `permit_ppe`, `permit_suspensions`, `permit_extensions`, `permit_reauthorizations`, and `permit_closures`. Normal outcomes are status changes (`CLOSED`, `CANCELLED`, `EXPIRED`, `SUPERSEDED`), not physical deletion.
+Every permit child foreign key uses `ON DELETE RESTRICT`. Deleting a `permits` row is rejected while any of these rows still reference it: `atmospheric_tests`, `attachments`, `isolations`, `permit_approvals`, `permit_events`, `permit_modules`, `permit_participants`, `permit_revisions`, `permit_hazards`, `permit_controls`, `permit_ppe`, `permit_suspensions`, `permit_extensions`, `permit_reauthorizations`, `permit_closures`, and `permit_exports`. Normal outcomes are status changes (`CLOSED`, `CANCELLED`, `EXPIRED`, `SUPERSEDED`), not physical deletion.
 
 `user_roles` still cascades when its user or role is deleted. That removes membership rows only. `permits` references to areas, equipment, contractors, and users are also `ON DELETE RESTRICT`.
 

@@ -37,10 +37,10 @@ export function CommandCenter() {
       />
 
       <div className="snapshot">
-        <SnapshotMetric value={snap.active} label="Active Now" tone="ok" onClick={() => showActive("all")} />
-        <SnapshotMetric value={snap.pending} label="Pending Review" tone="warn" onClick={() => go("pending")} />
-        <SnapshotMetric value={snap.suspended} label="Suspended" tone="alert" onClick={() => go("suspended")} />
-        <SnapshotMetric value={snap.expiring} label="Expiring Soon" tone="warn" onClick={() => showActive("expiring")} />
+        <SnapshotMetric value={snap.active} label="Active Now" tone="ok" lead onClick={() => showActive("all")} />
+        <SnapshotMetric value={snap.pending} label="Pending Review" tone="warn" lead onClick={() => go("pending")} />
+        <SnapshotMetric value={snap.suspended} label="Suspended" tone="alert" lead onClick={() => go("suspended")} />
+        <SnapshotMetric value={snap.expiring} label="Expiring Soon" tone="warn" lead onClick={() => showActive("expiring")} />
         <SnapshotMetric value={snap.closedToday} label="Closed Today" tone="idle" onClick={() => go("archive")} />
         <SnapshotMetric value={snap.issuedToday} label="Issued Today" tone="idle" onClick={() => go("archive")} />
         <SnapshotMetric value={snap.contractors} label="Contractors Active" tone="idle" onClick={() => go("contractors")} />
@@ -48,7 +48,7 @@ export function CommandCenter() {
       </div>
 
       <div className="command-grid">
-        <section className="command-panel">
+        <section className="command-panel command-attention">
           <header className="panel-head">
             <h2>Attention Required</h2>
             <span>{attention.length}</span>
@@ -72,9 +72,9 @@ export function CommandCenter() {
         </section>
 
         <div className="command-stack">
-          <section className="command-panel">
+          <section className="command-panel command-areas">
             <header className="panel-head">
-              <h2>Plant Activity by Area</h2>
+              <h2>Work by Area</h2>
             </header>
             <div className="area-list">
               {areas.map((area) => (
@@ -93,7 +93,7 @@ export function CommandCenter() {
             </div>
           </section>
 
-          <section className="command-panel">
+          <section className="command-panel command-later">
             <header className="panel-head">
               <h2>Current Work Exposure</h2>
             </header>
@@ -113,7 +113,7 @@ export function CommandCenter() {
       </div>
 
       <div className="command-grid">
-        <section className="command-panel">
+        <section className="command-panel command-controls">
           <header className="panel-head">
             <h2>Active Safety Controls</h2>
           </header>
@@ -126,7 +126,7 @@ export function CommandCenter() {
             ))}
           </div>
         </section>
-        <section className="command-panel">
+        <section className="command-panel command-later">
           <header className="panel-head">
             <h2>Control Status</h2>
           </header>
@@ -146,7 +146,7 @@ export function CommandCenter() {
         </section>
       </div>
 
-      <section className="command-panel">
+      <section className="command-panel command-later">
         <header className="panel-head">
           <h2>Today&apos;s Permit Lifecycle</h2>
         </header>
@@ -161,7 +161,7 @@ export function CommandCenter() {
       </section>
 
       <div className="command-grid">
-        <section className="command-panel">
+        <section className="command-panel command-later">
           <header className="panel-head">
             <h2>Recent Activity</h2>
           </header>
@@ -191,7 +191,7 @@ export function CommandCenter() {
             ))}
           </ol>
         </section>
-        <section className="command-panel">
+        <section className="command-panel command-later">
           <header className="panel-head">
             <h2>Permit Activity</h2>
             <span className="panel-note">Issued, became active, and closed by hour</span>
@@ -223,14 +223,16 @@ function SnapshotMetric({
   value,
   label,
   tone,
+  lead = false,
   onClick,
 }: {
   value: number;
   label: string;
   tone: "ok" | "warn" | "alert" | "idle";
+  lead?: boolean;
   onClick?: () => void;
 }) {
-  const className = `metric tone-${tone}`;
+  const className = lead ? `metric metric-lead tone-${tone}` : `metric metric-extra tone-${tone}`;
   const body = (
     <>
       <span className="metric-value">{value}</span>

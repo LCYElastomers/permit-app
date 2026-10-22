@@ -1,4 +1,5 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
+import { useComposition } from "./Composition";
 import type { PermitStatus } from "../types";
 import { statusLabel } from "../workflow";
 
@@ -57,6 +58,105 @@ export function Field({
     <div className={wide ? "field wide" : "field"}>
       <div className="field-label">{label}</div>
       <div className={mono ? "field-value mono" : "field-value"}>{value || "—"}</div>
+    </div>
+  );
+}
+
+export function TouchSelect({
+  label,
+  value,
+  placeholder,
+  disabled = false,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  placeholder: string;
+  disabled?: boolean;
+  options: { id: string; label: string }[];
+  onChange: (id: string) => void;
+}) {
+  const composition = useComposition();
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const selected = options.find((option) => option.id === value);
+
+  if (composition === "desktop") {
+    return (
+      <label className="form-field">
+        <span>{label}</span>
+        <select value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)}>
+          <option value="">{placeholder}</option>
+          {options.map((option) => (
+            <option key={option.id} value={option.id}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </label>
+    );
+  }
+
+  const needle = query.trim().toLowerCase();
+  const shown = options.filter((option) => option.label.toLowerCase().includes(needle));
+
+  return (
+    <div className="form-field">
+      <span>{label}</span>
+      <button type="button" className="picker-trigger" disabled={disabled} onClick={() => setOpen(true)}>
+        <span>{selected?.label || placeholder}</span>
+        <span aria-hidden="true">›</span>
+      </button>
+      {open ? (
+        <div className="picker-sheet" role="dialog" aria-label={label}>
+          <div className="picker-bar">
+            <label className="form-field">
+              <span>Search</span>
+              <input value={query} onChange={(event) => setQuery(event.target.value)} />
+            </label>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={() => {
+                onChange("");
+                setOpen(false);
+                setQuery("");
+              }}
+            >
+              Clear
+            </button>
+            <button
+              type="button"
+              className="btn"
+              onClick={() => {
+                setOpen(false);
+                setQuery("");
+              }}
+            >
+              Close
+            </button>
+          </div>
+          <div className="picker-list">
+            {shown.length === 0 ? <p className="empty">No matches.</p> : null}
+            {shown.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                className={option.id === value ? "picker-option on" : "picker-option"}
+                onClick={() => {
+                  onChange(option.id);
+                  setOpen(false);
+                  setQuery("");
+                }}
+              >
+                <span>{option.label}</span>
+                <span className="picker-state">{option.id === value ? "SELECTED" : "OPEN"}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

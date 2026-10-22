@@ -6,6 +6,7 @@ import { areaIdForName, type AreaCatalog } from "../services/areas";
 import { useAreaCatalog } from "../services/useAreaCatalog";
 import { useDevice } from "../services/device";
 import { GeneralWorkOnly, localDraftLabel } from "../services/generalWorkDraft";
+import { openAuthoritativePermitPdf, PermitPdfUnavailable, type PermitPdfExportType } from "../services/permitPdf";
 import { usePermits } from "../state/PermitStore";
 import type { PermitDraft, PermitKind } from "../types";
 import {
@@ -18,7 +19,7 @@ import {
   kindTitle,
   toggleItem,
 } from "../workflow";
-import { Field, Section } from "../components/ui";
+import { Field, Section, TouchSelect } from "../components/ui";
 import type { PlantLink } from "../lib/connectivity";
 
 const COMPANIES = contractors.filter((item) => item.name !== "LCY").map((item) => item.name);
@@ -36,6 +37,7 @@ export function NewPermit() {
   const catalog = useAreaCatalog();
   const { link } = useDevice();
   const [saveError, setSaveError] = useState("");
+  const [pdfMessage, setPdfMessage] = useState("");
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
   const [signError, setSignError] = useState("");
@@ -56,6 +58,21 @@ export function NewPermit() {
 
   const setField = (key: string, value: string) => {
     updateForm((current) => ({ ...current, fields: { ...current.fields, [key]: value } }));
+  };
+
+  const requestPdf = async (exportType: PermitPdfExportType) => {
+    if (!form.id) return;
+    setPdfMessage("");
+    try {
+      await openAuthoritativePermitPdf({ permitId: form.id, exportType, link: link.link });
+      setPdfMessage(exportType === "PRINT" ? "The server PDF is open. Print it from the PDF window. This draft is still not authorized for work." : "The server PDF is open. This draft is still not authorized for work.");
+    } catch (error) {
+      setPdfMessage(
+        error instanceof PermitPdfUnavailable
+          ? error.message
+          : "The server document could not be generated. The draft on this device is unchanged.",
+      );
+    }
   };
 
   return (
@@ -101,51 +118,91 @@ export function NewPermit() {
         <div className="kind-meta mono">
           {form.permitNumber ? form.permitNumber : form.id ? `LOCAL DRAFT ${localDraftLabel(form.id)}` : "UNSAVED"}
         </div>
-        <button type="button" className="btn btn-ghost" onClick={() => { resetForm(); setSaveError(""); }}>
+        <button type="button" className="btn btn-ghost" onClick={() => { resetForm(); setSaveError(""); setPdfMessage(""); }}>
           Clear
         </button>
       </div>
 
-      <div className="workflow-body">
-        <TypeRecommendationNotice form={form} onUse={(kind) => patch({ kind })} />
-        {form.step === 0 && <ScopeStep form={form} patch={patch} setField={setField} catalog={catalog} />}
-        {form.step === 1 && (
-          <ChoiceStep
-            index="02"
-            title="HAZARDS"
-            options={HAZARDS}
-            selected={form.hazards}
-            onToggle={(value) => patch({ hazards: toggleItem(form.hazards, value) })}
-            otherKey="other"
-            otherLabel="Other hazard"
-            otherValue={form.fields.otherHazard ?? ""}
-            onOther={(value) => setField("otherHazard", value)}
-          />
-        )}
-        {form.step === 2 && (
-          <ChoiceStep
-            index="03"
-            title="CONTROLS"
-            options={CONTROLS}
-            selected={form.controls}
-            onToggle={(value) => patch({ controls: toggleItem(form.controls, value) })}
-            otherKey="other controls"
-            otherLabel="Other controls"
-            otherValue={form.fields.otherControl ?? ""}
-            onOther={(value) => setField("otherControl", value)}
-          />
-        )}
-        {form.step === 3 && <DetailStep form={form} setField={setField} />}
-        {form.step === 4 && <ReviewStep form={form} />}
-        {form.step === 5 && (
-          <AuthorizationStep form={form} signError={signError} setSignError={setSignError} blockers={blockers} />
-        )}
+      {form.kind === "general" && form.id ? (
+        <section className="document-actions" aria-label="Permit document">
+          <div className="stop-mark">
+            <strong>DRAFT</strong>
+            <span>NOT AUTHORIZED FOR WORK</span>
+          </div>
+          <p>A printed copy of this draft does not authorize work.</p>
+          {form.permitNumber ? (
+            <div className="document-buttons">
+              <button type="button" className="btn" onClick={() => void requestPdf("PRINT")}>
+                Print Permit
+              </button>
+              <button type="button" className="btn" onClick={() => void requestPdf("SNAPSHOT")}>
+                Export PDF
+              </button>
+            </div>
+          ) : (
+            <p>Print and export are available after the plant record assigns a permit number.</p>
+          )}
+          {pdfMessage ? <p className="document-note">{pdfMessage}</p> : null}
+        </section>
+      ) : null}
+
+      <div className="workflow-stage">
+        <div className="workflow-main">
+          <TypeRecommendationNotice form={form} onUse={(kind) => patch({ kind })} />
+          {form.step === 0 && <ScopeStep form={form} patch={patch} setField={setField} catalog={catalog} />}
+          {form.step === 1 && (
+            <ChoiceStep
+              index="02"
+              title="HAZARDS"
+              options={HAZARDS}
+              selected={form.hazards}
+              onToggle={(value) => patch({ hazards: toggleItem(form.hazards, value) })}
+              otherKey="other"
+              otherLabel="Other hazard"
+              otherValue={form.fields.otherHazard ?? ""}
+              onOther={(value) => setField("otherHazard", value)}
+            />
+          )}
+          {form.step === 2 && (
+            <ChoiceStep
+              index="03"
+              title="CONTROLS"
+              options={CONTROLS}
+              selected={form.controls}
+              onToggle={(value) => patch({ controls: toggleItem(form.controls, value) })}
+              otherKey="other controls"
+              otherLabel="Other controls"
+              otherValue={form.fields.otherControl ?? ""}
+              onOther={(value) => setField("otherControl", value)}
+            />
+          )}
+          {form.step === 3 && <DetailStep form={form} setField={setField} />}
+          {form.step === 4 && <ReviewStep form={form} />}
+          {form.step === 5 && (
+            <AuthorizationStep form={form} signError={signError} setSignError={setSignError} blockers={blockers} />
+          )}
+        </div>
+        <aside className="workflow-context">
+          <div className="kicker">THIS DRAFT</div>
+          <div className="context-id mono">
+            {form.permitNumber ? form.permitNumber : form.id ? `LOCAL DRAFT ${localDraftLabel(form.id)}` : "UNSAVED"}
+          </div>
+          <p>{kindTitle(form.kind)}</p>
+          <p>{form.area || "Area not selected"}</p>
+          <p className="mono">{form.place || "No equipment tag"}</p>
+          <p>
+            {form.hazards.length} hazards · {form.controls.length} controls
+          </p>
+          {form.step >= 4 && blockers.length > 0 ? (
+            <p>{blockers.length} items outstanding before issue</p>
+          ) : null}
+        </aside>
       </div>
 
       <footer className="workflow-foot">
         <button
           type="button"
-          className="btn btn-ghost"
+          className="btn btn-ghost btn-back"
           disabled={form.step === 0}
           onClick={() => patch({ step: Math.max(0, form.step - 1) })}
         >
@@ -159,7 +216,7 @@ export function NewPermit() {
         <div className="foot-actions">
           <button
             type="button"
-            className="btn"
+            className="btn btn-save"
             disabled={saving}
             onClick={() => {
               if (savingRef.current) return;
@@ -183,13 +240,13 @@ export function NewPermit() {
             Save Draft
           </button>
           {form.step < 5 ? (
-            <button type="button" className="btn" onClick={() => patch({ step: form.step + 1 })}>
+            <button type="button" className="btn btn-next" onClick={() => patch({ step: form.step + 1 })}>
               Continue
             </button>
           ) : (
             <button
               type="button"
-              className="btn btn-danger"
+              className="btn btn-danger btn-next"
               disabled={blockers.length > 0 || Boolean(form.id)}
               onClick={() => {
                 if (form.id) {
@@ -242,27 +299,20 @@ function ScopeStep({
           <span>Permit type</span>
           <div className="readonly-value">{kindTitle(form.kind)}</div>
         </div>
+        <TouchSelect
+          label="Area"
+          value={selected}
+          placeholder="Select area"
+          disabled={catalog.status !== "ready"}
+          options={areas.map((area) => ({ id: area.id, label: area.name }))}
+          onChange={(id) => {
+            const area = areas.find((item) => item.id === id);
+            patch({ areaId: area?.id ?? "", area: area?.name ?? "" });
+          }}
+        />
+        <AreaNote form={form} catalog={catalog} />
         <label className="form-field">
-          <span>Area</span>
-          <select
-            value={selected}
-            disabled={catalog.status !== "ready"}
-            onChange={(event) => {
-              const area = areas.find((item) => item.id === event.target.value);
-              patch({ areaId: area?.id ?? "", area: area?.name ?? "" });
-            }}
-          >
-            <option value="">Select area</option>
-            {areas.map((area) => (
-              <option key={area.id} value={area.id}>
-                {area.name}
-              </option>
-            ))}
-          </select>
-          <AreaNote form={form} catalog={catalog} />
-        </label>
-        <label className="form-field">
-          <span>Equipment / location</span>
+          <span>Equipment / tag</span>
           <input className="mono-input" value={form.place} onChange={(event) => patch({ place: event.target.value })} />
         </label>
         <label className="form-field">
@@ -270,12 +320,8 @@ function ScopeStep({
           <input className="mono-input" value={form.workOrder} onChange={(event) => patch({ workOrder: event.target.value })} />
         </label>
         <label className="form-field span-2">
-          <span>Job description</span>
-          <textarea
-            value={form.description}
-            onChange={(event) => patch({ description: event.target.value })}
-            placeholder="Describe the work"
-          />
+          <span>Describe the work</span>
+          <textarea value={form.description} onChange={(event) => patch({ description: event.target.value })} />
         </label>
         <div className="form-field">
           <span>Company type</span>
@@ -301,19 +347,20 @@ function ScopeStep({
             </button>
           </div>
         </div>
-        <label className="form-field">
-          <span>Contractor company</span>
-          {form.companyType === "LCY" ? (
+        {form.companyType === "LCY" ? (
+          <div className="form-field">
+            <span>Contractor company</span>
             <div className="readonly-value">LCY</div>
-          ) : (
-            <select value={form.company} onChange={(event) => patch({ company: event.target.value })}>
-              <option value="">Select company</option>
-              {COMPANIES.map((company) => (
-                <option key={company}>{company}</option>
-              ))}
-            </select>
-          )}
-        </label>
+          </div>
+        ) : (
+          <TouchSelect
+            label="Contractor company"
+            value={form.company}
+            placeholder="Select company"
+            options={COMPANIES.map((company) => ({ id: company, label: company }))}
+            onChange={(id) => patch({ company: id })}
+          />
+        )}
         <label className="form-field">
           <span>Requester</span>
           <input value={form.requester} onChange={(event) => patch({ requester: event.target.value })} />
@@ -322,14 +369,16 @@ function ScopeStep({
           <span>Craft / permit receiver</span>
           <input value={form.craft} onChange={(event) => patch({ craft: event.target.value })} />
         </label>
-        <label className="form-field">
-          <span>Planned start</span>
-          <input className="mono-input" type="time" value={form.plannedStart} onChange={(event) => patch({ plannedStart: event.target.value })} />
-        </label>
-        <label className="form-field">
-          <span>Planned expiration</span>
-          <input className="mono-input" type="time" value={form.plannedEnd} onChange={(event) => patch({ plannedEnd: event.target.value })} />
-        </label>
+        <div className="form-pair">
+          <label className="form-field">
+            <span>Planned start</span>
+            <input className="mono-input" type="time" value={form.plannedStart} onChange={(event) => patch({ plannedStart: event.target.value })} />
+          </label>
+          <label className="form-field">
+            <span>Planned expiration</span>
+            <input className="mono-input" type="time" value={form.plannedEnd} onChange={(event) => patch({ plannedEnd: event.target.value })} />
+          </label>
+        </div>
       </div>
       {form.kind === "general" ? <ExclusionList form={form} setField={setField} /> : null}
     </Section>
@@ -350,9 +399,9 @@ function ExclusionList({
         {GENERAL_EXCLUSIONS.map((item) => {
           const value = form.fields[item.key] ?? "";
           return (
-            <div key={item.key} className={value === "included" ? "exclusion included" : "exclusion"}>
+            <div key={item.key} className={value === "included" ? "exclusion binary included" : "exclusion binary"}>
               <span>{item.label}</span>
-              <div className="kind-switch compact">
+              <div className="kind-switch compact" role="group" aria-label={item.label}>
                 <button
                   type="button"
                   className={value === "excluded" ? "on" : ""}
@@ -485,9 +534,9 @@ function ReviewStep({ form }: { form: PermitDraft }) {
         <div className="field-grid">
           <Field label="Permit type" value={kindTitle(form.kind)} />
           <Field label="Area" value={form.area} />
-          <Field label="Equipment / location" value={form.place} mono />
+          <Field label="Equipment / tag" value={form.place} mono />
           <Field label="Work order" value={form.workOrder} mono />
-          <Field label="Job description" value={form.description} wide />
+          <Field label="Describe the work" value={form.description} wide />
           <Field label="Company type" value={form.companyType} />
           <Field label="Company" value={form.company} />
           <Field label="Requester" value={form.requester} />
@@ -589,9 +638,10 @@ function AuthorizationStep({
                 </>
               ) : (
                 <>
-                  <input
+                  <label className="form-field">
+                    <span>Name</span>
+                    <input
                     value={form.names[role.id] ?? ""}
-                    placeholder="Name"
                     onChange={(event) => {
                       const value = event.target.value;
                       setSignError("");
@@ -600,7 +650,8 @@ function AuthorizationStep({
                         names: { ...current.names, [role.id]: value },
                       }));
                     }}
-                  />
+                    />
+                  </label>
                   {signError === role.id ? <p className="form-error">Enter a name before signing.</p> : null}
                   <button
                     type="button"

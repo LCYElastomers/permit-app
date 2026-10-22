@@ -108,6 +108,52 @@ fn note_push_deferred(store: tauri::State<AppStore>, outbox_id: String) -> Resul
     with_store(&store, |database| database.note_push_deferred(&outbox_id))
 }
 
+#[tauri::command]
+fn open_permit_pdf(app: tauri::AppHandle, filename: String, bytes: Vec<u8>) -> Result<(), String> {
+    if bytes.len() < 5 || &bytes[..5] != b"%PDF-" {
+        return Err("pdf-open-failed".to_string());
+    }
+    let directory = app.path().app_cache_dir().map_err(|error| {
+        log::error!("permit pdf cache directory unavailable: {error}");
+        "pdf-open-failed".to_string()
+    })?;
+    std::fs::create_dir_all(&directory).map_err(|error| {
+        log::error!("permit pdf cache directory create failed: {error}");
+        "pdf-open-failed".to_string()
+    })?;
+    let path = directory.join(pdf_download_name(&filename));
+    std::fs::write(&path, &bytes).map_err(|error| {
+        log::error!("permit pdf write failed: {error}");
+        "pdf-open-failed".to_string()
+    })?;
+    open::that(&path).map_err(|error| {
+        log::error!("permit pdf open failed: {error}");
+        "pdf-open-failed".to_string()
+    })
+}
+
+fn pdf_download_name(filename: &str) -> String {
+    let base = filename.rsplit(['/', '\\']).next().unwrap_or("permit.pdf");
+    let mut clean: String = base
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || character == '.' || character == '-' || character == '_' {
+                character
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    if !clean.to_ascii_lowercase().ends_with(".pdf") {
+        clean.push_str(".pdf");
+    }
+    if clean == ".pdf" || clean.is_empty() {
+        "permit.pdf".to_string()
+    } else {
+        clean
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -142,8 +188,24 @@ pub fn run() {
             list_pushable_permit_creates,
             acknowledge_permit_created,
             mark_outbox_attention,
-            note_push_deferred
+            note_push_deferred,
+            open_permit_pdf
         ])
         .run(tauri::generate_context!())
         .expect("error while building tauri application");
+}
+
+#[cfg(test)]
+mod pdf_name_tests {
+    use super::pdf_download_name;
+
+    #[test]
+    fn keeps_a_server_download_name_and_drops_path_characters() {
+        assert_eq!(
+            pdf_download_name("PTW-2026-00001-General-Work-Rev-01.pdf"),
+            "PTW-2026-00001-General-Work-Rev-01.pdf"
+        );
+        assert_eq!(pdf_download_name("../srv/permit.pdf"), "permit.pdf");
+        assert_eq!(pdf_download_name("draft"), "draft.pdf");
+    }
 }

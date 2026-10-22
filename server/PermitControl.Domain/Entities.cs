@@ -247,6 +247,22 @@ public sealed class PermitNumberCounter
     public int LastValue { get; set; }
 }
 
+public sealed class PermitExport
+{
+    public Guid Id { get; set; }
+    public Guid PermitId { get; set; }
+    public int PermitRevision { get; set; }
+    public PermitExportType ExportType { get; set; }
+    public string StorageKey { get; set; } = "";
+    public string MimeType { get; set; } = "";
+    public long FileSize { get; set; }
+    public string Sha256 { get; set; } = "";
+    public DateTimeOffset GeneratedAt { get; set; }
+    public Guid? GeneratedBy { get; set; }
+    public string DocumentClassification { get; set; } = "";
+    public Permit? Permit { get; set; }
+}
+
 public sealed class SyncEvent
 {
     public Guid Id { get; set; }

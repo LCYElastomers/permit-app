@@ -30,6 +30,7 @@ public sealed class PermitDbContext(DbContextOptions<PermitDbContext> options) :
     public DbSet<Device> Devices => Set<Device>();
     public DbSet<SyncEvent> SyncEvents => Set<SyncEvent>();
     public DbSet<PermitNumberCounter> PermitNumberCounters => Set<PermitNumberCounter>();
+    public DbSet<PermitExport> PermitExports => Set<PermitExport>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

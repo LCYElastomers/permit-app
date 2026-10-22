@@ -11,7 +11,8 @@ export function DraftsScreen() {
       {drafts.length === 0 ? (
         <p className="empty">No drafts saved on this device.</p>
       ) : (
-        drafts.map((draft) => (
+        <div className="drafts-board">
+        {drafts.map((draft) => (
           <button key={draft.id} type="button" className="permit-row" onClick={() => loadDraft(draft.id)}>
             <div className="row-top">
               <span className="pid mono">{draft.permitNumber ?? "LOCAL DRAFT"}</span>
@@ -58,7 +59,8 @@ export function DraftsScreen() {
               </div>
             </div>
           </button>
-        ))
+        ))}
+        </div>
       )}
     </div>
   );

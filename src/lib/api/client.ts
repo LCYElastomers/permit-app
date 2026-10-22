@@ -5,8 +5,8 @@ export { ApiError, ApiTransportError } from "./errors";
 
 export const permitApiBaseUrl = resolveApiBaseUrl(import.meta.env.VITE_PERMIT_API_URL);
 
-export async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
-  const timeout = AbortSignal.timeout(API_TIMEOUT_MS);
+export async function apiRequest<T>(path: string, init?: RequestInit, timeoutMs = API_TIMEOUT_MS): Promise<T> {
+  const timeout = AbortSignal.timeout(timeoutMs);
   const signal = init?.signal ? AbortSignal.any([init.signal, timeout]) : timeout;
   let response: Response;
   try {

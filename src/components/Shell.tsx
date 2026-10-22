@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useComposition } from "./Composition";
 import { assets, contractors, templates } from "../data/mock";
 import { usePlantClock } from "../plantClock";
 import { usePermits } from "../state/PermitStore";
@@ -47,11 +48,31 @@ const NAV: { label: string; items: { id: ListScreen; label: string }[] }[] = [
   },
 ];
 
+const FIELD_TABS: { id: "home" | "permits" | "new" | "more"; label: string; screen?: ListScreen }[] = [
+  { id: "home", label: "HOME", screen: "command" },
+  { id: "permits", label: "PERMITS", screen: "active" },
+  { id: "new", label: "+ NEW", screen: "new" },
+  { id: "more", label: "MORE" },
+];
+
+const MORE_ROUTES: { id: ListScreen; label: string }[] = [
+  { id: "pending", label: "Pending Review" },
+  { id: "suspended", label: "Suspended" },
+  { id: "drafts", label: "Drafts" },
+  { id: "archive", label: "Archive" },
+  { id: "templates", label: "Templates" },
+  { id: "contractors", label: "Contractors" },
+  { id: "equipment", label: "Equipment" },
+];
+
+const PERMIT_SCREENS: ListScreen[] = ["active", "pending", "suspended"];
+
 export function Shell() {
   const { permits, drafts, screen, origin, selectedId, go } = usePermits();
   const { link, local } = useDevice();
+  const composition = useComposition();
   const stageRef = useRef<HTMLElement>(null);
-  const [navOpen, setNavOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
 
   useEffect(() => {
     stageRef.current?.scrollTo(0, 0);
@@ -82,50 +103,95 @@ export function Shell() {
     }
   };
 
+  const openRoute = (id: ListScreen) => {
+    setMoreOpen(false);
+    go(id);
+  };
+
+  const permitsActive =
+    screen === "active" ||
+    PERMIT_SCREENS.includes(screen as ListScreen) ||
+    (screen === "detail" && PERMIT_SCREENS.includes(origin));
+  const moreActive =
+    moreOpen || ["drafts", "archive", "templates", "contractors", "equipment"].includes(screen);
+
   return (
-    <div className="shell">
-      <aside id="app-nav" className={navOpen ? "nav open" : "nav"}>
-        <div className="brand">
-          <div className="brand-mark" />
-          <div>
-            <div className="brand-code">LCY</div>
-            <div className="brand-name">PERMIT CONTROL</div>
-          </div>
-        </div>
-        <div className="nav-scroll">
-          {NAV.map((section) => (
-            <div className="nav-section" key={section.label}>
-              <div className="nav-label">{section.label}</div>
-              {section.items.map((item) => {
-                const active = screen === item.id || (screen === "detail" && origin === item.id);
-                const count = countFor(item.id);
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    className={active ? "nav-item active" : "nav-item"}
-                    aria-current={active ? "page" : undefined}
-                    onClick={() => {
-                      setNavOpen(false);
-                      go(item.id);
-                    }}
-                  >
-                    <span>{item.label}</span>
-                    {count !== null ? <span className="count">{count}</span> : null}
-                  </button>
-                );
-              })}
+    <div className={`shell composition-${composition}`}>
+      {composition === "desktop" ? (
+        <aside id="app-nav" className="nav">
+          <div className="brand">
+            <div className="brand-mark" />
+            <div>
+              <div className="brand-code">LCY</div>
+              <div className="brand-name">PERMIT CONTROL</div>
             </div>
-          ))}
-        </div>
-        <NetworkStatus link={link} local={local} />
-      </aside>
-      {navOpen ? (
-        <button type="button" className="nav-scrim" aria-label="Close navigation" onClick={() => setNavOpen(false)} />
+          </div>
+          <div className="nav-scroll">
+            {NAV.map((section) => (
+              <div className="nav-section" key={section.label}>
+                <div className="nav-label">{section.label}</div>
+                {section.items.map((item) => {
+                  const active = screen === item.id || (screen === "detail" && origin === item.id);
+                  const count = countFor(item.id);
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className={active ? "nav-item active" : "nav-item"}
+                      aria-current={active ? "page" : undefined}
+                      onClick={() => openRoute(item.id)}
+                    >
+                      <span>{item.label}</span>
+                      {count !== null ? <span className="count">{count}</span> : null}
+                    </button>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+          <NetworkStatus link={link} local={local} />
+        </aside>
+      ) : null}
+      {composition === "landscape" ? (
+        <nav className="field-rail" aria-label="Field">
+          {FIELD_TABS.map((tab) => {
+            const active =
+              tab.id === "home"
+                ? screen === "command" || (screen === "detail" && origin === "command")
+                : tab.id === "permits"
+                  ? permitsActive
+                  : tab.id === "new"
+                    ? screen === "new"
+                    : moreActive;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                className={tab.id === "new" ? (active ? "field-tab is-new active" : "field-tab is-new") : active ? "field-tab active" : "field-tab"}
+                aria-current={active ? "page" : undefined}
+                onClick={() => {
+                  if (tab.id === "more") {
+                    setMoreOpen((open) => !open);
+                    return;
+                  }
+                  if (tab.screen) openRoute(tab.screen);
+                }}
+              >
+                {tab.label}
+              </button>
+            );
+          })}
+        </nav>
       ) : null}
       <div className="workspace">
-        <OpsBar link={link} navOpen={navOpen} onMenu={() => setNavOpen((open) => !open)} />
-        <PlantStatus />
+        <OpsBar link={link} />
+        {local.status === "failed" ? (
+          <div className="storage-banner" role="status">
+            <strong>LOCAL DATA UNAVAILABLE</strong>
+            <span>Records on this device cannot be read. Plant Link does not restore them.</span>
+          </div>
+        ) : null}
+        {composition === "portrait" ? null : <PlantStatus />}
         <main className="stage" ref={stageRef}>
           {screen === "command" && <CommandCenter />}
           {screen === "active" && <ActivePermits />}
@@ -139,6 +205,48 @@ export function Shell() {
           {screen === "equipment" && <EquipmentScreen />}
           {screen === "detail" && <PermitDetail key={selectedId ?? "none"} />}
         </main>
+        {composition !== "desktop" && moreOpen ? (
+          <section className="more-sheet" aria-label="More">
+            {MORE_ROUTES.map((item) => (
+              <button key={item.id} type="button" onClick={() => openRoute(item.id)}>
+                <span>{item.label}</span>
+                {countFor(item.id) !== null ? <span className="count">{countFor(item.id)}</span> : null}
+              </button>
+            ))}
+            <NetworkStatus link={link} local={local} />
+          </section>
+        ) : null}
+        {composition === "portrait" ? (
+          <nav className="field-tabbar" aria-label="Field">
+            {FIELD_TABS.map((tab) => {
+              const active =
+                tab.id === "home"
+                  ? screen === "command" || (screen === "detail" && origin === "command")
+                  : tab.id === "permits"
+                    ? permitsActive
+                    : tab.id === "new"
+                      ? screen === "new"
+                      : moreActive;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  className={tab.id === "new" ? (active ? "field-tab is-new active" : "field-tab is-new") : active ? "field-tab active" : "field-tab"}
+                  aria-current={active ? "page" : undefined}
+                  onClick={() => {
+                    if (tab.id === "more") {
+                      setMoreOpen((open) => !open);
+                      return;
+                    }
+                    if (tab.screen) openRoute(tab.screen);
+                  }}
+                >
+                  {tab.label}
+                </button>
+              );
+            })}
+          </nav>
+        ) : null}
       </div>
     </div>
   );
@@ -225,30 +333,21 @@ function PlantLinkStatus({ link }: { link: PlantLinkSnapshot }) {
   );
 }
 
-function OpsBar({ link, navOpen, onMenu }: { link: PlantLinkSnapshot; navOpen: boolean; onMenu: () => void }) {
+function OpsBar({ link }: { link: PlantLinkSnapshot }) {
   const clock = usePlantClock();
   return (
     <header className="opsbar">
-      <button
-        type="button"
-        className="field-menu"
-        aria-expanded={navOpen}
-        aria-controls="app-nav"
-        onClick={onMenu}
-      >
-        {navOpen ? "CLOSE" : "MENU"}
-      </button>
       <div className="ops-seg">
         <span className="ops-plant">BAYTOWN</span>
         <span className="ops-slash">/</span>
         <span>PERMIT CONTROL</span>
       </div>
-      <div className="ops-seg">
+      <div className="ops-seg ops-shift">
         <span className="ops-k">SHIFT</span>
         <span className="ops-v">B</span>
       </div>
       <div className="ops-seg ops-clock">
-        <span className="mono">{clock.date}</span>
+        <span className="mono ops-date">{clock.date}</span>
         <span className="mono ops-time">{clock.hms}</span>
       </div>
       <PlantLinkStatus link={link} />

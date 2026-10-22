@@ -467,6 +467,59 @@ namespace PermitControl.Infrastructure.Persistence.Migrations
                     b.ToTable("permit_events", (string)null);
                 });
 
+            modelBuilder.Entity("PermitControl.Domain.PermitExport", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("DocumentClassification")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("ExportType")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<long>("FileSize")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTimeOffset>("GeneratedAt")
+                        .HasColumnType("timestamptz");
+
+                    b.Property<Guid?>("GeneratedBy")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("MimeType")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<Guid>("PermitId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("PermitRevision")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Sha256")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("StorageKey")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PermitId");
+
+                    b.ToTable("permit_exports", (string)null);
+                });
+
             modelBuilder.Entity("PermitControl.Domain.PermitExtension", b =>
                 {
                     b.Property<Guid>("Id")
@@ -894,6 +947,17 @@ namespace PermitControl.Infrastructure.Persistence.Migrations
                 });
 
             modelBuilder.Entity("PermitControl.Domain.PermitEvent", b =>
+                {
+                    b.HasOne("PermitControl.Domain.Permit", "Permit")
+                        .WithMany()
+                        .HasForeignKey("PermitId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Permit");
+                });
+
+            modelBuilder.Entity("PermitControl.Domain.PermitExport", b =>
                 {
                     b.HasOne("PermitControl.Domain.Permit", "Permit")
                         .WithMany()
