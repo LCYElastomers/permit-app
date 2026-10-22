@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using PermitControl.Application;
+using PermitControl.Infrastructure.Areas;
 using PermitControl.Infrastructure.Persistence;
 using PermitControl.Infrastructure.Storage;
 
@@ -18,6 +19,8 @@ public static class DependencyInjection
             options.UseNpgsql(connection ?? PermitDatabaseSettings.DesignTimePlaceholder);
         });
         services.AddSingleton<IFileStorage>(_ => new LocalFileStorage(configuration["PERMIT_FILE_ROOT"] ?? configuration["FileStorage:Root"]));
+        services.AddScoped<IAreaCatalog, AreaCatalog>();
+        services.AddScoped<IDatabaseProbe, DatabaseProbe>();
         return services;
     }
 }

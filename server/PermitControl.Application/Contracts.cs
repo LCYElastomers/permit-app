@@ -4,6 +4,8 @@ namespace PermitControl.Application;
 
 public sealed record HealthResponse(string Status, string Service, bool DatabaseConfigured);
 
+public sealed record ReadinessResponse(string Status);
+
 public sealed record PermitSummary(
     Guid Id,
     string PermitNumber,
@@ -34,6 +36,8 @@ public sealed record CreatePermitRequest(
     DateTimeOffset ExpiresAt);
 
 public sealed record AreaResponse(Guid Id, string Name);
+
+public sealed record CreateAreaRequest(Guid? Id, string? Name);
 public sealed record EquipmentResponse(Guid Id, Guid AreaId, string Tag, string Name);
 public sealed record ContractorResponse(Guid Id, string Name);
 

@@ -54,7 +54,7 @@ internal static class ModelConfiguration
         {
             entity.ToTable("areas");
             entity.HasKey(item => item.Id);
-            entity.Property(item => item.Name).HasMaxLength(120).IsRequired();
+            entity.Property(item => item.Name).HasMaxLength(AreaRegistration.MaxNameLength).IsRequired();
             entity.HasIndex(item => item.Name).IsUnique();
         });
 
@@ -114,7 +114,7 @@ internal static class ModelConfiguration
             entity.HasKey(item => item.Id);
             Timestamp(entity.Property(item => item.CreatedAt));
             entity.HasIndex(item => new { item.PermitId, item.Number }).IsUnique();
-            entity.HasOne(item => item.Permit).WithMany().HasForeignKey(item => item.PermitId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(item => item.Permit).WithMany().HasForeignKey(item => item.PermitId).OnDelete(DeleteBehavior.Restrict);
         });
 
         model.Entity<PermitEvent>(entity =>
@@ -127,7 +127,7 @@ internal static class ModelConfiguration
             Timestamp(entity.Property(item => item.OccurredAt));
             Timestamp(entity.Property(item => item.RecordedAt));
             entity.HasIndex(item => new { item.PermitId, item.OccurredAt });
-            entity.HasOne(item => item.Permit).WithMany().HasForeignKey(item => item.PermitId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(item => item.Permit).WithMany().HasForeignKey(item => item.PermitId).OnDelete(DeleteBehavior.Restrict);
         });
     }
 
@@ -139,7 +139,7 @@ internal static class ModelConfiguration
             entity.HasKey(item => item.Id);
             entity.Property(item => item.RoleName).HasMaxLength(80).IsRequired();
             entity.Property(item => item.DisplayName).HasMaxLength(160).IsRequired();
-            entity.HasOne(item => item.Permit).WithMany().HasForeignKey(item => item.PermitId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(item => item.Permit).WithMany().HasForeignKey(item => item.PermitId).OnDelete(DeleteBehavior.Restrict);
         });
 
         model.Entity<PermitApproval>(entity =>
@@ -149,7 +149,7 @@ internal static class ModelConfiguration
             entity.Property(item => item.RoleName).HasMaxLength(80).IsRequired();
             entity.Property(item => item.Decision).HasMaxLength(40).IsRequired();
             Timestamp(entity.Property(item => item.DecidedAt));
-            entity.HasOne(item => item.Permit).WithMany().HasForeignKey(item => item.PermitId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(item => item.Permit).WithMany().HasForeignKey(item => item.PermitId).OnDelete(DeleteBehavior.Restrict);
         });
 
         model.Entity<PermitModule>(entity =>
@@ -158,7 +158,7 @@ internal static class ModelConfiguration
             entity.HasKey(item => item.Id);
             EnumString(entity.Property(item => item.Kind));
             entity.HasIndex(item => new { item.PermitId, item.Kind });
-            entity.HasOne(item => item.Permit).WithMany().HasForeignKey(item => item.PermitId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(item => item.Permit).WithMany().HasForeignKey(item => item.PermitId).OnDelete(DeleteBehavior.Restrict);
         });
 
         model.Entity<PermitHazard>(entity =>
@@ -166,6 +166,7 @@ internal static class ModelConfiguration
             entity.ToTable("permit_hazards");
             entity.HasKey(item => item.Id);
             entity.Property(item => item.Label).HasMaxLength(160).IsRequired();
+            RestrictPermit(entity);
         });
 
         model.Entity<PermitControlRecord>(entity =>
@@ -173,6 +174,7 @@ internal static class ModelConfiguration
             entity.ToTable("permit_controls");
             entity.HasKey(item => item.Id);
             entity.Property(item => item.Label).HasMaxLength(160).IsRequired();
+            RestrictPermit(entity);
         });
 
         model.Entity<PermitPpe>(entity =>
@@ -180,6 +182,7 @@ internal static class ModelConfiguration
             entity.ToTable("permit_ppe");
             entity.HasKey(item => item.Id);
             entity.Property(item => item.Label).HasMaxLength(160).IsRequired();
+            RestrictPermit(entity);
         });
 
         model.Entity<AtmosphericTest>(entity =>
@@ -193,7 +196,7 @@ internal static class ModelConfiguration
             EnumString(entity.Property(item => item.Result));
             Timestamp(entity.Property(item => item.TestedAt));
             entity.HasIndex(item => new { item.PermitId, item.TestedAt });
-            entity.HasOne(item => item.Permit).WithMany().HasForeignKey(item => item.PermitId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(item => item.Permit).WithMany().HasForeignKey(item => item.PermitId).OnDelete(DeleteBehavior.Restrict);
         });
 
         model.Entity<Isolation>(entity =>
@@ -203,7 +206,7 @@ internal static class ModelConfiguration
             entity.Property(item => item.Plan).HasMaxLength(80).IsRequired();
             entity.Property(item => item.LockBox).HasMaxLength(80);
             Timestamp(entity.Property(item => item.ZeroEnergyVerifiedAt));
-            entity.HasOne(item => item.Permit).WithMany().HasForeignKey(item => item.PermitId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(item => item.Permit).WithMany().HasForeignKey(item => item.PermitId).OnDelete(DeleteBehavior.Restrict);
         });
     }
 
@@ -216,6 +219,7 @@ internal static class ModelConfiguration
             entity.Property(item => item.Reason).HasMaxLength(500).IsRequired();
             Timestamp(entity.Property(item => item.SuspendedAt));
             entity.HasIndex(item => item.PermitId);
+            RestrictPermit(entity);
         });
 
         model.Entity<PermitExtension>(entity =>
@@ -225,6 +229,7 @@ internal static class ModelConfiguration
             Timestamp(entity.Property(item => item.PreviousExpiresAt));
             Timestamp(entity.Property(item => item.NewExpiresAt));
             Timestamp(entity.Property(item => item.ExtendedAt));
+            RestrictPermit(entity);
         });
 
         model.Entity<PermitReauthorization>(entity =>
@@ -232,6 +237,7 @@ internal static class ModelConfiguration
             entity.ToTable("permit_reauthorizations");
             entity.HasKey(item => item.Id);
             Timestamp(entity.Property(item => item.ReauthorizedAt));
+            RestrictPermit(entity);
         });
 
         model.Entity<PermitClosure>(entity =>
@@ -241,6 +247,7 @@ internal static class ModelConfiguration
             entity.Property(item => item.Notes).HasMaxLength(500);
             Timestamp(entity.Property(item => item.ClosedAt));
             entity.HasIndex(item => item.PermitId).IsUnique();
+            RestrictPermit(entity);
         });
     }
 
@@ -258,7 +265,7 @@ internal static class ModelConfiguration
             EnumString(entity.Property(item => item.StorageProvider));
             Timestamp(entity.Property(item => item.CreatedAt));
             entity.HasIndex(item => item.PermitId);
-            entity.HasOne(item => item.Permit).WithMany().HasForeignKey(item => item.PermitId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(item => item.Permit).WithMany().HasForeignKey(item => item.PermitId).OnDelete(DeleteBehavior.Restrict);
         });
 
         model.Entity<Device>(entity =>
@@ -276,7 +283,17 @@ internal static class ModelConfiguration
             EnumString(entity.Property(item => item.EventType));
             Timestamp(entity.Property(item => item.ReceivedAt));
             entity.HasIndex(item => item.ReceivedAt);
+            // PermitId is intentionally not a foreign key. See docs/DATA-MODEL.md.
         });
+    }
+
+    private static void RestrictPermit<TDependent>(EntityTypeBuilder<TDependent> entity)
+        where TDependent : class
+    {
+        entity.HasOne<Permit>()
+            .WithMany()
+            .HasForeignKey("PermitId")
+            .OnDelete(DeleteBehavior.Restrict);
     }
 
     private static void EnumString<T>(PropertyBuilder<T> property) where T : struct, Enum =>

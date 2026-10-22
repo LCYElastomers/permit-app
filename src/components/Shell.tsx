@@ -3,7 +3,8 @@ import { assets, contractors, templates } from "../data/mock";
 import { usePlantClock } from "../plantClock";
 import { usePermits } from "../state/PermitStore";
 import type { ListScreen } from "../types";
-import { connectivityLabel, connectivityLamp, mockConnectivity } from "../lib/connectivity";
+import { connectivityLabel, connectivityLamp, databaseLabel, serverLabel, type ConnectivitySnapshot } from "../lib/connectivity";
+import { useConnectivity } from "../services/useConnectivity";
 import { plantSnapshot } from "../plantStatus";
 import { ActivePermits } from "../screens/ActivePermits";
 import { CommandCenter } from "../screens/CommandCenter";
@@ -47,6 +48,7 @@ const NAV: { label: string; items: { id: ListScreen; label: string }[] }[] = [
 
 export function Shell() {
   const { permits, drafts, screen, origin, selectedId, go } = usePermits();
+  const link = useConnectivity();
   const stageRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
@@ -111,10 +113,10 @@ export function Shell() {
             </div>
           ))}
         </div>
-        <NetworkStatus />
+        <NetworkStatus link={link} />
       </aside>
       <div className="workspace">
-        <OpsBar />
+        <OpsBar link={link} />
         <PlantStatus />
         <main className="stage" ref={stageRef}>
           {screen === "command" && <CommandCenter />}
@@ -134,8 +136,7 @@ export function Shell() {
   );
 }
 
-function NetworkStatus() {
-  const link = mockConnectivity.current();
+function NetworkStatus({ link }: { link: ConnectivitySnapshot }) {
   return (
     <div className="network">
       <div className="network-label">NETWORK</div>
@@ -143,7 +144,20 @@ function NetworkStatus() {
         <span className={`lamp lamp-${connectivityLamp(link.state)}`} />
         {connectivityLabel(link.state)}
       </div>
-      <div className="network-sync mono">Last synced {link.lastSynced ?? "—"}</div>
+      <div className="network-detail mono">
+        <div>
+          <span>SERVER</span>
+          <strong>{serverLabel(link.server)}</strong>
+        </div>
+        <div>
+          <span>DATABASE</span>
+          <strong>{databaseLabel(link.database)}</strong>
+        </div>
+        <div>
+          <span>LAST CHECK</span>
+          <strong>{link.lastCheck ?? "—"}</strong>
+        </div>
+      </div>
     </div>
   );
 }
@@ -173,8 +187,7 @@ function PlantStatus() {
   );
 }
 
-function ServerStatus() {
-  const link = mockConnectivity.current();
+function ServerStatus({ link }: { link: ConnectivitySnapshot }) {
   const label = link.state === "online" ? "SERVER ONLINE" : connectivityLabel(link.state);
   return (
     <div className="ops-seg ops-server">
@@ -184,7 +197,7 @@ function ServerStatus() {
   );
 }
 
-function OpsBar() {
+function OpsBar({ link }: { link: ConnectivitySnapshot }) {
   const clock = usePlantClock();
   return (
     <header className="opsbar">
@@ -201,7 +214,7 @@ function OpsBar() {
         <span className="mono">{clock.date}</span>
         <span className="mono ops-time">{clock.hms}</span>
       </div>
-      <ServerStatus />
+      <ServerStatus link={link} />
     </header>
   );
 }

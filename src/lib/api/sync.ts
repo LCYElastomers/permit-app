@@ -1,9 +1,5 @@
 import { apiRequest } from "./client";
-import type { HealthResponse, SyncEventRequest } from "./types";
-
-export function getHealth(signal?: AbortSignal): Promise<HealthResponse> {
-  return apiRequest<HealthResponse>("/api/v1/health", { signal });
-}
+import type { SyncEventRequest } from "./types";
 
 export function pushSync(events: SyncEventRequest[]): Promise<{ error: string }> {
   return apiRequest<{ error: string }>("/api/v1/sync/push", {

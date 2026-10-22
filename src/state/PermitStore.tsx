@@ -117,6 +117,7 @@ function permitFromDraft(draft: PermitDraft, id: string, time: string): Permit {
     status: "active",
     revision: "01",
     area: draft.area,
+    areaId: draft.areaId || undefined,
     equipment,
     location,
     work: draft.description.trim(),

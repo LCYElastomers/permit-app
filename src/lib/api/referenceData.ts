@@ -1,8 +1,19 @@
 import { apiRequest } from "./client";
-import type { AreaResponse, ContractorResponse, EquipmentResponse } from "./types";
+import type { AreaResponse, ContractorResponse, CreateAreaRequest, EquipmentResponse } from "./types";
 
 export function listAreas(): Promise<AreaResponse[]> {
   return apiRequest<AreaResponse[]>("/api/v1/areas");
+}
+
+export function getArea(id: string): Promise<AreaResponse> {
+  return apiRequest<AreaResponse>(`/api/v1/areas/${encodeURIComponent(id)}`);
+}
+
+export function createArea(request: CreateAreaRequest): Promise<AreaResponse> {
+  return apiRequest<AreaResponse>("/api/v1/areas", {
+    method: "POST",
+    body: JSON.stringify(request),
+  });
 }
 
 export function listEquipment(): Promise<EquipmentResponse[]> {

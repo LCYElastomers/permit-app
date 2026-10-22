@@ -4,9 +4,9 @@ Permit Control is an offline-first permit-to-work application. This document des
 
 ## What exists today
 
-The Tauri application is a React mock. It does not call the API during startup and does not read PostgreSQL. Screens still use `src/data/mock.ts`.
+The Tauri application still keeps permit lists, detail, and dashboard metrics in `src/data/mock.ts`. It does not read PostgreSQL. Startup does not wait for the API. After the first paint, the shell checks API health in the background, and New Permit loads areas when that screen opens.
 
-The ASP.NET Core solution under `server/` compiles without a database. `GET /api/v1/health` does not open a connection and does not return configuration values. Other data endpoints return `503 database-not-configured` until `PERMIT_DB_*` is fully set, and `501` after that until the handlers are written. Sync push and pull return `501 sync-not-implemented`.
+The ASP.NET Core solution under `server/` compiles without a database. `GET /api/v1/health` does not open a connection and does not return configuration values. `GET /api/v1/health/ready` checks connectivity only. `GET` and `POST /api/v1/areas` read and create areas when PostgreSQL is configured. Other data endpoints return `503 database-not-configured` until `PERMIT_DB_*` is fully set, and `501` after that until the handlers are written. Sync push and pull return `501 sync-not-implemented`.
 
 ## Intended runtime
 
@@ -42,11 +42,15 @@ Database settings come from environment variables `PERMIT_DB_HOST`, `PERMIT_DB_P
 
 `PERMIT_FILE_ROOT` is the future directory for attachment bytes. `LocalFileStorage` can write a file there, but no upload route calls it yet.
 
-The UI base URL is `VITE_PERMIT_API_URL`, defaulting to `http://127.0.0.1:5080`. The client helpers live in `src/lib/api/` and are not used by the screens yet.
+The UI base URL is `VITE_PERMIT_API_URL`. When it is unset, the desktop app uses `https://permit-control.local`. A developer can point at a local API by setting that variable. The value is not written into React screens.
 
 ## Connectivity
 
-`src/lib/connectivity.ts` defines `online`, `offline`, `syncing`, and `sync-error`. The shell still reads `mockConnectivity`, which reports online and last synced `13:27`. Startup does not call `/api/v1/health`.
+Startup renders immediately. A background check then calls `GET /api/v1/health` and, only if that process responds, `GET /api/v1/health/ready`. Each request times out after 5 seconds. The check repeats every 30 seconds and does not overlap itself.
+
+The shell shows `CHECKING` until the first result, `ONLINE` when the process and database are ready, `OFFLINE` when the process cannot be reached, and `SERVER NOT READY` when the process is up but readiness fails. The panel does not show the API host, status codes, or database errors. Navigation and mock permit screens do not wait on these calls.
+
+New Permit loads areas from `GET /api/v1/areas` through the area service. The selector shows `name` and stores the area UUID on the draft. If the request fails, the rest of the form stays usable and no mock area list is substituted. Permit lists, detail, and dashboard metrics still use `src/data/mock.ts`.
 
 ## Not built yet
 

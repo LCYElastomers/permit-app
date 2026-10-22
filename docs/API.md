@@ -18,6 +18,8 @@ The process listens on `http://localhost:5080` in the local launch profile. Ther
 
 This does not open PostgreSQL and does not echo host, user, or password. `databaseConfigured` is true only when host, database name, user, and password are all set.
 
+`GET /api/v1/health/ready` checks that PostgreSQL accepts a connection. It returns `{ "status": "ready" }` or `503` with `{ "status": "not-ready" }`. The body does not include host, user, password, connection string, or provider errors.
+
 ## Permits
 
 `GET /api/v1/permits`
@@ -50,10 +52,33 @@ Each item:
 
 Until a database is configured these routes return `503` with `{ "error": "database-not-configured" }`. When a database is configured and the handler is still a skeleton, they return `501` with `{ "error": "not-implemented" }`.
 
-## Reference data and archive
+## Areas
+
+`GET /api/v1/areas` returns every area ordered by `name`, then `id`. The `areas` table has no enabled flag, so there is no inactive subset to hide.
+
+```json
+[
+  { "id": "0b6d1a22-1111-4a1b-9c1d-111111111111", "name": "Unit 1" }
+]
+```
+
+`GET /api/v1/areas/{id}` returns one object of that shape. A missing area is `404` with `{ "error": "area not found" }`. An id that is not a UUID, or the empty UUID, is `400` with `{ "error": "id is invalid" }`.
+
+`POST /api/v1/areas`
+
+```json
+{ "name": "Tank Farm", "id": "0b6d1a22-1111-4a1b-9c1d-111111111111" }
+```
+
+`id` is optional. When it is omitted the server generates a UUID. The stored name is trimmed. A missing or whitespace-only name is `400` with `{ "error": "name is required" }`. A name longer than 120 characters is `400` with `{ "error": "name is too long" }`. The empty UUID is `400` with `{ "error": "id is invalid" }`.
+
+Success is `201 Created` with the area body and a `Location` of `/api/v1/areas/{id}`. An existing name or id is `409`. Name uniqueness matches the case-sensitive unique index on `areas."Name"`.
+
+When the database is not configured these routes return `503` with `{ "error": "database-not-configured" }`. A database failure returns `503` with `{ "error": "database-unavailable" }` and does not include the provider message. There is no authentication yet. The controller is the place to add reference-data authorization later.
+
+## Other reference data and archive
 
 ```
-GET /api/v1/areas
 GET /api/v1/equipment
 GET /api/v1/contractors
 GET /api/v1/archive
@@ -62,12 +87,11 @@ GET /api/v1/archive/{id}
 
 Success shapes, once implemented:
 
-- areas: `[{ "id", "name" }]`
 - equipment: `[{ "id", "areaId", "tag", "name" }]`
 - contractors: `[{ "id", "name" }]`
 - archive: the permit list shape, limited to closed, cancelled, expired, and superseded permits
 
-Today they use the same `503` / `501` behavior as the permit routes.
+Those routes still use `503` when the database is not configured and `501` with `{ "error": "not-implemented" }` when it is.
 
 ## Sync
 
@@ -96,7 +120,7 @@ Both return `501` with `{ "error": "sync-not-implemented" }`. A missing `events`
 
 ## Client
 
-`src/lib/api/` wraps these paths. `VITE_PERMIT_API_URL` overrides the default `http://127.0.0.1:5080`. The React screens do not call the client yet, so a missing API does not affect the mock UI.
+`src/lib/api/` wraps these paths. `VITE_PERMIT_API_URL` overrides the production default `https://permit-control.local`. Screens do not call `fetch`. Connectivity and New Permit areas go through services. The other screens still use mock permit data, so a missing API does not stop the desktop app.
 
 ## Not exposed
 

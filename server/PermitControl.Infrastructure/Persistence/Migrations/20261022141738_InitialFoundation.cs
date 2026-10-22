@@ -49,108 +49,6 @@ namespace PermitControl.Infrastructure.Persistence.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "permit_closures",
-                columns: table => new
-                {
-                    Id = table.Column<Guid>(type: "uuid", nullable: false),
-                    PermitId = table.Column<Guid>(type: "uuid", nullable: false),
-                    ClosedAt = table.Column<DateTimeOffset>(type: "timestamptz", nullable: false),
-                    ClosedBy = table.Column<Guid>(type: "uuid", nullable: false),
-                    Notes = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: true)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_permit_closures", x => x.Id);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "permit_controls",
-                columns: table => new
-                {
-                    Id = table.Column<Guid>(type: "uuid", nullable: false),
-                    PermitId = table.Column<Guid>(type: "uuid", nullable: false),
-                    ModuleId = table.Column<Guid>(type: "uuid", nullable: true),
-                    Label = table.Column<string>(type: "character varying(160)", maxLength: 160, nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_permit_controls", x => x.Id);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "permit_extensions",
-                columns: table => new
-                {
-                    Id = table.Column<Guid>(type: "uuid", nullable: false),
-                    PermitId = table.Column<Guid>(type: "uuid", nullable: false),
-                    PreviousExpiresAt = table.Column<DateTimeOffset>(type: "timestamptz", nullable: false),
-                    NewExpiresAt = table.Column<DateTimeOffset>(type: "timestamptz", nullable: false),
-                    ExtendedAt = table.Column<DateTimeOffset>(type: "timestamptz", nullable: false),
-                    ExtendedBy = table.Column<Guid>(type: "uuid", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_permit_extensions", x => x.Id);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "permit_hazards",
-                columns: table => new
-                {
-                    Id = table.Column<Guid>(type: "uuid", nullable: false),
-                    PermitId = table.Column<Guid>(type: "uuid", nullable: false),
-                    ModuleId = table.Column<Guid>(type: "uuid", nullable: true),
-                    Label = table.Column<string>(type: "character varying(160)", maxLength: 160, nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_permit_hazards", x => x.Id);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "permit_ppe",
-                columns: table => new
-                {
-                    Id = table.Column<Guid>(type: "uuid", nullable: false),
-                    PermitId = table.Column<Guid>(type: "uuid", nullable: false),
-                    Label = table.Column<string>(type: "character varying(160)", maxLength: 160, nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_permit_ppe", x => x.Id);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "permit_reauthorizations",
-                columns: table => new
-                {
-                    Id = table.Column<Guid>(type: "uuid", nullable: false),
-                    PermitId = table.Column<Guid>(type: "uuid", nullable: false),
-                    ReauthorizedAt = table.Column<DateTimeOffset>(type: "timestamptz", nullable: false),
-                    ReauthorizedBy = table.Column<Guid>(type: "uuid", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_permit_reauthorizations", x => x.Id);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "permit_suspensions",
-                columns: table => new
-                {
-                    Id = table.Column<Guid>(type: "uuid", nullable: false),
-                    PermitId = table.Column<Guid>(type: "uuid", nullable: false),
-                    EventId = table.Column<Guid>(type: "uuid", nullable: true),
-                    Reason = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: false),
-                    SuspendedAt = table.Column<DateTimeOffset>(type: "timestamptz", nullable: false),
-                    SuspendedBy = table.Column<Guid>(type: "uuid", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_permit_suspensions", x => x.Id);
-                });
-
-            migrationBuilder.CreateTable(
                 name: "roles",
                 columns: table => new
                 {
@@ -314,7 +212,7 @@ namespace PermitControl.Infrastructure.Persistence.Migrations
                         column: x => x.PermitId,
                         principalTable: "permits",
                         principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
+                        onDelete: ReferentialAction.Restrict);
                 });
 
             migrationBuilder.CreateTable(
@@ -343,7 +241,7 @@ namespace PermitControl.Infrastructure.Persistence.Migrations
                         column: x => x.PermitId,
                         principalTable: "permits",
                         principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
+                        onDelete: ReferentialAction.Restrict);
                 });
 
             migrationBuilder.CreateTable(
@@ -366,7 +264,7 @@ namespace PermitControl.Infrastructure.Persistence.Migrations
                         column: x => x.PermitId,
                         principalTable: "permits",
                         principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
+                        onDelete: ReferentialAction.Restrict);
                 });
 
             migrationBuilder.CreateTable(
@@ -388,7 +286,48 @@ namespace PermitControl.Infrastructure.Persistence.Migrations
                         column: x => x.PermitId,
                         principalTable: "permits",
                         principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
+                        onDelete: ReferentialAction.Restrict);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "permit_closures",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false),
+                    PermitId = table.Column<Guid>(type: "uuid", nullable: false),
+                    ClosedAt = table.Column<DateTimeOffset>(type: "timestamptz", nullable: false),
+                    ClosedBy = table.Column<Guid>(type: "uuid", nullable: false),
+                    Notes = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_permit_closures", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_permit_closures_permits_PermitId",
+                        column: x => x.PermitId,
+                        principalTable: "permits",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "permit_controls",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false),
+                    PermitId = table.Column<Guid>(type: "uuid", nullable: false),
+                    ModuleId = table.Column<Guid>(type: "uuid", nullable: true),
+                    Label = table.Column<string>(type: "character varying(160)", maxLength: 160, nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_permit_controls", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_permit_controls_permits_PermitId",
+                        column: x => x.PermitId,
+                        principalTable: "permits",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
                 });
 
             migrationBuilder.CreateTable(
@@ -414,7 +353,49 @@ namespace PermitControl.Infrastructure.Persistence.Migrations
                         column: x => x.PermitId,
                         principalTable: "permits",
                         principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
+                        onDelete: ReferentialAction.Restrict);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "permit_extensions",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false),
+                    PermitId = table.Column<Guid>(type: "uuid", nullable: false),
+                    PreviousExpiresAt = table.Column<DateTimeOffset>(type: "timestamptz", nullable: false),
+                    NewExpiresAt = table.Column<DateTimeOffset>(type: "timestamptz", nullable: false),
+                    ExtendedAt = table.Column<DateTimeOffset>(type: "timestamptz", nullable: false),
+                    ExtendedBy = table.Column<Guid>(type: "uuid", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_permit_extensions", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_permit_extensions_permits_PermitId",
+                        column: x => x.PermitId,
+                        principalTable: "permits",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "permit_hazards",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false),
+                    PermitId = table.Column<Guid>(type: "uuid", nullable: false),
+                    ModuleId = table.Column<Guid>(type: "uuid", nullable: true),
+                    Label = table.Column<string>(type: "character varying(160)", maxLength: 160, nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_permit_hazards", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_permit_hazards_permits_PermitId",
+                        column: x => x.PermitId,
+                        principalTable: "permits",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
                 });
 
             migrationBuilder.CreateTable(
@@ -434,7 +415,7 @@ namespace PermitControl.Infrastructure.Persistence.Migrations
                         column: x => x.PermitId,
                         principalTable: "permits",
                         principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
+                        onDelete: ReferentialAction.Restrict);
                 });
 
             migrationBuilder.CreateTable(
@@ -455,7 +436,46 @@ namespace PermitControl.Infrastructure.Persistence.Migrations
                         column: x => x.PermitId,
                         principalTable: "permits",
                         principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
+                        onDelete: ReferentialAction.Restrict);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "permit_ppe",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false),
+                    PermitId = table.Column<Guid>(type: "uuid", nullable: false),
+                    Label = table.Column<string>(type: "character varying(160)", maxLength: 160, nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_permit_ppe", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_permit_ppe_permits_PermitId",
+                        column: x => x.PermitId,
+                        principalTable: "permits",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "permit_reauthorizations",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false),
+                    PermitId = table.Column<Guid>(type: "uuid", nullable: false),
+                    ReauthorizedAt = table.Column<DateTimeOffset>(type: "timestamptz", nullable: false),
+                    ReauthorizedBy = table.Column<Guid>(type: "uuid", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_permit_reauthorizations", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_permit_reauthorizations_permits_PermitId",
+                        column: x => x.PermitId,
+                        principalTable: "permits",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
                 });
 
             migrationBuilder.CreateTable(
@@ -476,7 +496,29 @@ namespace PermitControl.Infrastructure.Persistence.Migrations
                         column: x => x.PermitId,
                         principalTable: "permits",
                         principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
+                        onDelete: ReferentialAction.Restrict);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "permit_suspensions",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false),
+                    PermitId = table.Column<Guid>(type: "uuid", nullable: false),
+                    EventId = table.Column<Guid>(type: "uuid", nullable: true),
+                    Reason = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: false),
+                    SuspendedAt = table.Column<DateTimeOffset>(type: "timestamptz", nullable: false),
+                    SuspendedBy = table.Column<Guid>(type: "uuid", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_permit_suspensions", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_permit_suspensions_permits_PermitId",
+                        column: x => x.PermitId,
+                        principalTable: "permits",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
                 });
 
             migrationBuilder.CreateIndex(
@@ -522,9 +564,24 @@ namespace PermitControl.Infrastructure.Persistence.Migrations
                 unique: true);
 
             migrationBuilder.CreateIndex(
+                name: "IX_permit_controls_PermitId",
+                table: "permit_controls",
+                column: "PermitId");
+
+            migrationBuilder.CreateIndex(
                 name: "IX_permit_events_PermitId_OccurredAt",
                 table: "permit_events",
                 columns: new[] { "PermitId", "OccurredAt" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_permit_extensions_PermitId",
+                table: "permit_extensions",
+                column: "PermitId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_permit_hazards_PermitId",
+                table: "permit_hazards",
+                column: "PermitId");
 
             migrationBuilder.CreateIndex(
                 name: "IX_permit_modules_PermitId_Kind",
@@ -534,6 +591,16 @@ namespace PermitControl.Infrastructure.Persistence.Migrations
             migrationBuilder.CreateIndex(
                 name: "IX_permit_participants_PermitId",
                 table: "permit_participants",
+                column: "PermitId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_permit_ppe_PermitId",
+                table: "permit_ppe",
+                column: "PermitId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_permit_reauthorizations_PermitId",
+                table: "permit_reauthorizations",
                 column: "PermitId");
 
             migrationBuilder.CreateIndex(

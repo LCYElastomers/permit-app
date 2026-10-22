@@ -65,6 +65,7 @@ export interface Permit {
   status: PermitStatus;
   revision: string;
   area: string;
+  areaId?: string;
   equipment: string;
   location: string;
   work: string;
@@ -113,6 +114,7 @@ export interface PermitDraft {
   kind: PermitKind;
   step: number;
   area: string;
+  areaId: string;
   place: string;
   workOrder: string;
   description: string;

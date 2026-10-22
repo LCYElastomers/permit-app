@@ -23,6 +23,10 @@ export interface HealthResponse {
   databaseConfigured: boolean;
 }
 
+export interface ReadinessResponse {
+  status: string;
+}
+
 export interface PermitSummary {
   id: string;
   permitNumber: string;
@@ -44,6 +48,11 @@ export interface PermitListResponse {
 export interface AreaResponse {
   id: string;
   name: string;
+}
+
+export interface CreateAreaRequest {
+  name: string;
+  id?: string;
 }
 
 export interface EquipmentResponse {

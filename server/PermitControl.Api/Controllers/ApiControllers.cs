@@ -5,11 +5,25 @@ namespace PermitControl.Api.Controllers;
 
 [ApiController]
 [Route("api/v1/health")]
-public sealed class HealthController(IDatabaseAvailability database) : ControllerBase
+public sealed class HealthController(IDatabaseAvailability database, IDatabaseProbe probe) : ControllerBase
 {
     [HttpGet]
     public ActionResult<HealthResponse> Get() =>
         Ok(new HealthResponse("ok", "permit-control-api", database.IsConfigured));
+
+    [HttpGet("ready")]
+    public async Task<ActionResult<ReadinessResponse>> Ready(CancellationToken cancellationToken)
+    {
+        if (!database.IsConfigured)
+        {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new ReadinessResponse("not-ready"));
+        }
+
+        var ready = await probe.CanQueryAsync(cancellationToken);
+        return ready
+            ? Ok(new ReadinessResponse("ready"))
+            : StatusCode(StatusCodes.Status503ServiceUnavailable, new ReadinessResponse("not-ready"));
+    }
 }
 
 [ApiController]
@@ -48,9 +62,6 @@ public sealed class PermitsController(IDatabaseAvailability database) : Controll
 [Route("api/v1")]
 public sealed class ReferenceController(IDatabaseAvailability database) : ControllerBase
 {
-    [HttpGet("areas")]
-    public IActionResult Areas() => UnavailableOrNotImplemented();
-
     [HttpGet("equipment")]
     public IActionResult Equipment() => UnavailableOrNotImplemented();
 

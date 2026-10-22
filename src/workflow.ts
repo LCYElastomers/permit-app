@@ -38,17 +38,6 @@ export const CONTROLS = [
   "other controls",
 ] as const;
 
-export const AREAS = [
-  "Unit 1",
-  "Unit 2",
-  "Tank Farm",
-  "Utilities",
-  "Wastewater",
-  "Dock",
-  "Flare",
-  "Warehouse",
-] as const;
-
 export function kindTitle(kind: PermitKind): string {
   return permitType(kind).title;
 }
@@ -202,6 +191,7 @@ export function emptyDraft(kind: PermitKind = "general"): PermitDraft {
     kind,
     step: 0,
     area: "",
+    areaId: "",
     place: "",
     workOrder: "",
     description: "",

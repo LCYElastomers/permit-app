@@ -1,11 +1,12 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { contractors } from "../data/mock";
 import { GENERAL_EXCLUSIONS, PERMIT_TYPES, typeRecommendations } from "../permitTypes";
 import { plantClock } from "../plantClock";
+import { areaIdForName, type AreaCatalog } from "../services/areas";
+import { useAreaCatalog } from "../services/useAreaCatalog";
 import { usePermits } from "../state/PermitStore";
 import type { PermitDraft, PermitKind } from "../types";
 import {
-  AREAS,
   CONTROLS,
   HAZARDS,
   STEPS,
@@ -21,6 +22,7 @@ const COMPANIES = contractors.filter((item) => item.name !== "LCY").map((item) =
 
 export function NewPermit() {
   const { form, updateForm, saveDraft, issuePermit, resetForm } = usePermits();
+  const catalog = useAreaCatalog();
   const [saved, setSaved] = useState("");
   const [signError, setSignError] = useState("");
   const blockers = issueBlockers(form);
@@ -28,6 +30,13 @@ export function NewPermit() {
   const patch = (partial: Partial<PermitDraft>) => {
     updateForm((current) => ({ ...current, ...partial }));
   };
+
+  useEffect(() => {
+    if (catalog.status !== "ready" || form.areaId || !form.area) return;
+    const areaId = areaIdForName(catalog.areas, form.area);
+    if (!areaId) return;
+    updateForm((current) => (current.areaId ? current : { ...current, areaId }));
+  }, [catalog, form.area, form.areaId, updateForm]);
 
   const setField = (key: string, value: string) => {
     updateForm((current) => ({ ...current, fields: { ...current.fields, [key]: value } }));
@@ -71,7 +80,7 @@ export function NewPermit() {
       <div className="workflow-body">
         {saved ? <div className="notice">Draft {saved} saved on this station.</div> : null}
         <TypeRecommendationNotice form={form} onUse={(kind) => patch({ kind })} />
-        {form.step === 0 && <ScopeStep form={form} patch={patch} setField={setField} />}
+        {form.step === 0 && <ScopeStep form={form} patch={patch} setField={setField} catalog={catalog} />}
         {form.step === 1 && (
           <ChoiceStep
             index="02"
@@ -140,15 +149,30 @@ export function NewPermit() {
   );
 }
 
+function AreaNote({ form, catalog }: { form: PermitDraft; catalog: AreaCatalog }) {
+  if (catalog.status === "loading") return <p className="field-note">Loading areas.</p>;
+  if (catalog.status === "unavailable") {
+    return <p className="field-note">Area reference data is unavailable. The rest of this permit can still be entered.</p>;
+  }
+  if (catalog.areas.length === 0) return <p className="field-note">No areas are configured.</p>;
+  const known = catalog.areas.some((area) => area.id === form.areaId || area.name === form.area);
+  if (form.area && !known) return <p className="field-note">Saved area is not in the current reference list.</p>;
+  return null;
+}
+
 function ScopeStep({
   form,
   patch,
   setField,
+  catalog,
 }: {
   form: PermitDraft;
   patch: (partial: Partial<PermitDraft>) => void;
   setField: (key: string, value: string) => void;
+  catalog: ReturnType<typeof useAreaCatalog>;
 }) {
+  const areas = catalog.status === "ready" ? catalog.areas : [];
+  const selected = areas.some((area) => area.id === form.areaId) ? form.areaId : "";
   return (
     <Section index="01" title="SCOPE">
       <div className="form-grid">
@@ -158,12 +182,22 @@ function ScopeStep({
         </div>
         <label className="form-field">
           <span>Area</span>
-          <select value={form.area} onChange={(event) => patch({ area: event.target.value })}>
+          <select
+            value={selected}
+            disabled={catalog.status !== "ready"}
+            onChange={(event) => {
+              const area = areas.find((item) => item.id === event.target.value);
+              patch({ areaId: area?.id ?? "", area: area?.name ?? "" });
+            }}
+          >
             <option value="">Select area</option>
-            {AREAS.map((area) => (
-              <option key={area}>{area}</option>
+            {areas.map((area) => (
+              <option key={area.id} value={area.id}>
+                {area.name}
+              </option>
             ))}
           </select>
+          <AreaNote form={form} catalog={catalog} />
         </label>
         <label className="form-field">
           <span>Equipment / location</span>

@@ -1,3 +1,7 @@
+using System.Data.Common;
+using Microsoft.AspNetCore.Diagnostics;
+using Microsoft.EntityFrameworkCore;
+using PermitControl.Application;
 using PermitControl.Infrastructure;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -17,6 +21,29 @@ builder.Services.AddCors(options =>
 });
 
 var app = builder.Build();
+
+app.UseExceptionHandler(handler =>
+{
+    handler.Run(async context =>
+    {
+        var failure = context.Features.Get<IExceptionHandlerFeature>()?.Error;
+        var logger = context.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("PermitControl.Api");
+        if (failure is DbException or DbUpdateException or DatabaseUnavailableException)
+        {
+            logger.LogWarning("Database request failed ({ExceptionType}).", failure.GetType().Name);
+        }
+        else
+        {
+            logger.LogError(failure, "Unhandled API exception.");
+        }
+
+        var unavailable = failure is DatabaseUnavailableException;
+        context.Response.StatusCode = unavailable
+            ? StatusCodes.Status503ServiceUnavailable
+            : StatusCodes.Status500InternalServerError;
+        await context.Response.WriteAsJsonAsync(new { error = unavailable ? "database-unavailable" : "unexpected-error" });
+    });
+});
 
 if (app.Environment.IsDevelopment())
 {

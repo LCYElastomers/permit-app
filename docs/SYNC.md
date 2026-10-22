@@ -12,6 +12,8 @@ The sync engine is not implemented. Push and pull return `501`. This note is the
 
 The client sends events it created, each with a UUID the client generated. `permit_events.id` and `sync_events.id` are that same id.
 
+`sync_events` is the server receipt for that id. Its permit id is optional and is not a foreign key, so a receipt can record accepted activity that is not a permit record. The receipt is not deleted when a permit is retained or closed. See the data model for why it has no permit foreign key.
+
 If the server has already stored the id, the push of that event is a success and a no-op. Retries must not create a second event and must not apply the transition again. `PermitSyncState` in the domain project demonstrates this: a repeated id returns `Duplicate` and leaves status unchanged.
 
 `occurredAt` is when the action happened on the device. `recordedAt` is when the server stored it. Ordering for safety uses `occurredAt`, not arrival order.

@@ -418,6 +418,8 @@ namespace PermitControl.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("PermitId");
+
                     b.ToTable("permit_controls", (string)null);
                 });
 
@@ -488,6 +490,8 @@ namespace PermitControl.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("PermitId");
+
                     b.ToTable("permit_extensions", (string)null);
                 });
 
@@ -509,6 +513,8 @@ namespace PermitControl.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("PermitId");
 
                     b.ToTable("permit_hazards", (string)null);
                 });
@@ -582,6 +588,8 @@ namespace PermitControl.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("PermitId");
+
                     b.ToTable("permit_ppe", (string)null);
                 });
 
@@ -601,6 +609,8 @@ namespace PermitControl.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("PermitId");
 
                     b.ToTable("permit_reauthorizations", (string)null);
                 });
@@ -771,7 +781,7 @@ namespace PermitControl.Infrastructure.Persistence.Migrations
                     b.HasOne("PermitControl.Domain.Permit", "Permit")
                         .WithMany()
                         .HasForeignKey("PermitId")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.Navigation("Permit");
@@ -782,7 +792,7 @@ namespace PermitControl.Infrastructure.Persistence.Migrations
                     b.HasOne("PermitControl.Domain.Permit", "Permit")
                         .WithMany()
                         .HasForeignKey("PermitId")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.Navigation("Permit");
@@ -804,7 +814,7 @@ namespace PermitControl.Infrastructure.Persistence.Migrations
                     b.HasOne("PermitControl.Domain.Permit", "Permit")
                         .WithMany()
                         .HasForeignKey("PermitId")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.Navigation("Permit");
@@ -848,10 +858,28 @@ namespace PermitControl.Infrastructure.Persistence.Migrations
                     b.HasOne("PermitControl.Domain.Permit", "Permit")
                         .WithMany()
                         .HasForeignKey("PermitId")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.Navigation("Permit");
+                });
+
+            modelBuilder.Entity("PermitControl.Domain.PermitClosure", b =>
+                {
+                    b.HasOne("PermitControl.Domain.Permit", null)
+                        .WithMany()
+                        .HasForeignKey("PermitId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("PermitControl.Domain.PermitControlRecord", b =>
+                {
+                    b.HasOne("PermitControl.Domain.Permit", null)
+                        .WithMany()
+                        .HasForeignKey("PermitId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("PermitControl.Domain.PermitEvent", b =>
@@ -859,10 +887,28 @@ namespace PermitControl.Infrastructure.Persistence.Migrations
                     b.HasOne("PermitControl.Domain.Permit", "Permit")
                         .WithMany()
                         .HasForeignKey("PermitId")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.Navigation("Permit");
+                });
+
+            modelBuilder.Entity("PermitControl.Domain.PermitExtension", b =>
+                {
+                    b.HasOne("PermitControl.Domain.Permit", null)
+                        .WithMany()
+                        .HasForeignKey("PermitId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("PermitControl.Domain.PermitHazard", b =>
+                {
+                    b.HasOne("PermitControl.Domain.Permit", null)
+                        .WithMany()
+                        .HasForeignKey("PermitId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("PermitControl.Domain.PermitModule", b =>
@@ -870,7 +916,7 @@ namespace PermitControl.Infrastructure.Persistence.Migrations
                     b.HasOne("PermitControl.Domain.Permit", "Permit")
                         .WithMany()
                         .HasForeignKey("PermitId")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.Navigation("Permit");
@@ -881,10 +927,28 @@ namespace PermitControl.Infrastructure.Persistence.Migrations
                     b.HasOne("PermitControl.Domain.Permit", "Permit")
                         .WithMany()
                         .HasForeignKey("PermitId")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.Navigation("Permit");
+                });
+
+            modelBuilder.Entity("PermitControl.Domain.PermitPpe", b =>
+                {
+                    b.HasOne("PermitControl.Domain.Permit", null)
+                        .WithMany()
+                        .HasForeignKey("PermitId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("PermitControl.Domain.PermitReauthorization", b =>
+                {
+                    b.HasOne("PermitControl.Domain.Permit", null)
+                        .WithMany()
+                        .HasForeignKey("PermitId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("PermitControl.Domain.PermitRevision", b =>
@@ -892,10 +956,19 @@ namespace PermitControl.Infrastructure.Persistence.Migrations
                     b.HasOne("PermitControl.Domain.Permit", "Permit")
                         .WithMany()
                         .HasForeignKey("PermitId")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.Navigation("Permit");
+                });
+
+            modelBuilder.Entity("PermitControl.Domain.PermitSuspension", b =>
+                {
+                    b.HasOne("PermitControl.Domain.Permit", null)
+                        .WithMany()
+                        .HasForeignKey("PermitId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("PermitControl.Domain.UserRole", b =>

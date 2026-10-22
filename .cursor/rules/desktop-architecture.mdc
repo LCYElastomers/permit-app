@@ -1,0 +1,21 @@
+---
+description: Permit Control is an installed offline-first Tauri app; local SQLite is the working store and the API only synchronizes
+alwaysApply: true
+---
+
+# Desktop architecture
+
+Permit Control is an installed, offline-first Tauri desktop application, not a web application. Local SQLite is the primary working store. The Permit Control API is backend infrastructure only. It synchronizes Permit Control with the authoritative plant record when connectivity is available.
+
+Successful field data entry must never depend on API availability. No operational workflow may require launching a browser or navigating to the API hostname. Loss of API connectivity must not prevent the desktop application from launching or accessing locally persisted permit information.
+
+- Keep permit work in the Tauri shell: lists, detail, issue, review, authorization, suspension, and closure.
+- Write field entries to local SQLite first. Do not block startup, data entry, navigation, or local reads on health checks or other API calls.
+- Call the API only to synchronize with the plant record while connected. Do not send operators to Swagger, a hosted page, or the API host to complete work.
+
+```text
+Bad: open https://permit-api/swagger to authorize a permit
+Bad: suspend a permit only after POST /api/v1/permits succeeds
+Bad: app startup waits on GET /api/v1/health before showing permits
+Good: suspension is saved in local SQLite while the API is unreachable, then synchronized later
+```

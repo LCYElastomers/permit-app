@@ -154,10 +154,24 @@ button:disabled { cursor: default; opacity: 0.55; }
   letter-spacing: 0.08em;
 }
 
-.network-sync {
-  margin-top: 4px;
+.network-detail {
+  margin-top: 8px;
+  display: grid;
+  gap: 2px;
+}
+
+.network-detail div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
   font-size: 11px;
   color: var(--text-muted);
+  letter-spacing: 0.04em;
+}
+
+.network-detail strong {
+  color: var(--text-dim);
+  font-weight: 500;
 }
 
 .lamp {
@@ -557,7 +571,12 @@ button:disabled { cursor: default; opacity: 0.55; }
   color: var(--text-muted);
 }
 
-.notice { color: var(--text-dim); }
+.field-note {
+  margin: 6px 0 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
 
 .hold-band {
   margin: 12px 16px 0;
