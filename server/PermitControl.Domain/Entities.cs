@@ -53,17 +53,17 @@ public sealed class Permit
     public string PermitNumber { get; set; } = "";
     public PermitType PermitType { get; set; }
     public PermitStatus Status { get; set; }
-    public Guid AreaId { get; set; }
+    public Guid? AreaId { get; set; }
     public Guid? EquipmentId { get; set; }
     public string WorkOrder { get; set; } = "";
     public string JobDescription { get; set; } = "";
     public CompanyType CompanyType { get; set; }
     public Guid? ContractorId { get; set; }
-    public Guid CreatedBy { get; set; }
+    public Guid? CreatedBy { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
-    public DateTimeOffset PlannedStart { get; set; }
-    public DateTimeOffset ExpiresAt { get; set; }
+    public DateTimeOffset? PlannedStart { get; set; }
+    public DateTimeOffset? ExpiresAt { get; set; }
     public DateTimeOffset? ActivatedAt { get; set; }
     public DateTimeOffset? ClosedAt { get; set; }
     public int CurrentRevision { get; set; }
@@ -79,7 +79,7 @@ public sealed class PermitRevision
     public Guid Id { get; set; }
     public Guid PermitId { get; set; }
     public int Number { get; set; }
-    public Guid CreatedBy { get; set; }
+    public Guid? CreatedBy { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
     public Permit? Permit { get; set; }
 }
@@ -239,6 +239,12 @@ public sealed class Device
     public Guid Id { get; set; }
     public string Name { get; set; } = "";
     public DateTimeOffset? LastSeenAt { get; set; }
+}
+
+public sealed class PermitNumberCounter
+{
+    public int Year { get; set; }
+    public int LastValue { get; set; }
 }
 
 public sealed class SyncEvent

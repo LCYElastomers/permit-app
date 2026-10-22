@@ -23,8 +23,10 @@ import type { PlantLink } from "../lib/connectivity";
 
 const COMPANIES = contractors.filter((item) => item.name !== "LCY").map((item) => item.name);
 
-function localSaveLine(saved: boolean, link: PlantLink): string {
-  if (!saved) return "";
+function localSaveLine(form: PermitDraft, link: PlantLink): string {
+  if (!form.id) return "";
+  if (form.permitNumber) return "SYNCHRONIZED";
+  if (form.outboxStatus === "ATTENTION") return "SAVED LOCALLY · NEEDS ATTENTION";
   if (link === "unreachable") return "SAVED LOCALLY · PLANT LINK OFFLINE";
   return "SAVED LOCALLY · PENDING SYNC";
 }
@@ -39,7 +41,7 @@ export function NewPermit() {
   const [signError, setSignError] = useState("");
   const blockers = issueBlockers(form);
   const step = STEPS[form.step] ?? STEPS[0];
-  const saveLine = saveError || localSaveLine(Boolean(form.id), link.link);
+  const saveLine = saveError || localSaveLine(form, link.link);
 
   const patch = (partial: Partial<PermitDraft>) => {
     updateForm((current) => ({ ...current, ...partial }));
@@ -96,7 +98,9 @@ export function NewPermit() {
             </button>
           ))}
         </div>
-        <div className="kind-meta mono">{form.id ? `LOCAL DRAFT ${localDraftLabel(form.id)}` : "UNSAVED"}</div>
+        <div className="kind-meta mono">
+          {form.permitNumber ? form.permitNumber : form.id ? `LOCAL DRAFT ${localDraftLabel(form.id)}` : "UNSAVED"}
+        </div>
         <button type="button" className="btn btn-ghost" onClick={() => { resetForm(); setSaveError(""); }}>
           Clear
         </button>

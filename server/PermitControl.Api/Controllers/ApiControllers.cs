@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using PermitControl.Application;
+using PermitControl.Domain;
 
 namespace PermitControl.Api.Controllers;
 
@@ -87,17 +88,85 @@ public sealed class ReferenceController(IDatabaseAvailability database) : Contro
 
 [ApiController]
 [Route("api/v1/sync")]
-public sealed class SyncController : ControllerBase
+public sealed class SyncController(IDatabaseAvailability database, IGeneralWorkSync sync) : ControllerBase
 {
     [HttpPost("push")]
-    public IActionResult Push([FromBody] SyncPushRequest request)
+    public async Task<IActionResult> Push([FromBody] SyncPushRequest? request, CancellationToken cancellationToken)
     {
-        if (request.Events is null)
+        if (request?.Events is null || request.Events.Count == 0)
         {
             return BadRequest(new { error = "events is required" });
         }
 
-        return StatusCode(StatusCodes.Status501NotImplemented, new { error = "sync-not-implemented" });
+        if (request.Events.Count != 1)
+        {
+            return BadRequest(new { error = "single-event-required" });
+        }
+
+        if (!database.IsConfigured)
+        {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new { error = "database-not-configured" });
+        }
+
+        try
+        {
+            var result = await sync.PushAsync(ToPush(request.Events[0]), cancellationToken);
+            return result.Kind switch
+            {
+                GeneralWorkResultKind.Accepted or GeneralWorkResultKind.Duplicate => Ok(new SyncPushResponse(
+                [
+                    new SyncAcknowledgement(result.EventId, result.PermitId, result.PermitNumber ?? "", result.Revision, result.Kind == GeneralWorkResultKind.Duplicate ? "duplicate" : "accepted"),
+                ])),
+                GeneralWorkResultKind.Conflict => Conflict(new { error = result.Error }),
+                _ => BadRequest(new { error = result.Error }),
+            };
+        }
+        catch (DatabaseUnavailableException)
+        {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new { error = "database-unavailable" });
+        }
+    }
+
+    private static GeneralWorkPush ToPush(SyncPushEvent source)
+    {
+        var permit = source.Permit;
+        return new GeneralWorkPush
+        {
+            EventId = source.Id,
+            PermitId = source.PermitId,
+            Revision = source.PermitRevision,
+            EventType = source.EventType ?? "",
+            OccurredAt = source.OccurredAt,
+            UserId = source.UserId,
+            DeviceId = source.DeviceId,
+            Body = permit is null
+                ? null
+                : new GeneralWorkBody
+                {
+                    PermitType = permit.PermitType ?? "",
+                    AreaId = permit.AreaId,
+                    AreaName = permit.AreaName,
+                    EquipmentTag = permit.EquipmentTag,
+                    WorkOrder = permit.WorkOrder,
+                    JobDescription = permit.JobDescription,
+                    CompanyType = permit.CompanyType,
+                    CompanyName = permit.CompanyName,
+                    Requester = permit.Requester,
+                    Craft = permit.Craft,
+                    PlannedStartClock = permit.PlannedStartClock,
+                    PlannedExpirationClock = permit.PlannedExpirationClock,
+                    Hazards = permit.Hazards,
+                    Controls = permit.Controls,
+                    Ppe = permit.Ppe,
+                    TaskType = permit.TaskType,
+                    EquipmentSystem = permit.EquipmentSystem,
+                    ServiceProcess = permit.ServiceProcess,
+                    MaterialInService = permit.MaterialInService,
+                    Coordination = permit.Coordination,
+                    HeightControls = permit.HeightControls,
+                    Exclusions = permit.Exclusions,
+                },
+        };
     }
 
     [HttpGet("pull")]

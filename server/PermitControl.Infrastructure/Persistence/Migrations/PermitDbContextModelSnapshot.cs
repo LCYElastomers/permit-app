@@ -254,7 +254,7 @@ namespace PermitControl.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset?>("ActivatedAt")
                         .HasColumnType("timestamptz");
 
-                    b.Property<Guid>("AreaId")
+                    b.Property<Guid?>("AreaId")
                         .HasColumnType("uuid");
 
                     b.Property<DateTimeOffset?>("ClosedAt")
@@ -271,7 +271,7 @@ namespace PermitControl.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamptz");
 
-                    b.Property<Guid>("CreatedBy")
+                    b.Property<Guid?>("CreatedBy")
                         .HasColumnType("uuid");
 
                     b.Property<int>("CurrentRevision")
@@ -280,7 +280,7 @@ namespace PermitControl.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("EquipmentId")
                         .HasColumnType("uuid");
 
-                    b.Property<DateTimeOffset>("ExpiresAt")
+                    b.Property<DateTimeOffset?>("ExpiresAt")
                         .HasColumnType("timestamptz");
 
                     b.Property<string>("JobDescription")
@@ -298,7 +298,7 @@ namespace PermitControl.Infrastructure.Persistence.Migrations
                         .HasMaxLength(40)
                         .HasColumnType("character varying(40)");
 
-                    b.Property<DateTimeOffset>("PlannedStart")
+                    b.Property<DateTimeOffset?>("PlannedStart")
                         .HasColumnType("timestamptz");
 
                     b.Property<string>("Status")
@@ -543,6 +543,19 @@ namespace PermitControl.Infrastructure.Persistence.Migrations
                     b.ToTable("permit_modules", (string)null);
                 });
 
+            modelBuilder.Entity("PermitControl.Domain.PermitNumberCounter", b =>
+                {
+                    b.Property<int>("Year")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("LastValue")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Year");
+
+                    b.ToTable("permit_number_counters", (string)null);
+                });
+
             modelBuilder.Entity("PermitControl.Domain.PermitParticipant", b =>
                 {
                     b.Property<Guid>("Id")
@@ -624,7 +637,7 @@ namespace PermitControl.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamptz");
 
-                    b.Property<Guid>("CreatedBy")
+                    b.Property<Guid?>("CreatedBy")
                         .HasColumnType("uuid");
 
                     b.Property<int>("Number")
@@ -825,8 +838,7 @@ namespace PermitControl.Infrastructure.Persistence.Migrations
                     b.HasOne("PermitControl.Domain.Area", "Area")
                         .WithMany()
                         .HasForeignKey("AreaId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("PermitControl.Domain.Contractor", "Contractor")
                         .WithMany()
@@ -836,8 +848,7 @@ namespace PermitControl.Infrastructure.Persistence.Migrations
                     b.HasOne("PermitControl.Domain.User", "Creator")
                         .WithMany()
                         .HasForeignKey("CreatedBy")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("PermitControl.Domain.Equipment", "Equipment")
                         .WithMany()

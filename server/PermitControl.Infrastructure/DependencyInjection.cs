@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using PermitControl.Application;
 using PermitControl.Infrastructure.Areas;
 using PermitControl.Infrastructure.Persistence;
+using PermitControl.Infrastructure.Sync;
 using PermitControl.Infrastructure.Storage;
 
 namespace PermitControl.Infrastructure;
@@ -20,6 +21,7 @@ public static class DependencyInjection
         });
         services.AddSingleton<IFileStorage>(_ => new LocalFileStorage(configuration["PERMIT_FILE_ROOT"] ?? configuration["FileStorage:Root"]));
         services.AddScoped<IAreaCatalog, AreaCatalog>();
+        services.AddScoped<IGeneralWorkSync, GeneralWorkSync>();
         services.AddScoped<IDatabaseProbe, DatabaseProbe>();
         return services;
     }

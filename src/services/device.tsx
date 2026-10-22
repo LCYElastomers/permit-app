@@ -3,6 +3,7 @@ import { checkingPlantLink, syncMayStart, type PlantLink, type PlantLinkSnapshot
 import { presentAreaCatalog, type AreaCatalog, type AreaRecord } from "./areas";
 import { refreshAreaCatalog } from "./areaRefresh";
 import { listCachedAreas, notePlantContact, noteSyncCycle, onLocalStoreChanged, readLocalStatus, type LocalView } from "./localStore";
+import { pushGeneralWorkCreates } from "./permitPush";
 import { startPlantLinkMonitor } from "./plantLink";
 import { SyncCoordinator } from "./syncCoordinator";
 
@@ -42,9 +43,32 @@ export function DeviceProvider({ children }: { children: ReactNode }) {
         setLocal({ status: "failed" });
         return;
       }
+      if (outcome === "updated") {
+        try {
+          setCachedAreas(await listCachedAreas());
+        } catch {
+          if (!stopped) setLocal({ status: "failed" });
+          return;
+        }
+      }
+      if (stopped || signal.aborted || !syncMayStart(linkRef.current)) {
+        await noteSyncCycle("stopped").catch(() => undefined);
+        return;
+      }
+      const pushed = await pushGeneralWorkCreates({ link: () => linkRef.current, signal });
+      if (stopped) return;
+      if (pushed === "storage-failed") {
+        await noteSyncCycle("stopped").catch(() => undefined);
+        setLocal({ status: "failed" });
+        return;
+      }
+      if (pushed === "deferred") return;
+      if (pushed === "stopped") {
+        await noteSyncCycle("stopped").catch(() => undefined);
+        return;
+      }
       try {
         const status = await noteSyncCycle("stopped");
-        if (outcome === "updated") setCachedAreas(await listCachedAreas());
         if (!stopped) setLocal({ status: "available", ...status });
       } catch {
         if (!stopped) setLocal({ status: "failed" });
@@ -78,7 +102,7 @@ export function DeviceProvider({ children }: { children: ReactNode }) {
       }
     })();
 
-    const stopStoreWatch = onLocalStoreChanged(() => {
+    const stopStoreWatch = onLocalStoreChanged((reason) => {
       void readLocalStatus()
         .then((status) => {
           if (!stopped) setLocal({ status: "available", ...status });
@@ -86,6 +110,7 @@ export function DeviceProvider({ children }: { children: ReactNode }) {
         .catch(() => {
           if (!stopped) setLocal({ status: "failed" });
         });
+      if (reason === "draft-saved" && syncMayStart(linkRef.current)) coordinator.onOutboxCreated();
     });
 
     return () => {

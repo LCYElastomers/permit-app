@@ -80,6 +80,34 @@ fn save_general_work_draft(
     with_store(&store, |database| database.save_general_work_draft(draft))
 }
 
+#[tauri::command]
+fn list_pushable_permit_creates(store: tauri::State<AppStore>) -> Result<Vec<store::PushablePermitCreate>, String> {
+    with_store(&store, |database| database.list_pushable_permit_creates())
+}
+
+#[tauri::command]
+fn acknowledge_permit_created(
+    store: tauri::State<AppStore>,
+    outbox_id: String,
+    event_id: String,
+    permit_id: String,
+    permit_number: String,
+) -> Result<store::DraftRecord, String> {
+    with_store(&store, |database| {
+        database.acknowledge_permit_created(&outbox_id, &event_id, &permit_id, &permit_number)
+    })
+}
+
+#[tauri::command]
+fn mark_outbox_attention(store: tauri::State<AppStore>, outbox_id: String, error_code: String) -> Result<(), String> {
+    with_store(&store, |database| database.mark_outbox_attention(&outbox_id, &error_code))
+}
+
+#[tauri::command]
+fn note_push_deferred(store: tauri::State<AppStore>, outbox_id: String) -> Result<store::LocalStatus, String> {
+    with_store(&store, |database| database.note_push_deferred(&outbox_id))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -110,7 +138,11 @@ pub fn run() {
             note_sync_cycle,
             note_plant_contact,
             list_local_drafts,
-            save_general_work_draft
+            save_general_work_draft,
+            list_pushable_permit_creates,
+            acknowledge_permit_created,
+            mark_outbox_attention,
+            note_push_deferred
         ])
         .run(tauri::generate_context!())
         .expect("error while building tauri application");

@@ -208,6 +208,8 @@ export function emptyDraft(kind: PermitKind = "general"): PermitDraft {
     names: {},
     signatures: {},
     updated: "",
+    permitNumber: null,
+    outboxStatus: "",
   };
 }
 

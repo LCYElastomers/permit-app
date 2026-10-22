@@ -75,15 +75,17 @@ export async function notePlantContact(): Promise<LocalStatus> {
   return invokeCommand<LocalStatus>("note_plant_contact");
 }
 
-const localStoreListeners = new Set<() => void>();
+export type LocalStoreChange = "draft-saved" | "status";
 
-export function onLocalStoreChanged(listener: () => void): () => void {
+const localStoreListeners = new Set<(reason: LocalStoreChange) => void>();
+
+export function onLocalStoreChanged(listener: (reason: LocalStoreChange) => void): () => void {
   localStoreListeners.add(listener);
   return () => localStoreListeners.delete(listener);
 }
 
-export function notifyLocalStoreChanged(): void {
-  for (const listener of localStoreListeners) listener();
+export function notifyLocalStoreChanged(reason: LocalStoreChange = "status"): void {
+  for (const listener of localStoreListeners) listener(reason);
 }
 
 export async function invokeCommand<T>(command: string, args?: Record<string, unknown>): Promise<T> {

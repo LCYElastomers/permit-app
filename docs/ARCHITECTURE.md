@@ -75,17 +75,17 @@ With a cached catalog, New Permit stays usable while Plant Link is unreachable. 
 
 ## Sync coordinator
 
-`SyncCoordinator` is the boundary for later synchronization. It may run when Plant Link becomes `READY`, when an outbox row is created while Plant Link is already `READY`, or when the operator chooses Sync Now. The Sync Now control is not in the UI yet. The coordinator refuses to start unless Plant Link is `READY`, and it runs one cycle at a time. The only cycle implemented now refreshes the area catalog. It does not push permits, pull server events, or upload files.
+`SyncCoordinator` runs when Plant Link becomes `READY`, when a General Work draft is saved while Plant Link is already `READY`, or when Sync Now is requested later. The Sync Now control is not in the UI yet. It refuses to start unless Plant Link is `READY`, and it runs one cycle at a time. The cycle refreshes the area catalog and then pushes pending General Work `PERMIT_CREATED` rows. It does not pull server events or upload files. Save Draft returns when SQLite commits. The push runs after that.
 
-If Plant Link leaves `READY` during a cycle, the coordinator aborts that cycle and returns to the normal health probe. It does not start a retry timer. Unacknowledged outbox rows stay unacknowledged. A later `READY` transition may start another cycle.
+If Plant Link leaves `READY` during a cycle, the coordinator aborts that cycle and returns to the normal health probe. It does not acknowledge an unconfirmed row and it does not start a retry timer. A later `READY` transition may start another cycle.
 
-Future transient failures (timeout, lost connection, HTTP 502, 503, and 504) should use a bounded exponential backoff with jitter. The Plant Link probe remains the signal that the API can be reached again. HTTP 400 and 409 are not retried forever. Those conflicts should move the affected work to `REQUIRES_ATTENTION`. That retry policy is not implemented in this pass. `BACKOFF` and `REQUIRES_ATTENTION` exist so later code has a place to record them.
+A timeout, lost connection, or HTTP 502, 503, or 504 leaves the row pending and sets `BACKOFF`. HTTP 400 and 409 set that outbox row to `ATTENTION`. `last_permit_sync_at` changes only after a valid acknowledgement. An area refresh does not change it.
 
 ## Not built yet
 
 - Live PostgreSQL deployment
 - Authentication (local passwords or Entra)
-- Permit push of the pending General Work outbox, server pull, and conflict handling
+- Server pull, and synchronization of any event other than General Work `PERMIT_CREATED`
 - Attachment bytes and file upload
 - Replacing mock permit data
 - Equipment or contractor reference caches

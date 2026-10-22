@@ -41,7 +41,50 @@ public sealed record CreateAreaRequest(Guid? Id, string? Name);
 public sealed record EquipmentResponse(Guid Id, Guid AreaId, string Tag, string Name);
 public sealed record ContractorResponse(Guid Id, string Name);
 
-public sealed record SyncPushRequest(IReadOnlyList<SyncEventRequest> Events);
+public sealed record SyncPushRequest(IReadOnlyList<SyncPushEvent>? Events);
+
+public sealed record SyncPushEvent(
+    Guid Id,
+    Guid PermitId,
+    int PermitRevision,
+    string? EventType,
+    DateTimeOffset OccurredAt,
+    Guid? UserId,
+    Guid? DeviceId,
+    GeneralWorkPermitSync? Permit);
+
+public sealed record GeneralWorkPermitSync(
+    string? PermitType,
+    Guid? AreaId,
+    string? AreaName,
+    string? EquipmentTag,
+    string? WorkOrder,
+    string? JobDescription,
+    string? CompanyType,
+    string? CompanyName,
+    string? Requester,
+    string? Craft,
+    string? PlannedStartClock,
+    string? PlannedExpirationClock,
+    IReadOnlyList<string>? Hazards,
+    IReadOnlyList<string>? Controls,
+    IReadOnlyList<string>? Ppe,
+    string? TaskType,
+    string? EquipmentSystem,
+    string? ServiceProcess,
+    string? MaterialInService,
+    string? Coordination,
+    string? HeightControls,
+    IReadOnlyDictionary<string, string>? Exclusions);
+
+public sealed record SyncPushResponse(IReadOnlyList<SyncAcknowledgement> Acknowledgements);
+
+public sealed record SyncAcknowledgement(
+    Guid EventId,
+    Guid PermitId,
+    string PermitNumber,
+    int PermitRevision,
+    string Result);
 
 public sealed record SyncEventRequest(
     Guid Id,

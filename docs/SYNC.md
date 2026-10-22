@@ -100,7 +100,7 @@ When Plant Link is `READY` again, a new cycle may start. The area refresh follow
 
 Do not retry aggressively. The Plant Link probe decides when the API is reachable again.
 
-Future transient failures should use a bounded exponential backoff with jitter: timeout, lost connection, HTTP 502, HTTP 503, and HTTP 504. Permanent validation and business-rule conflicts, including HTTP 400 and HTTP 409, must not be retried forever. Those should become `REQUIRES_ATTENTION` or another explicit reconciliation state. Neither the backoff nor the conflict state is applied automatically yet. The columns and the coordinator states are reserved for that behavior.
+A lost connection, timeout, or HTTP 502, 503, or 504 leaves the outbox row `PENDING`, increments its attempt count, and sets the coordinator state to `BACKOFF`. The cycle does not schedule its own retry timer. The next transition to `READY`, or another local Save Draft while Plant Link is already `READY`, may run again. HTTP 400 and 409 move that outbox row to `ATTENTION` with a short error code such as `unknown-area` or `permit-already-created`. The operator sees `NEEDS ATTENTION`. The code is not a database message. Those rows are not sent again. Other pending rows still sync. Acknowledged rows are kept. This pass does not delete them.
 
 ## Local database failure
 
@@ -110,13 +110,68 @@ Mock permit screens still use their existing in-memory sample data. That sample 
 
 ## Push
 
-The client sends events it created, each with a UUID the client generated. `permit_events.id` and `sync_events.id` are that same id. This handler is not implemented.
+`POST /api/v1/sync/push` accepts one General Work `PERMIT_CREATED` event. The client sends it only while Plant Link is `READY`, after the local save has committed. Save Draft does not wait for this call.
 
-`sync_events` is the server receipt for that id. Its permit id is optional and is not a foreign key, so a receipt can record accepted activity that is not a permit record. The receipt is not deleted when a permit is retained or closed. See the data model for why it has no permit foreign key.
+```json
+{
+  "events": [
+    {
+      "id": "55555555-5555-4555-8555-111111111111",
+      "permitId": "44444444-4444-4444-8444-111111111111",
+      "permitRevision": 1,
+      "eventType": "PERMIT_CREATED",
+      "occurredAt": "2026-10-22T17:00:00Z",
+      "userId": null,
+      "deviceId": null,
+      "permit": {
+        "permitType": "GENERAL_WORK",
+        "areaId": "0b6d1a22-1111-4a1b-9c1d-111111111111",
+        "areaName": "Unit 2",
+        "equipmentTag": "P-210",
+        "workOrder": "WO-104700",
+        "jobDescription": "Gauge glass inspection",
+        "companyType": "CONTRACTOR",
+        "companyName": "Gulf Industrial Services",
+        "requester": "Elena Voss",
+        "craft": "Jordan Peck",
+        "plannedStartClock": "15:00",
+        "plannedExpirationClock": "19:00",
+        "hazards": ["slip/trip"],
+        "controls": ["barricade"],
+        "ppe": ["Gloves"],
+        "taskType": "Inspection",
+        "exclusions": { "excludeOpening": "excluded" }
+      }
+    }
+  ]
+}
+```
 
-If the server has already stored the id, the push of that event is a success and a no-op. Retries must not create a second event and must not apply the transition again. `PermitSyncState` in the domain project demonstrates this: a repeated id returns `Duplicate` and leaves status unchanged.
+`id` is the client event UUID and the idempotency key. `permitId` is the client permit UUID. The response is:
 
-`occurredAt` is when the action happened on the device. `recordedAt` is when the server stored it. Ordering for safety uses `occurredAt`, not arrival order.
+```json
+{
+  "acknowledgements": [
+    {
+      "eventId": "55555555-5555-4555-8555-111111111111",
+      "permitId": "44444444-4444-4444-8444-111111111111",
+      "permitNumber": "PTW-2026-00001",
+      "permitRevision": 1,
+      "result": "accepted"
+    }
+  ]
+}
+```
+
+`result` is `accepted` or `duplicate`. A duplicate returns the original permit number. The client writes that number onto the local permit, marks the outbox `ACKNOWLEDGED`, leaves the status `DRAFT`, and sets `last_permit_sync_at`. An area refresh does not set that timestamp.
+
+The server year in `PTW-YYYY-NNNNN` is the UTC year of first acceptance. The sequence lives in `permit_number_counters`, one row per year. Allocation is `INSERT ... ON CONFLICT ("Year") DO UPDATE SET "LastValue" = "LastValue" + 1 RETURNING "LastValue"` inside the same transaction as the permit. The width is at least five digits. A rolled-back transaction does not keep the number. A retry does not allocate another one.
+
+The same transaction inserts the permit, revision 1, the `PERMIT_CREATED` event, hazard, control, PPE, and participant rows, the implied modules, and the `sync_events` receipt. The receipt id is the event id. Validation failure and an unknown area return before that receipt exists. `created_by` stays null until authentication exists. Planned clock times are not stored as `timestamptz` columns because the device only has a time of day. An unknown area id is `400` `unknown-area` and does not create an area from the name snapshot.
+
+Relational rows hold the header, people, hazards, controls, PPE, and modules (`CORE`, and `HAZARD_ASSESSMENT`, `PPE`, or `WORKING_AT_HEIGHT` when those facts are present). The event payload is a server document named `general-work-facts`, not the device `working_state` blob. It keeps the equipment tag, company name, clock times, task and process fields, height text, and exclusion answers. There is still no equipment-tag column, no free-text company column, and no column for those detail answers. Workflow step and signatures stay on the device. Signatures are not an authorization record.
+
+`sync_events.permit_id` is still not a foreign key. Pull remains unimplemented.
 
 ## Pull
 
@@ -135,9 +190,7 @@ Suspension, closure, and reauthorization also have their own tables (`permit_sus
 
 ## What is still TODO
 
-- Server handler that writes `permit_events` and `sync_events` inside one transaction
 - Cursor and pull query
-- Conflict payload returned to the device, recorded as `REQUIRES_ATTENTION`
-- Bounded backoff for transient push failures
+- Submission, authorization, activation, suspension, extension, reauthorization, closure, and other permit types
 - Attachment bytes synced beside the metadata row
-- Permit push of the pending General Work outbox row. The row stays `PENDING` even when Plant Link is `READY`.
+- Automatic deletion of acknowledged outbox rows

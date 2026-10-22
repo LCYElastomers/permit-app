@@ -10,6 +10,7 @@ import {
 } from "react";
 import { initialPermits, templates } from "../data/mock";
 import { listLocalDrafts, persistGeneralWorkDraft } from "../services/generalWorkDraft";
+import { onLocalStoreChanged } from "../services/localStore";
 import { GENERAL_EXCLUSIONS, permitType } from "../permitTypes";
 import { plantClock } from "../plantClock";
 import type { ListScreen, Permit, PermitDraft, Screen } from "../types";
@@ -167,15 +168,26 @@ export function PermitProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let stopped = false;
-    void listLocalDrafts()
-      .then((rows) => {
-        if (!stopped) setDrafts(rows);
-      })
-      .catch(() => {
-        if (!stopped) setDrafts([]);
-      });
+    const load = () => {
+      void listLocalDrafts()
+        .then((rows) => {
+          if (stopped) return;
+          setDrafts(rows);
+          setForm((current) => {
+            const next = rows.find((draft) => draft.id === current.id);
+            if (!next) return current;
+            return { ...current, permitNumber: next.permitNumber, outboxStatus: next.outboxStatus, updated: next.updated };
+          });
+        })
+        .catch(() => {
+          if (!stopped) setDrafts([]);
+        });
+    };
+    load();
+    const stopWatch = onLocalStoreChanged(() => load());
     return () => {
       stopped = true;
+      stopWatch();
     };
   }, []);
 

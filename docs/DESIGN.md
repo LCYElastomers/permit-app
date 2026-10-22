@@ -38,7 +38,7 @@ Field users can see that work is stored on the device without seeing SQLite, pat
 - `SAVED LOCALLY · PLANT LINK OFFLINE` when that save is on the device and Plant Link is unreachable.
 - `SYNCHRONIZED` only after the plant record has accepted the work.
 
-Plant Link being unavailable does not mean the draft is unsaved. Plant Link being ready does not mean the draft was uploaded. Permit push is not implemented, so the editor does not show `SYNCHRONIZED`. Drafts shows `DRAFT`, `SAVED LOCALLY`, and `PENDING SYNC`.
+Plant Link being unavailable does not mean the draft is unsaved. Plant Link being ready does not mean the draft was uploaded. `SYNCHRONIZED` appears only after the server has accepted `PERMIT_CREATED` and the permit number is stored on the device. The permit stays `DRAFT`. Drafts shows `DRAFT`, `SAVED LOCALLY`, and either `PENDING SYNC`, `NEEDS ATTENTION`, or `SYNCHRONIZED`.
 
 ## Plant Link
 

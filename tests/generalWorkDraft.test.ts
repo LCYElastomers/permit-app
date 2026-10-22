@@ -47,6 +47,7 @@ function stored(request: ReturnType<typeof generalWorkSaveRequest>): StoredDraft
     updatedAt: "2026-10-22T17:00:00Z",
     currentRevision: 1,
     workingState: request.workingState,
+    outboxStatus: "PENDING",
   };
 }
 

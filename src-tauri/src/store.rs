@@ -114,6 +114,17 @@ pub struct DraftRecord {
     pub updated_at: String,
     pub current_revision: i64,
     pub working_state: serde_json::Value,
+    pub outbox_status: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PushablePermitCreate {
+    pub outbox_id: String,
+    pub event_id: String,
+    pub occurred_at: String,
+    pub permit_revision: i64,
+    pub draft: DraftRecord,
 }
 
 #[derive(Debug, Clone)]
@@ -243,8 +254,15 @@ impl LocalDatabase {
 
     pub fn note_sync_cycle(&mut self, phase: &str) -> Result<LocalStatus, StoreError> {
         let now = utc_now();
-        let pending = self.pending_count()?;
-        let resting = if pending > 0 { "PENDING" } else { "IDLE" };
+        let retrying = self.outbox_status_count("PENDING")?;
+        let attention = self.outbox_status_count("ATTENTION")?;
+        let resting = if retrying > 0 {
+            "PENDING"
+        } else if attention > 0 {
+            "REQUIRES_ATTENTION"
+        } else {
+            "IDLE"
+        };
         let state = match phase {
             "start" => "SYNCING",
             "stopped" => resting,
@@ -279,7 +297,8 @@ impl LocalDatabase {
             .prepare(
                 "SELECT id, permit_number, permit_type, status, sync_state, area_id, area_name, equipment_tag,
                         work_order, job_description, company_type, company_name, requester, craft,
-                        planned_start, expires_at, created_at, updated_at, current_revision, working_state
+                        planned_start, expires_at, created_at, updated_at, current_revision, working_state,
+                        COALESCE((SELECT status FROM outbox WHERE entity_id = local_permits.id AND operation = 'create' ORDER BY created_at DESC LIMIT 1), '')
                  FROM local_permits
                  WHERE status = 'DRAFT' AND permit_type = 'GENERAL_WORK'
                  ORDER BY updated_at DESC, id",
@@ -412,12 +431,175 @@ impl LocalDatabase {
             .query_row(
                 "SELECT id, permit_number, permit_type, status, sync_state, area_id, area_name, equipment_tag,
                         work_order, job_description, company_type, company_name, requester, craft,
-                        planned_start, expires_at, created_at, updated_at, current_revision, working_state
+                        planned_start, expires_at, created_at, updated_at, current_revision, working_state,
+                        COALESCE((SELECT status FROM outbox WHERE entity_id = local_permits.id AND operation = 'create' ORDER BY created_at DESC LIMIT 1), '')
                  FROM local_permits WHERE id = ?1",
                 params![id],
                 draft_from_row,
             )
             .map_err(fail)
+    }
+
+    pub fn list_pushable_permit_creates(&self) -> Result<Vec<PushablePermitCreate>, StoreError> {
+        let mut statement = self
+            .conn
+            .prepare(
+                "SELECT outbox.id, outbox.event_id, outbox.entity_id, events.occurred_at, events.permit_revision
+                 FROM outbox
+                 JOIN local_permit_events AS events ON events.id = outbox.event_id
+                 JOIN local_permits AS permits ON permits.id = outbox.entity_id
+                 WHERE outbox.status = 'PENDING'
+                   AND outbox.operation = 'create'
+                   AND events.event_type = 'PERMIT_CREATED'
+                   AND permits.permit_type = 'GENERAL_WORK'
+                   AND permits.status = 'DRAFT'
+                 ORDER BY outbox.created_at, outbox.id",
+            )
+            .map_err(fail)?;
+        let keys = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, i64>(4)?,
+                ))
+            })
+            .map_err(fail)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(fail)?;
+        drop(statement);
+        let mut items = Vec::with_capacity(keys.len());
+        for (outbox_id, event_id, permit_id, occurred_at, permit_revision) in keys {
+            items.push(PushablePermitCreate {
+                outbox_id,
+                event_id,
+                occurred_at,
+                permit_revision,
+                draft: self.read_draft(&permit_id)?,
+            });
+        }
+        Ok(items)
+    }
+
+    /// Records a valid server acknowledgement. The permit stays DRAFT.
+    pub fn acknowledge_permit_created(
+        &mut self,
+        outbox_id: &str,
+        event_id: &str,
+        permit_id: &str,
+        permit_number: &str,
+    ) -> Result<DraftRecord, StoreError> {
+        if !permit_number_ok(permit_number) {
+            return Err(StoreError::InvalidChange);
+        }
+        let now = utc_now();
+        let tx = self.conn.transaction().map_err(fail)?;
+        let already: Option<String> = tx
+            .query_row(
+                "SELECT permits.permit_number
+                 FROM outbox
+                 JOIN local_permits AS permits ON permits.id = outbox.entity_id
+                 WHERE outbox.id = ?1 AND outbox.event_id = ?2 AND outbox.entity_id = ?3
+                   AND outbox.status = 'ACKNOWLEDGED' AND outbox.operation = 'create'",
+                params![outbox_id, event_id, permit_id],
+                |row| row.get(0),
+            )
+            .ok();
+        if let Some(existing) = already {
+            if existing == permit_number {
+                tx.commit().map_err(fail)?;
+                return self.read_draft(permit_id);
+            }
+            return Err(StoreError::InvalidChange);
+        }
+        let matched: i64 = tx
+            .query_row(
+                "SELECT COUNT(*) FROM outbox
+                 WHERE id = ?1 AND event_id = ?2 AND entity_id = ?3 AND status = 'PENDING' AND operation = 'create'",
+                params![outbox_id, event_id, permit_id],
+                |row| row.get(0),
+            )
+            .map_err(fail)?;
+        if matched != 1 {
+            return Err(StoreError::InvalidChange);
+        }
+        let updated = tx
+            .execute(
+                "UPDATE local_permits
+                 SET permit_number = ?1, sync_state = 'SYNCHRONIZED', updated_at = ?2
+                 WHERE id = ?3 AND status = 'DRAFT' AND permit_type = 'GENERAL_WORK'",
+                params![permit_number, now, permit_id],
+            )
+            .map_err(fail)?;
+        if updated != 1 {
+            return Err(StoreError::InvalidChange);
+        }
+        tx.execute(
+            "UPDATE local_permit_events SET sync_state = 'ACKNOWLEDGED' WHERE id = ?1 AND permit_id = ?2",
+            params![event_id, permit_id],
+        )
+        .map_err(fail)?;
+        tx.execute(
+            "UPDATE outbox SET status = 'ACKNOWLEDGED', last_error_code = NULL, last_attempt_at = ?1 WHERE id = ?2",
+            params![now, outbox_id],
+        )
+        .map_err(fail)?;
+        let resting = resting_sync_state(&tx)?;
+        tx.execute(
+            "UPDATE sync_state SET last_permit_sync_at = ?1, current_sync_state = ?2 WHERE id = 1",
+            params![now, resting],
+        )
+        .map_err(fail)?;
+        tx.commit().map_err(fail)?;
+        self.read_draft(permit_id)
+    }
+
+    pub fn mark_outbox_attention(&mut self, outbox_id: &str, error_code: &str) -> Result<(), StoreError> {
+        let code = sanitize_error_code(error_code);
+        let now = utc_now();
+        let tx = self.conn.transaction().map_err(fail)?;
+        let updated = tx
+            .execute(
+                "UPDATE outbox
+                 SET status = 'ATTENTION', last_error_code = ?1, last_attempt_at = ?2
+                 WHERE id = ?3 AND status = 'PENDING'",
+                params![code, now, outbox_id],
+            )
+            .map_err(fail)?;
+        if updated != 1 {
+            return Err(StoreError::InvalidChange);
+        }
+        let resting = resting_sync_state(&tx)?;
+        tx.execute(
+            "UPDATE sync_state SET current_sync_state = ?1, last_attempted_sync_at = ?2 WHERE id = 1",
+            params![resting, now],
+        )
+        .map_err(fail)?;
+        tx.commit().map_err(fail)?;
+        Ok(())
+    }
+
+    pub fn note_push_deferred(&mut self, outbox_id: &str) -> Result<LocalStatus, StoreError> {
+        let now = utc_now();
+        self.conn
+            .execute(
+                "UPDATE outbox
+                 SET attempt_count = attempt_count + 1, last_attempt_at = ?1
+                 WHERE id = ?2 AND status = 'PENDING'",
+                params![now, outbox_id],
+            )
+            .map_err(fail)?;
+        self.conn
+            .execute(
+                "UPDATE sync_state
+                 SET current_sync_state = 'BACKOFF', last_attempted_sync_at = ?1
+                 WHERE id = 1",
+                params![now],
+            )
+            .map_err(fail)?;
+        self.status()
     }
 
     /// Saves a permit change, its domain event, and the outbox row in one transaction.
@@ -485,6 +667,16 @@ impl LocalDatabase {
             .map_err(fail)?;
         tx.commit().map_err(fail)?;
         Ok(())
+    }
+
+    fn outbox_status_count(&self, status: &str) -> Result<i64, StoreError> {
+        self.conn
+            .query_row(
+                "SELECT COUNT(*) FROM outbox WHERE status = ?1",
+                params![status],
+                |row| row.get(0),
+            )
+            .map_err(fail)
     }
 
     fn pending_count(&self) -> Result<i64, StoreError> {
@@ -596,6 +788,44 @@ fn blank_to_none(value: Option<String>) -> Option<String> {
     })
 }
 
+fn resting_sync_state(conn: &Connection) -> Result<&'static str, StoreError> {
+    let retrying: i64 = conn
+        .query_row("SELECT COUNT(*) FROM outbox WHERE status = 'PENDING'", [], |row| row.get(0))
+        .map_err(fail)?;
+    let attention: i64 = conn
+        .query_row("SELECT COUNT(*) FROM outbox WHERE status = 'ATTENTION'", [], |row| row.get(0))
+        .map_err(fail)?;
+    Ok(if retrying > 0 {
+        "PENDING"
+    } else if attention > 0 {
+        "REQUIRES_ATTENTION"
+    } else {
+        "IDLE"
+    })
+}
+
+fn permit_number_ok(value: &str) -> bool {
+    let Some(rest) = value.strip_prefix("PTW-") else {
+        return false;
+    };
+    let Some((year, sequence)) = rest.split_once('-') else {
+        return false;
+    };
+    year.len() == 4
+        && year.chars().all(|character| character.is_ascii_digit())
+        && sequence.len() >= 5
+        && sequence.chars().all(|character| character.is_ascii_digit())
+}
+
+fn sanitize_error_code(value: &str) -> String {
+    let cleaned: String = value
+        .chars()
+        .filter(|character| character.is_ascii_alphanumeric() || *character == '-')
+        .take(40)
+        .collect();
+    if cleaned.is_empty() { "rejected".to_string() } else { cleaned }
+}
+
 fn draft_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<DraftRecord> {
     let raw: String = row.get(19)?;
     let working_state = serde_json::from_str(&raw).map_err(|error| {
@@ -623,6 +853,7 @@ fn draft_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<DraftRecord> {
         updated_at: row.get(17)?,
         current_revision: row.get(18)?,
         working_state,
+        outbox_status: row.get(20)?,
     })
 }
 
@@ -1138,5 +1369,87 @@ mod tests {
         let listed = database.list_drafts().unwrap();
         assert_eq!(listed[0].area_id.as_deref(), Some("0b6d1a22-1111-4a1b-9c1d-111111111111"));
         assert_eq!(listed[0].working_state["fields"]["excludeOpening"], "excluded");
+    }
+
+    #[test]
+    fn acknowledgement_stores_the_permit_number_and_leaves_the_draft() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(DATABASE_FILE_NAME);
+        let outbox_id;
+        let event_id;
+        let permit_id;
+        {
+            let mut database = LocalDatabase::open(&path).unwrap();
+            let saved = database.save_general_work_draft(sample_draft("111111111111")).unwrap();
+            database.note_push_deferred("66666666-6666-4666-8666-111111111111").unwrap();
+            let deferred = database.status().unwrap();
+            assert_eq!(deferred.sync_state, "BACKOFF");
+            assert!(deferred.last_permit_sync_at.is_none());
+            let pushable = database.list_pushable_permit_creates().unwrap();
+            assert_eq!(pushable.len(), 1);
+            outbox_id = pushable[0].outbox_id.clone();
+            event_id = pushable[0].event_id.clone();
+            permit_id = saved.id;
+            let acknowledged = database
+                .acknowledge_permit_created(&outbox_id, &event_id, &permit_id, "PTW-2026-00142")
+                .unwrap();
+            assert_eq!(acknowledged.permit_number.as_deref(), Some("PTW-2026-00142"));
+            assert_eq!(acknowledged.status, "DRAFT");
+            assert_eq!(acknowledged.outbox_status, "ACKNOWLEDGED");
+            assert!(database.status().unwrap().last_permit_sync_at.is_some());
+            assert_eq!(database.status().unwrap().pending_count, 0);
+            database
+                .acknowledge_permit_created(&outbox_id, &event_id, &permit_id, "PTW-2026-00142")
+                .unwrap();
+            assert_eq!(database.list_drafts().unwrap()[0].permit_number.as_deref(), Some("PTW-2026-00142"));
+        }
+        let database = LocalDatabase::open(&path).unwrap();
+        let draft = database.list_drafts().unwrap();
+        assert_eq!(draft[0].permit_number.as_deref(), Some("PTW-2026-00142"));
+        assert_eq!(draft[0].status, "DRAFT");
+        assert!(database.list_pushable_permit_creates().unwrap().is_empty());
+        assert!(database.status().unwrap().last_permit_sync_at.is_some());
+    }
+
+    #[test]
+    fn permanent_rejection_needs_attention_and_unsupported_work_stays_pending() {
+        let (_dir, mut database) = temp_store();
+        database.save_general_work_draft(sample_draft("111111111111")).unwrap();
+        database
+            .conn
+            .execute(
+                "INSERT INTO outbox (
+                    id, event_id, entity_type, entity_id, operation, created_at, attempt_count, status
+                 ) VALUES (
+                    '77777777-7777-4777-8777-777777777777',
+                    '55555555-5555-4555-8555-111111111111',
+                    'permit',
+                    '44444444-4444-4444-8444-111111111111',
+                    'suspend',
+                    '2026-10-22T18:00:00Z',
+                    0,
+                    'PENDING'
+                 )",
+                [],
+            )
+            .unwrap();
+        database
+            .mark_outbox_attention("66666666-6666-4666-8666-111111111111", "unknown-area")
+            .unwrap();
+        let pushable = database.list_pushable_permit_creates().unwrap();
+        assert!(pushable.is_empty());
+        let statuses: Vec<String> = {
+            let mut statement = database
+                .conn
+                .prepare("SELECT operation, status FROM outbox ORDER BY operation")
+                .unwrap();
+            let rows = statement
+                .query_map([], |row| Ok(format!("{}:{}", row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+                .unwrap();
+            rows.map(|row| row.unwrap()).collect()
+        };
+        assert_eq!(statuses, vec!["create:ATTENTION".to_string(), "suspend:PENDING".to_string()]);
+        assert_eq!(database.note_sync_cycle("stopped").unwrap().sync_state, "PENDING");
+        assert!(database.status().unwrap().last_permit_sync_at.is_none());
     }
 }

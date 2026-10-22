@@ -102,10 +102,10 @@ internal static class ModelConfiguration
             entity.HasIndex(item => item.WorkOrder);
             entity.HasIndex(item => item.CreatedAt);
             entity.HasIndex(item => item.ClosedAt);
-            entity.HasOne(item => item.Area).WithMany().HasForeignKey(item => item.AreaId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(item => item.Area).WithMany().HasForeignKey(item => item.AreaId).IsRequired(false).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne(item => item.Equipment).WithMany().HasForeignKey(item => item.EquipmentId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne(item => item.Contractor).WithMany().HasForeignKey(item => item.ContractorId).OnDelete(DeleteBehavior.Restrict);
-            entity.HasOne(item => item.Creator).WithMany().HasForeignKey(item => item.CreatedBy).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(item => item.Creator).WithMany().HasForeignKey(item => item.CreatedBy).IsRequired(false).OnDelete(DeleteBehavior.Restrict);
         });
 
         model.Entity<PermitRevision>(entity =>
@@ -274,6 +274,13 @@ internal static class ModelConfiguration
             entity.HasKey(item => item.Id);
             entity.Property(item => item.Name).HasMaxLength(120).IsRequired();
             Timestamp(entity.Property(item => item.LastSeenAt));
+        });
+
+        model.Entity<PermitNumberCounter>(entity =>
+        {
+            entity.ToTable("permit_number_counters");
+            entity.HasKey(item => item.Year);
+            entity.Property(item => item.Year).ValueGeneratedNever();
         });
 
         model.Entity<SyncEvent>(entity =>

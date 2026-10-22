@@ -116,7 +116,7 @@ Those routes still use `503` when the database is not configured and `501` with 
 
 `GET /api/v1/sync/pull?since=2026-10-21T18:00:00Z`
 
-Both return `501` with `{ "error": "sync-not-implemented" }`. A missing `events` array on push is `400`. The intended conflict rules are in `docs/SYNC.md`.
+Push accepts exactly one `PERMIT_CREATED` event for a General Work draft. Pull still returns `501` with `{ "error": "sync-not-implemented" }`. A missing or empty `events` array on push is `400`. More than one event is `400` with `{ "error": "single-event-required" }`. The request and acknowledgement are described in `docs/SYNC.md`.
 
 ## Client
 

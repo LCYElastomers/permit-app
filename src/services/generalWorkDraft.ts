@@ -61,6 +61,7 @@ export interface StoredDraft {
   updatedAt: string;
   currentRevision: number;
   workingState: GeneralWorkWorkingState;
+  outboxStatus: string;
 }
 
 export type DraftWriter = (request: GeneralWorkSaveRequest) => Promise<StoredDraft>;
@@ -123,6 +124,8 @@ export function permitDraftFromRecord(record: StoredDraft): PermitDraft {
     names: state.names,
     signatures: state.signatures,
     updated: record.updatedAt,
+    permitNumber: record.permitNumber,
+    outboxStatus: record.outboxStatus,
   };
 }
 
@@ -158,6 +161,6 @@ export async function persistGeneralWorkDraft(
   });
   const stored = await writer(request);
   const saved = permitDraftFromRecord(stored);
-  notifyLocalStoreChanged();
+  notifyLocalStoreChanged("draft-saved");
   return saved;
 }

@@ -131,6 +131,8 @@ export interface PermitDraft {
   names: Record<string, string>;
   signatures: Record<string, { name: string; time: string }>;
   updated: string;
+  permitNumber: string | null;
+  outboxStatus: string;
 }
 
 export interface PermitTemplate {

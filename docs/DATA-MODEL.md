@@ -81,7 +81,7 @@ Every permit child foreign key uses `ON DELETE RESTRICT`. Deleting a `permits` r
 
 ## Device working state
 
-The desktop store is not a second copy of this PostgreSQL schema. General Work drafts keep the searchable header in SQLite columns and the rest of the open form in `local_permits.working_state`. That value is JSON with a version. Version 1 stores the workflow step, hazards, controls, detail fields, names, and signatures so the draft can be reopened on the device. It is not `permit_events.payload`. The creation event stays a historical action with an empty payload. The official `permit_number` stays null until the plant record assigns one. Details are in `docs/SYNC.md`.
+The desktop store is not a second copy of this PostgreSQL schema. General Work drafts keep the searchable header in SQLite columns and the rest of the open form in `local_permits.working_state`. That value is JSON with a version. Version 1 stores the workflow step, hazards, controls, detail fields, names, and signatures so the draft can be reopened on the device. The first successful `PERMIT_CREATED` push copies the header, people, hazards, controls, and PPE into the tables above and writes the remaining facts into `permit_events.payload` as `general-work-facts`. It does not store the device JSON document. The official `permit_number` is assigned by `permit_number_counters` on that acceptance. A draft may omit the area, the creator, and the planned window, so those permit columns are nullable. Details are in `docs/SYNC.md`.
 
 ## Migration
 

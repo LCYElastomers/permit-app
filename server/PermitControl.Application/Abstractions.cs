@@ -26,6 +26,11 @@ public interface IAreaCatalog
     Task<AreaPreparation> CreateAsync(Guid? id, string? name, CancellationToken cancellationToken);
 }
 
+public interface IGeneralWorkSync
+{
+    Task<GeneralWorkResult> PushAsync(GeneralWorkPush push, CancellationToken cancellationToken);
+}
+
 public interface IDatabaseProbe
 {
     Task<bool> CanQueryAsync(CancellationToken cancellationToken);
