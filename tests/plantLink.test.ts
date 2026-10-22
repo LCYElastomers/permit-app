@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { resolveApiBaseUrl, PRODUCTION_API_URL } from "../src/lib/api/config";
 import { ApiError, ApiTransportError } from "../src/lib/api/errors";
 import { probeCall } from "../src/lib/api/failures";
-import { interpretConnectivity } from "../src/lib/connectivity";
+import { interpretConnectivity, syncMayStart } from "../src/lib/connectivity";
 import { parseAreaList } from "../src/services/areas";
 
 const health = { outcome: "ok" as const, body: { status: "ok", service: "permit-control-api", databaseConfigured: true } };
@@ -19,12 +19,13 @@ describe("API base URL", () => {
   });
 });
 
-describe("connectivity mapping", () => {
-  it("is online only when the process and the database are ready", () => {
-    expect(interpretConnectivity(health, ready)).toMatchObject({ state: "online", server: "online", database: "ready" });
+describe("plant link", () => {
+  it("is ready only when the process and the database are ready", () => {
+    expect(interpretConnectivity(health, ready)).toEqual({ link: "ready" });
+    expect(syncMayStart("ready")).toBe(true);
   });
 
-  it("is offline when the process cannot be reached", () => {
+  it("is unreachable when the process cannot be reached", () => {
     for (const healthCall of [
       { outcome: "offline" as const },
       { outcome: "timeout" as const },
@@ -33,15 +34,18 @@ describe("connectivity mapping", () => {
       { outcome: "http" as const, status: 500 },
       { outcome: "http" as const, status: 503 },
     ]) {
-      expect(interpretConnectivity(healthCall, ready).state).toBe("offline");
+      const link = interpretConnectivity(healthCall, ready).link;
+      expect(link).toBe("unreachable");
+      expect(syncMayStart(link)).toBe(false);
     }
   });
 
-  it("is server not ready when the process is up and readiness fails", () => {
-    expect(interpretConnectivity(health, { outcome: "http", status: 503 }).state).toBe("server-not-ready");
-    expect(interpretConnectivity(health, { outcome: "http", status: 500 }).state).toBe("server-not-ready");
-    expect(interpretConnectivity(health, { outcome: "timeout" }).database).toBe("not-ready");
-    expect(interpretConnectivity(health, { outcome: "ok", body: { status: "not-ready" } }).state).toBe("server-not-ready");
+  it("is api online when the process is up and readiness fails", () => {
+    expect(interpretConnectivity(health, { outcome: "http", status: 503 }).link).toBe("api-online");
+    expect(interpretConnectivity(health, { outcome: "http", status: 500 }).link).toBe("api-online");
+    expect(interpretConnectivity(health, { outcome: "timeout" }).link).toBe("api-online");
+    expect(interpretConnectivity(health, { outcome: "ok", body: { status: "not-ready" } }).link).toBe("api-online");
+    expect(syncMayStart("api-online")).toBe(false);
   });
 });
 

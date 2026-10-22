@@ -9,13 +9,19 @@ Permit Control is an installed, offline-first Tauri desktop application, not a w
 
 Successful field data entry must never depend on API availability. No operational workflow may require launching a browser or navigating to the API hostname. Loss of API connectivity must not prevent the desktop application from launching or accessing locally persisted permit information.
 
+Internet connectivity is not Plant Link connectivity. Cellular, Wi-Fi, and `navigator.onLine` do not mean the Permit Control API is reachable and must not start synchronization. Sync may begin only after `https://permit-control.local` has been verified ready through the API health and readiness probes.
+
 - Keep permit work in the Tauri shell: lists, detail, issue, review, authorization, suspension, and closure.
 - Write field entries to local SQLite first. Do not block startup, data entry, navigation, or local reads on health checks or other API calls.
-- Call the API only to synchronize with the plant record while connected. Do not send operators to Swagger, a hosted page, or the API host to complete work.
+- Keep SQL behind the Tauri boundary. React reads application services, not the database path.
+- Call the API only to synchronize with the plant record while Plant Link is ready. Do not send operators to Swagger, a hosted page, or the API host to complete work.
+- Portrait Getac tablets and desktop leadership screens are two layouts of this application. Share domain, SQLite, sync, and workflow logic. Follow `docs/DESIGN.md` for touch targets, portrait navigation, local-save wording, and safety presentation.
 
 ```text
 Bad: open https://permit-api/swagger to authorize a permit
 Bad: suspend a permit only after POST /api/v1/permits succeeds
 Bad: app startup waits on GET /api/v1/health before showing permits
+Bad: a separate tablet app with its own permit rules
 Good: suspension is saved in local SQLite while the API is unreachable, then synchronized later
+Good: portrait layout changes presentation and keeps the same draft workflow
 ```

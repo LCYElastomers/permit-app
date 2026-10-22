@@ -90,7 +90,7 @@ export function PermitDetail() {
             ) : (
               <button
                 type="button"
-                className="btn btn-hold"
+                className="btn btn-hold safety-action"
                 onClick={() => {
                   setPanel(panel === "suspend" ? "none" : "suspend");
                   setNotice("");
@@ -197,6 +197,7 @@ export function PermitDetail() {
           <div className="kicker">SUSPENDED {permit.suspension.time}</div>
           <p>{permit.suspension.reason}</p>
           <div className="hold-meta">
+            <span>WORK NOT AUTHORIZED</span>
             <span>Suspended by {permit.suspension.by}</span>
             <span className="mono">Previous status {permit.suspension.previous}</span>
           </div>

@@ -4,27 +4,94 @@ Permit Control is an offline-first permit-to-work application. This document des
 
 ## What exists today
 
-The Tauri application still keeps permit lists, detail, and dashboard metrics in `src/data/mock.ts`. It does not read PostgreSQL. Startup does not wait for the API. After the first paint, the shell checks API health in the background, and New Permit loads areas when that screen opens.
+The Tauri application keeps permit lists, detail, and dashboard metrics in `src/data/mock.ts`. It does not read PostgreSQL. Startup does not wait for the API. After the first paint, the shell probes Plant Link in the background. New Permit reads areas from the local SQLite catalog. A live area request happens only after Plant Link is `READY`, and only to refresh that catalog.
 
-The ASP.NET Core solution under `server/` compiles without a database. `GET /api/v1/health` does not open a connection and does not return configuration values. `GET /api/v1/health/ready` checks connectivity only. `GET` and `POST /api/v1/areas` read and create areas when PostgreSQL is configured. Other data endpoints return `503 database-not-configured` until `PERMIT_DB_*` is fully set, and `501` after that until the handlers are written. Sync push and pull return `501 sync-not-implemented`.
+The ASP.NET Core solution under `server/` compiles without a database. `GET /api/v1/health` does not open a connection and does not return configuration values. `GET /api/v1/health/ready` checks connectivity only. `GET` and `POST /api/v1/areas` read and create areas when PostgreSQL is configured. Other data endpoints return `503 database-not-configured` until `PERMIT_DB_*` is fully set, and `501` after that until the handlers are written. Sync push and pull return `501 sync-not-implemented`. Permit synchronization is not implemented.
 
 ## Intended runtime
 
 ```
 Tauri (React)
   |
-  | local persistence (future SQLite) and attachment cache
+  | local SQLite in the Tauri app-data directory
   |
-  | HTTPS / JSON
+  | HTTPS / JSON, only after Plant Link is READY
   v
 ASP.NET Core API  (PermitControl.Api)
   |
-  +-- PostgreSQL          metadata, permits, events, readings
+  +-- PostgreSQL          authoritative plant records
   |
   +-- server filesystem   attachment bytes (IFileStorage / LOCAL_SERVER)
 ```
 
-The Tauri process must never open a PostgreSQL connection. The API is the only server-side interface.
+The Tauri process must never open a PostgreSQL connection. The API is the only server-side interface. SQLite and PostgreSQL share identifiers and lifecycle meaning. They do not share a physical schema.
+
+## Field tablet
+
+Permit Control is used on Getac rugged tablets, including portrait, and on desktop leadership screens. Those are two layouts of the same application. Domain rules, local persistence, synchronization, and the six-step permit workflow stay shared. The portrait layout, touch targets, local-save wording, and safety presentation are specified in `docs/DESIGN.md`.
+
+## Local database
+
+The desktop store is one SQLite file for one device, opened by the Rust side of the Tauri app through `rusqlite` with the bundled SQLite library. React calls application commands. It does not see SQL, the database path, PostgreSQL, or server file paths.
+
+The file is `permit-control.sqlite`. Tauri resolves the directory from `app.path().app_data_dir()` using the bundle identifier `com.lcygroup.permitcontrol`. There is no `appDirectoriesOverride`. On Windows, Tauri 2 joins `{FOLDERID_RoamingAppData}` with that identifier, so the database is `%APPDATA%\com.lcygroup.permitcontrol\permit-control.sqlite`. The first successful open creates the directory and the file. Nothing is copied from the old `com.tauri.dev` development identifier. The database is not stored beside the executable, in the source tree, on the Desktop, in Downloads, or in a hard-coded user path.
+
+Schema changes are versioned in `schema_migrations`. Migration 1 creates the local tables and is applied inside a transaction. Opening an existing database applies only migrations newer than the stored version. `CREATE TABLE IF NOT EXISTS` is not the migration strategy.
+
+Local tables:
+
+| Table | Role |
+| --- | --- |
+| `schema_migrations` | Applied migration versions. |
+| `reference_areas` | Cached plant areas. The id is the server UUID. |
+| `local_permits` | Device permit foundation. Identity is a client UUID. The permit editor does not write this table yet. |
+| `local_permit_events` | Append-only local events. Not synchronized yet. |
+| `outbox` | Durable work waiting for a future push. Pending count is `COUNT(*)` of rows that are not `ACKNOWLEDGED`. |
+| `sync_state` | One row: last attempt, last success, coordinator state, and the area-catalog sync time. |
+
+`sync_state.current_sync_state` is `IDLE`, `PENDING`, `SYNCING`, `BACKOFF`, or `REQUIRES_ATTENTION`. `PENDING` is stored when the outbox has unacknowledged rows. The count itself is always read from the outbox.
+
+A local permit save, once the editor is wired, is one SQLite transaction containing the permit change, the domain event, and the outbox row. That commit is the save. The network runs later. `record_local_change` implements that transaction and is covered by Rust tests. No screen calls it yet.
+
+If the file cannot be opened or a later read or write fails, the shell reports local data unavailable. That is not the same as Plant Link being offline. The UI does not show the SQL exception, does not invent a pending count, and does not treat memory as a substitute database.
+
+## Connectivity
+
+Internet connectivity is not Plant Link connectivity. A tablet can have cellular service and still be unable to reach `https://permit-control.local`. The shell never reads `navigator.onLine`, Wi-Fi state, or cellular state, and those signals do not start synchronization.
+
+Startup renders immediately. A background probe then calls `GET /api/v1/health` and, only if that process responds, `GET /api/v1/health/ready`. Each request times out after 5 seconds. The next probe is scheduled 30 seconds after the previous one finishes, so probes do not overlap. The probe only reports Plant Link. It does not synchronize.
+
+Plant Link is `CHECKING` before the first result, `UNREACHABLE` when the process cannot be reached, `API_ONLINE` when the process responds but readiness fails, and `READY` only when readiness succeeds. The panel shows those as CHECKING, OFFLINE, NOT READY, and CONNECTED. It also shows whether local data is available and, only when SQLite answered, the outbox pending count. It does not show the API host, status codes, or database errors.
+
+## Area cache
+
+New Permit reads `reference_areas`. It does not call the API to fill the selector.
+
+When Plant Link changes from any other state to `READY`, the sync coordinator fetches `GET /api/v1/areas`. The full payload is validated first. Only then does SQLite delete and insert the catalog in one transaction, and set `reference_areas_synced_at`. If validation or the request fails, the previous rows and that timestamp stay as they were. An empty but valid payload is a real empty catalog. A failed refresh is not.
+
+The server has no enabled or inactive area flag, and this client does not invent one. A future removal or deactivation has to arrive as an explicit server fact inside a fully validated catalog response. The client may then omit that area from `reference_areas` in the same transaction. It must not delete local permits that still store the area id, and it must not treat a failed, aborted, or partial response as removal.
+
+With a cached catalog, New Permit stays usable while Plant Link is unreachable. On a first launch with no successful catalog refresh, the selector says reference data has not been synchronized and does not invent areas.
+
+## Sync coordinator
+
+`SyncCoordinator` is the boundary for later synchronization. It may run when Plant Link becomes `READY`, when an outbox row is created while Plant Link is already `READY`, or when the operator chooses Sync Now. The Sync Now control is not in the UI yet. The coordinator refuses to start unless Plant Link is `READY`, and it runs one cycle at a time. The only cycle implemented now refreshes the area catalog. It does not push permits, pull server events, or upload files.
+
+If Plant Link leaves `READY` during a cycle, the coordinator aborts that cycle and returns to the normal health probe. It does not start a retry timer. Unacknowledged outbox rows stay unacknowledged. A later `READY` transition may start another cycle.
+
+Future transient failures (timeout, lost connection, HTTP 502, 503, and 504) should use a bounded exponential backoff with jitter. The Plant Link probe remains the signal that the API can be reached again. HTTP 400 and 409 are not retried forever. Those conflicts should move the affected work to `REQUIRES_ATTENTION`. That retry policy is not implemented in this pass. `BACKOFF` and `REQUIRES_ATTENTION` exist so later code has a place to record them.
+
+## Not built yet
+
+- Live PostgreSQL deployment
+- Authentication (local passwords or Entra)
+- Permit-editor writes to `local_permits`
+- Permit push, server pull, and conflict handling
+- Attachment bytes and file upload
+- Replacing mock permit data
+- Equipment or contractor reference caches
+- Command Center live permit metrics
+
 
 ## Projects
 
@@ -43,20 +110,3 @@ Database settings come from environment variables `PERMIT_DB_HOST`, `PERMIT_DB_P
 `PERMIT_FILE_ROOT` is the future directory for attachment bytes. `LocalFileStorage` can write a file there, but no upload route calls it yet.
 
 The UI base URL is `VITE_PERMIT_API_URL`. When it is unset, the desktop app uses `https://permit-control.local`. A developer can point at a local API by setting that variable. The value is not written into React screens.
-
-## Connectivity
-
-Startup renders immediately. A background check then calls `GET /api/v1/health` and, only if that process responds, `GET /api/v1/health/ready`. Each request times out after 5 seconds. The check repeats every 30 seconds and does not overlap itself.
-
-The shell shows `CHECKING` until the first result, `ONLINE` when the process and database are ready, `OFFLINE` when the process cannot be reached, and `SERVER NOT READY` when the process is up but readiness fails. The panel does not show the API host, status codes, or database errors. Navigation and mock permit screens do not wait on these calls.
-
-New Permit loads areas from `GET /api/v1/areas` through the area service. The selector shows `name` and stores the area UUID on the draft. If the request fails, the rest of the form stays usable and no mock area list is substituted. Permit lists, detail, and dashboard metrics still use `src/data/mock.ts`.
-
-## Not built yet
-
-- Live PostgreSQL deployment
-- Authentication (local passwords or Entra)
-- SQLite on the client
-- The sync engine
-- File upload routes
-- Replacing mock permit data

@@ -1,10 +1,11 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { assets, contractors, templates } from "../data/mock";
 import { usePlantClock } from "../plantClock";
 import { usePermits } from "../state/PermitStore";
 import type { ListScreen } from "../types";
-import { connectivityLabel, connectivityLamp, databaseLabel, serverLabel, type ConnectivitySnapshot } from "../lib/connectivity";
-import { useConnectivity } from "../services/useConnectivity";
+import { plantLinkLabel, plantLinkLamp, type PlantLinkSnapshot } from "../lib/connectivity";
+import { useDevice } from "../services/device";
+import type { LocalView } from "../services/localStore";
 import { plantSnapshot } from "../plantStatus";
 import { ActivePermits } from "../screens/ActivePermits";
 import { CommandCenter } from "../screens/CommandCenter";
@@ -48,8 +49,9 @@ const NAV: { label: string; items: { id: ListScreen; label: string }[] }[] = [
 
 export function Shell() {
   const { permits, drafts, screen, origin, selectedId, go } = usePermits();
-  const link = useConnectivity();
+  const { link, local } = useDevice();
   const stageRef = useRef<HTMLElement>(null);
+  const [navOpen, setNavOpen] = useState(false);
 
   useEffect(() => {
     stageRef.current?.scrollTo(0, 0);
@@ -82,7 +84,7 @@ export function Shell() {
 
   return (
     <div className="shell">
-      <aside className="nav">
+      <aside id="app-nav" className={navOpen ? "nav open" : "nav"}>
         <div className="brand">
           <div className="brand-mark" />
           <div>
@@ -103,7 +105,10 @@ export function Shell() {
                     type="button"
                     className={active ? "nav-item active" : "nav-item"}
                     aria-current={active ? "page" : undefined}
-                    onClick={() => go(item.id)}
+                    onClick={() => {
+                      setNavOpen(false);
+                      go(item.id);
+                    }}
                   >
                     <span>{item.label}</span>
                     {count !== null ? <span className="count">{count}</span> : null}
@@ -113,10 +118,13 @@ export function Shell() {
             </div>
           ))}
         </div>
-        <NetworkStatus link={link} />
+        <NetworkStatus link={link} local={local} />
       </aside>
+      {navOpen ? (
+        <button type="button" className="nav-scrim" aria-label="Close navigation" onClick={() => setNavOpen(false)} />
+      ) : null}
       <div className="workspace">
-        <OpsBar link={link} />
+        <OpsBar link={link} navOpen={navOpen} onMenu={() => setNavOpen((open) => !open)} />
         <PlantStatus />
         <main className="stage" ref={stageRef}>
           {screen === "command" && <CommandCenter />}
@@ -136,23 +144,33 @@ export function Shell() {
   );
 }
 
-function NetworkStatus({ link }: { link: ConnectivitySnapshot }) {
+function NetworkStatus({ link, local }: { link: PlantLinkSnapshot; local: LocalView }) {
+  const storageFailed = local.status === "failed";
   return (
-    <div className="network">
-      <div className="network-label">NETWORK</div>
+    <div className={storageFailed ? "network is-storage-failed" : "network"}>
+      <div className="network-label">PLANT LINK</div>
       <div className="network-state">
-        <span className={`lamp lamp-${connectivityLamp(link.state)}`} />
-        {connectivityLabel(link.state)}
+        <span className={`lamp lamp-${plantLinkLamp(link.link)}`} />
+        {plantLinkLabel(link.link)}
       </div>
       <div className="network-detail mono">
         <div>
-          <span>SERVER</span>
-          <strong>{serverLabel(link.server)}</strong>
+          <span>LOCAL DATA</span>
+          <strong className={storageFailed ? "storage-alert" : undefined}>{localDataLabel(local.status)}</strong>
         </div>
-        <div>
-          <span>DATABASE</span>
-          <strong>{databaseLabel(link.database)}</strong>
-        </div>
+        {local.status === "available" ? (
+          <div className="pending-line">
+            <strong>
+              {local.pendingCount} {local.pendingCount === 1 ? "CHANGE" : "CHANGES"} PENDING
+            </strong>
+          </div>
+        ) : null}
+        {local.status === "available" && local.syncState === "SYNCING" ? (
+          <div>
+            <span>SYNC</span>
+            <strong>SYNCING</strong>
+          </div>
+        ) : null}
         <div>
           <span>LAST CHECK</span>
           <strong>{link.lastCheck ?? "—"}</strong>
@@ -160,6 +178,17 @@ function NetworkStatus({ link }: { link: ConnectivitySnapshot }) {
       </div>
     </div>
   );
+}
+
+function localDataLabel(status: LocalView["status"]): string {
+  switch (status) {
+    case "checking":
+      return "CHECKING";
+    case "available":
+      return "AVAILABLE";
+    case "failed":
+      return "UNAVAILABLE";
+  }
 }
 
 function PlantStatus() {
@@ -187,20 +216,28 @@ function PlantStatus() {
   );
 }
 
-function ServerStatus({ link }: { link: ConnectivitySnapshot }) {
-  const label = link.state === "online" ? "SERVER ONLINE" : connectivityLabel(link.state);
+function PlantLinkStatus({ link }: { link: PlantLinkSnapshot }) {
   return (
     <div className="ops-seg ops-server">
-      <span className={`lamp lamp-${connectivityLamp(link.state)}`} />
-      <span>{label}</span>
+      <span className={`lamp lamp-${plantLinkLamp(link.link)}`} />
+      <span>PLANT {plantLinkLabel(link.link)}</span>
     </div>
   );
 }
 
-function OpsBar({ link }: { link: ConnectivitySnapshot }) {
+function OpsBar({ link, navOpen, onMenu }: { link: PlantLinkSnapshot; navOpen: boolean; onMenu: () => void }) {
   const clock = usePlantClock();
   return (
     <header className="opsbar">
+      <button
+        type="button"
+        className="field-menu"
+        aria-expanded={navOpen}
+        aria-controls="app-nav"
+        onClick={onMenu}
+      >
+        {navOpen ? "CLOSE" : "MENU"}
+      </button>
       <div className="ops-seg">
         <span className="ops-plant">BAYTOWN</span>
         <span className="ops-slash">/</span>
@@ -214,7 +251,7 @@ function OpsBar({ link }: { link: ConnectivitySnapshot }) {
         <span className="mono">{clock.date}</span>
         <span className="mono ops-time">{clock.hms}</span>
       </div>
-      <ServerStatus link={link} />
+      <PlantLinkStatus link={link} />
     </header>
   );
 }

@@ -33,3 +33,8 @@ appsettings.*.local.json
 server/**/bin/
 server/**/obj/
 *.user
+
+# Local device databases. The app creates these in the Tauri app-data directory.
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm

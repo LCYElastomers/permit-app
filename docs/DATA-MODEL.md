@@ -15,7 +15,7 @@ Timestamps are `timestamptz`. Enumerations are stored as strings such as `GENERA
 | `users` | Person known to the API. `auth_provider` is `LOCAL` now and can be `ENTRA` later. There is no password column. |
 | `roles` | Named role. |
 | `user_roles` | User-to-role assignment. |
-| `areas` | Plant area. `name` is unique and required, up to 120 characters. There is no enabled flag. |
+| `areas` | Plant area. `name` is unique and required, up to 120 characters. There is no enabled flag. The desktop cache stores the same id and name in SQLite `reference_areas`. A future removal or deactivation has to be an explicit server fact. The cache must not invent an inactive flag, and dropping an area from the cache must not delete local permit history that still references that id. See `docs/SYNC.md`. |
 | `equipment` | Tagged equipment in an area. |
 | `contractors` | Contractor company. |
 

@@ -4,6 +4,7 @@ import { GENERAL_EXCLUSIONS, PERMIT_TYPES, typeRecommendations } from "../permit
 import { plantClock } from "../plantClock";
 import { areaIdForName, type AreaCatalog } from "../services/areas";
 import { useAreaCatalog } from "../services/useAreaCatalog";
+import { useDevice } from "../services/device";
 import { usePermits } from "../state/PermitStore";
 import type { PermitDraft, PermitKind } from "../types";
 import {
@@ -17,15 +18,25 @@ import {
   toggleItem,
 } from "../workflow";
 import { Field, Section } from "../components/ui";
+import type { PlantLink } from "../lib/connectivity";
 
 const COMPANIES = contractors.filter((item) => item.name !== "LCY").map((item) => item.name);
+
+function localSaveLine(savedCode: string, link: PlantLink): string {
+  if (!savedCode) return "";
+  if (link === "unreachable") return "SAVED LOCALLY · PLANT LINK OFFLINE";
+  return "SAVED LOCALLY";
+}
 
 export function NewPermit() {
   const { form, updateForm, saveDraft, issuePermit, resetForm } = usePermits();
   const catalog = useAreaCatalog();
+  const { link } = useDevice();
   const [saved, setSaved] = useState("");
   const [signError, setSignError] = useState("");
   const blockers = issueBlockers(form);
+  const step = STEPS[form.step] ?? STEPS[0];
+  const saveLine = localSaveLine(saved, link.link);
 
   const patch = (partial: Partial<PermitDraft>) => {
     updateForm((current) => ({ ...current, ...partial }));
@@ -45,17 +56,28 @@ export function NewPermit() {
   return (
     <div className="screen fill workflow">
       <div className="steps">
-        {STEPS.map((step, index) => (
+        {STEPS.map((item, index) => (
           <button
-            key={step.num}
+            key={item.num}
             type="button"
             className={form.step === index ? "step current" : "step"}
             onClick={() => patch({ step: index })}
           >
-            <span className="step-num">{step.num}</span>
-            <span className="step-label">{step.label}</span>
+            <span className="step-num">{item.num}</span>
+            <span className="step-label">{item.label}</span>
           </button>
         ))}
+      </div>
+      <div className="field-progress">
+        <div className="field-progress-count">
+          {form.step + 1} OF {STEPS.length}
+        </div>
+        <div className="field-progress-name">{step.label}</div>
+        <div className="field-progress-marks" aria-hidden="true">
+          {STEPS.map((item, index) => (
+            <span key={item.num} className={index === form.step ? "current" : index < form.step ? "done" : ""} />
+          ))}
+        </div>
       </div>
 
       <div className="kind-bar">
@@ -78,7 +100,6 @@ export function NewPermit() {
       </div>
 
       <div className="workflow-body">
-        {saved ? <div className="notice">Draft {saved} saved on this station.</div> : null}
         <TypeRecommendationNotice form={form} onUse={(kind) => patch({ kind })} />
         {form.step === 0 && <ScopeStep form={form} patch={patch} setField={setField} catalog={catalog} />}
         {form.step === 1 && (
@@ -123,6 +144,7 @@ export function NewPermit() {
         >
           Back
         </button>
+        {saveLine ? <p className="save-status foot-save">{saveLine}</p> : <span className="foot-save" />}
         <div className="foot-actions">
           <button
             type="button"
@@ -151,8 +173,11 @@ export function NewPermit() {
 
 function AreaNote({ form, catalog }: { form: PermitDraft; catalog: AreaCatalog }) {
   if (catalog.status === "loading") return <p className="field-note">Loading areas.</p>;
-  if (catalog.status === "unavailable") {
-    return <p className="field-note">Area reference data is unavailable. The rest of this permit can still be entered.</p>;
+  if (catalog.status === "storage-failed") {
+    return <p className="field-note">Local permit data is unavailable on this device.</p>;
+  }
+  if (catalog.status === "unsynchronized") {
+    return <p className="field-note">Area reference data has not been synchronized.</p>;
   }
   if (catalog.areas.length === 0) return <p className="field-note">No areas are configured.</p>;
   const known = catalog.areas.some((area) => area.id === form.areaId || area.name === form.area);
@@ -399,7 +424,9 @@ function ChoiceStep({
             aria-pressed={selected.includes(option)}
             onClick={() => onToggle(option)}
           >
-            {option}
+            <span className="toggle-mark" aria-hidden="true" />
+            <span className="toggle-label">{option}</span>
+            <span className="toggle-state">{selected.includes(option) ? "SELECTED" : "OPEN"}</span>
           </button>
         ))}
       </div>
