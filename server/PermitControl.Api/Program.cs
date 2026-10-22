@@ -14,7 +14,7 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("local-ui", policy =>
     {
-        policy.WithOrigins("http://localhost:3000", "http://127.0.0.1:3000")
+        policy.WithOrigins("http://localhost:3000", "http://127.0.0.1:3000", "http://tauri.localhost")
             .AllowAnyHeader()
             .AllowAnyMethod();
     });
