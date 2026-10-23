@@ -199,6 +199,42 @@ public class PermitPdfTests
     }
 
     [Fact]
+    public void Suspended_document_includes_the_recorded_suspension_and_does_not_authorize_work()
+    {
+        var document = GeneralWorkDocuments.Compose(
+            Sample(PermitStatus.SUSPENDED, suspensionReason: "Line opened before the monitor cleared", suspendedAt: new DateTimeOffset(2026, 10, 22, 21, 5, 0, TimeSpan.Zero)),
+            Guid.NewGuid(),
+            GeneratedAt);
+
+        Assert.Contains("SUSPENDED", document.Banner);
+        Assert.Contains("WORK NOT AUTHORIZED", document.Banner);
+        Assert.False(document.Contains("WORK AUTHORIZED"));
+        Assert.True(document.Contains("Line opened before the monitor cleared"));
+        Assert.True(document.Contains("2026-10-22 21:05:00 UTC"));
+        Assert.Contains("SUSPENSION", document.Sections.Select(section => section.Title));
+    }
+
+    [Fact]
+    public void Reprinting_an_active_permit_creates_another_immutable_export()
+    {
+        var files = new Dictionary<string, byte[]>();
+        var renderer = new PdfSharpPermitRenderer();
+        var first = PermitPdfExporting.Prepare(Sample(PermitStatus.ACTIVE), PermitExportType.PRINT, Guid.NewGuid(), GeneratedAt, renderer.Render);
+        files[first.Export!.StorageKey] = first.Content!.ToArray();
+        var kept = files[first.Export.StorageKey].ToArray();
+        var second = PermitPdfExporting.Prepare(Sample(PermitStatus.ACTIVE), PermitExportType.PRINT, Guid.NewGuid(), GeneratedAt.AddMinutes(10), renderer.Render);
+
+        Assert.NotEqual(first.Export.Id, second.Export!.Id);
+        Assert.NotEqual(first.Export.StorageKey, second.Export.StorageKey);
+        Assert.NotEqual(first.Export.Sha256, second.Export.Sha256);
+        Assert.Equal(kept, files[first.Export.StorageKey]);
+        Assert.Equal("ACTIVE", first.Export.DocumentClassification);
+        Assert.Equal("ACTIVE", second.Export.DocumentClassification);
+        Assert.Equal(first.Export.PermitId, second.Export.PermitId);
+        Assert.Equal(first.Export.PermitRevision, second.Export.PermitRevision);
+    }
+
+    [Fact]
     public void Active_then_suspended_exports_stay_separate()
     {
         var files = new Dictionary<string, byte[]>();
@@ -234,6 +270,37 @@ public class PermitPdfTests
         Assert.Equal("final-archive-not-available", archive.Error);
     }
 
+    [Fact]
+    public void Hot_work_module_facts_print_without_authorizing_a_draft()
+    {
+        var source = Sample();
+        source.Permit.PermitType = PermitType.HOT_WORK;
+        source.ModuleFacts =
+        [
+            new PermitModuleFact
+            {
+                ModuleKind = PermitModuleKind.FIRE_WATCH,
+                Name = "fireWatch",
+                Value = "Alex Morgan",
+            },
+            new PermitModuleFact
+            {
+                ModuleKind = PermitModuleKind.HOT_WORK,
+                Name = "combustibleClearance",
+                Value = "35 ft",
+            },
+        ];
+        var document = GeneralWorkDocuments.Compose(source, Guid.NewGuid(), GeneratedAt);
+        Assert.Contains("HOT WORK PERMIT", document.Banner);
+        Assert.DoesNotContain("GENERAL WORK PERMIT", document.Banner);
+        Assert.DoesNotContain(document.Sections, section => section.Title == "GENERAL WORK CONDITIONS");
+        Assert.Contains("FIRE WATCH", document.Sections.Select(section => section.Title));
+        Assert.Contains("HOT WORK", document.Sections.Select(section => section.Title));
+        Assert.Contains("fireWatch: Alex Morgan", document.Sections.SelectMany(section => section.Lines));
+        Assert.Contains("NOT AUTHORIZED FOR WORK", document.Banner);
+        Assert.False(document.Contains("WORK AUTHORIZED"));
+    }
+
     private static readonly Guid SamplePermitId = Guid.Parse("0b6d1a22-1111-4a1b-9c1d-111111111111");
 
     private static string PageText(PdfSharp.Pdf.PdfPage page)
@@ -242,7 +309,11 @@ public class PermitPdfTests
         return Encoding.Latin1.GetString(content.Stream.UnfilteredValue);
     }
 
-    private static AuthoritativeGeneralWork Sample(PermitStatus status = PermitStatus.DRAFT, IReadOnlyList<PermitHazard>? hazards = null) => new()
+    private static AuthoritativeGeneralWork Sample(
+        PermitStatus status = PermitStatus.DRAFT,
+        IReadOnlyList<PermitHazard>? hazards = null,
+        string? suspensionReason = null,
+        DateTimeOffset? suspendedAt = null) => new()
     {
         Permit = new Permit
         {
@@ -273,6 +344,8 @@ public class PermitPdfTests
             new PermitParticipant { RoleName = "Requester", DisplayName = "Alex Morgan" },
             new PermitParticipant { RoleName = "Craft / Permit Receiver", DisplayName = "Jordan Lee" },
         ],
+        SuspensionReason = suspensionReason,
+        SuspendedAt = suspendedAt,
         CreationFactsJson = """
             {
               "kind": "general-work-facts",

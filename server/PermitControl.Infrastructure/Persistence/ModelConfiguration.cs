@@ -22,13 +22,24 @@ internal static class ModelConfiguration
         {
             entity.ToTable("users");
             entity.HasKey(item => item.Id);
+            entity.Property(item => item.PermitUserCode).HasMaxLength(16).IsRequired();
             entity.Property(item => item.Username).HasMaxLength(80).IsRequired();
             entity.Property(item => item.DisplayName).HasMaxLength(160).IsRequired();
             entity.Property(item => item.Email).HasMaxLength(200).IsRequired();
+            entity.Property(item => item.WindowsDomain).HasMaxLength(80).IsRequired();
+            entity.Property(item => item.WindowsUsername).HasMaxLength(80).IsRequired();
+            entity.Property(item => item.PersonnelReference).HasMaxLength(40).IsRequired();
+            entity.Property(item => item.PersonnelCode).HasMaxLength(40).IsRequired();
+            entity.Property(item => item.JobTitle).HasMaxLength(120).IsRequired();
+            entity.Property(item => item.Department).HasMaxLength(120);
             entity.Property(item => item.ExternalSubjectId).HasMaxLength(200);
             entity.Property(item => item.AuthProvider).HasConversion<string>().HasMaxLength(16);
             entity.Property(item => item.CreatedAt).HasColumnType("timestamptz");
+            entity.Property(item => item.UpdatedAt).HasColumnType("timestamptz");
             entity.HasIndex(item => item.Username).IsUnique();
+            entity.HasIndex(item => item.PermitUserCode).IsUnique();
+            entity.HasIndex(item => new { item.WindowsDomain, item.WindowsUsername }).IsUnique();
+            entity.HasData(DirectorySeed.Users());
         });
 
         model.Entity<Role>(entity =>
@@ -37,14 +48,95 @@ internal static class ModelConfiguration
             entity.HasKey(item => item.Id);
             entity.Property(item => item.Name).HasMaxLength(80).IsRequired();
             entity.HasIndex(item => item.Name).IsUnique();
+            entity.HasData(DirectorySeed.Roles());
         });
 
         model.Entity<UserRole>(entity =>
         {
             entity.ToTable("user_roles");
             entity.HasKey(item => new { item.UserId, item.RoleId });
-            entity.HasOne(item => item.User).WithMany().HasForeignKey(item => item.UserId).OnDelete(DeleteBehavior.Cascade);
-            entity.HasOne(item => item.Role).WithMany().HasForeignKey(item => item.RoleId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(item => item.User).WithMany().HasForeignKey(item => item.UserId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(item => item.Role).WithMany().HasForeignKey(item => item.RoleId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasData(DirectorySeed.Membership());
+        });
+
+        model.Entity<UserCredential>(entity =>
+        {
+            entity.ToTable("user_credentials");
+            entity.HasKey(item => item.Id);
+            entity.Property(item => item.State).HasConversion<string>().HasMaxLength(32);
+            entity.Property(item => item.ResumeState).HasConversion<string>().HasMaxLength(32);
+            entity.Property(item => item.PinHash).HasMaxLength(400);
+            entity.Property(item => item.CreatedAt).HasColumnType("timestamptz");
+            entity.Property(item => item.UpdatedAt).HasColumnType("timestamptz");
+            entity.Property(item => item.PinChangedAt).HasColumnType("timestamptz");
+            entity.Property(item => item.LockedUntil).HasColumnType("timestamptz");
+            entity.HasIndex(item => item.UserId).IsUnique();
+            entity.HasOne(item => item.User).WithMany().HasForeignKey(item => item.UserId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasData(DirectorySeed.Credentials());
+        });
+
+        model.Entity<UserPinHistory>(entity =>
+        {
+            entity.ToTable("user_pin_history");
+            entity.HasKey(item => item.Id);
+            entity.Property(item => item.PinHash).HasMaxLength(400).IsRequired();
+            entity.Property(item => item.CreatedAt).HasColumnType("timestamptz");
+            entity.HasIndex(item => new { item.UserId, item.CreatedAt });
+            entity.HasOne(item => item.User).WithMany().HasForeignKey(item => item.UserId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        model.Entity<UserQualification>(entity =>
+        {
+            entity.ToTable("user_qualifications");
+            entity.HasKey(item => item.Id);
+            entity.Property(item => item.QualificationType).HasConversion<string>().HasMaxLength(40);
+            entity.Property(item => item.Notes).HasMaxLength(400);
+            entity.Property(item => item.CreatedAt).HasColumnType("timestamptz");
+            entity.Property(item => item.UpdatedAt).HasColumnType("timestamptz");
+            entity.Property(item => item.EffectiveDate).HasColumnType("timestamptz");
+            entity.Property(item => item.ExpirationDate).HasColumnType("timestamptz");
+            entity.HasIndex(item => new { item.UserId, item.QualificationType });
+            entity.HasOne(item => item.User).WithMany().HasForeignKey(item => item.UserId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        model.Entity<CredentialAudit>(entity =>
+        {
+            entity.ToTable("credential_audits");
+            entity.HasKey(item => item.Id);
+            entity.Property(item => item.EventType).HasConversion<string>().HasMaxLength(40);
+            entity.Property(item => item.ReasonCode).HasMaxLength(80);
+            entity.Property(item => item.OccurredAt).HasColumnType("timestamptz");
+            entity.HasIndex(item => new { item.TargetUserId, item.OccurredAt });
+            entity.HasOne<User>().WithMany().HasForeignKey(item => item.TargetUserId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<User>().WithMany().HasForeignKey(item => item.PerformedByUserId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        model.Entity<UserSession>(entity =>
+        {
+            entity.ToTable("user_sessions");
+            entity.HasKey(item => item.Id);
+            entity.Property(item => item.TokenHash).HasMaxLength(64).IsRequired();
+            entity.Property(item => item.CreatedAt).HasColumnType("timestamptz");
+            entity.Property(item => item.ExpiresAt).HasColumnType("timestamptz");
+            entity.Property(item => item.RevokedAt).HasColumnType("timestamptz");
+            entity.HasIndex(item => item.TokenHash).IsUnique();
+            entity.HasOne(item => item.User).WithMany().HasForeignKey(item => item.UserId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        model.Entity<UserCodeCounter>(entity =>
+        {
+            entity.ToTable("user_code_counters");
+            entity.HasKey(item => item.Id);
+            entity.HasData(new UserCodeCounter { Id = 1, LastValue = 8 });
+        });
+
+        model.Entity<PermitPolicySetting>(entity =>
+        {
+            entity.ToTable("permit_policies");
+            entity.HasKey(item => item.Key);
+            entity.Property(item => item.Key).HasMaxLength(80);
+            entity.HasData(new PermitPolicySetting { Key = PermitPolicies.AllowSelfAuthorization, Enabled = false });
         });
     }
 
@@ -124,6 +216,11 @@ internal static class ModelConfiguration
             EnumString(entity.Property(item => item.EventType));
             EnumString(entity.Property(item => item.SyncSource));
             entity.Property(item => item.Payload).HasColumnType("jsonb");
+            entity.Property(item => item.PermitUserCodeSnapshot).HasMaxLength(16);
+            entity.Property(item => item.DisplayNameSnapshot).HasMaxLength(160);
+            entity.Property(item => item.JobTitleSnapshot).HasMaxLength(120);
+            entity.Property(item => item.ActingRole).HasMaxLength(40);
+            entity.Property(item => item.WindowsUsernameSnapshot).HasMaxLength(80);
             Timestamp(entity.Property(item => item.OccurredAt));
             Timestamp(entity.Property(item => item.RecordedAt));
             entity.HasIndex(item => new { item.PermitId, item.OccurredAt });
@@ -148,8 +245,14 @@ internal static class ModelConfiguration
             entity.HasKey(item => item.Id);
             entity.Property(item => item.RoleName).HasMaxLength(80).IsRequired();
             entity.Property(item => item.Decision).HasMaxLength(40).IsRequired();
+            entity.Property(item => item.PermitUserCodeSnapshot).HasMaxLength(16);
+            entity.Property(item => item.DisplayNameSnapshot).HasMaxLength(160);
+            entity.Property(item => item.JobTitleSnapshot).HasMaxLength(120);
+            entity.Property(item => item.ActingRole).HasMaxLength(40);
+            entity.Property(item => item.WindowsUsernameSnapshot).HasMaxLength(80);
             Timestamp(entity.Property(item => item.DecidedAt));
             entity.HasOne(item => item.Permit).WithMany().HasForeignKey(item => item.PermitId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<User>().WithMany().HasForeignKey(item => item.UserId).OnDelete(DeleteBehavior.Restrict);
         });
 
         model.Entity<PermitModule>(entity =>
@@ -274,6 +377,17 @@ internal static class ModelConfiguration
             entity.HasKey(item => item.Id);
             entity.Property(item => item.Name).HasMaxLength(120).IsRequired();
             Timestamp(entity.Property(item => item.LastSeenAt));
+        });
+
+        model.Entity<PermitModuleFact>(entity =>
+        {
+            entity.ToTable("permit_module_facts");
+            entity.HasKey(item => item.Id);
+            entity.Property(item => item.Name).HasMaxLength(80).IsRequired();
+            entity.Property(item => item.Value).HasMaxLength(500).IsRequired();
+            EnumString(entity.Property(item => item.ModuleKind));
+            entity.HasIndex(item => new { item.PermitId, item.ModuleKind, item.Name }).IsUnique();
+            entity.HasOne(item => item.Permit).WithMany().HasForeignKey(item => item.PermitId).OnDelete(DeleteBehavior.Restrict);
         });
 
         model.Entity<PermitExport>(entity =>

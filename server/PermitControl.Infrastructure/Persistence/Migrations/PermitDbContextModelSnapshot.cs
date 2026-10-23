@@ -164,6 +164,42 @@ namespace PermitControl.Infrastructure.Persistence.Migrations
                     b.ToTable("contractors", (string)null);
                 });
 
+            modelBuilder.Entity("PermitControl.Domain.CredentialAudit", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("DeviceId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("EventType")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<DateTimeOffset>("OccurredAt")
+                        .HasColumnType("timestamptz");
+
+                    b.Property<Guid>("PerformedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ReasonCode")
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<Guid>("TargetUserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PerformedByUserId");
+
+                    b.HasIndex("TargetUserId", "OccurredAt");
+
+                    b.ToTable("credential_audits", (string)null);
+                });
+
             modelBuilder.Entity("PermitControl.Domain.Device", b =>
                 {
                     b.Property<Guid>("Id")
@@ -346,6 +382,10 @@ namespace PermitControl.Infrastructure.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<string>("ActingRole")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
                     b.Property<DateTimeOffset?>("DecidedAt")
                         .HasColumnType("timestamptz");
 
@@ -354,8 +394,23 @@ namespace PermitControl.Infrastructure.Persistence.Migrations
                         .HasMaxLength(40)
                         .HasColumnType("character varying(40)");
 
+                    b.Property<string>("DisplayNameSnapshot")
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
+                    b.Property<string>("JobTitleSnapshot")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
                     b.Property<Guid>("PermitId")
                         .HasColumnType("uuid");
+
+                    b.Property<int>("PermitRevision")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("PermitUserCodeSnapshot")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
 
                     b.Property<string>("RoleName")
                         .IsRequired()
@@ -365,9 +420,15 @@ namespace PermitControl.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("UserId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("WindowsUsernameSnapshot")
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
                     b.HasKey("Id");
 
                     b.HasIndex("PermitId");
+
+                    b.HasIndex("UserId");
 
                     b.ToTable("permit_approvals", (string)null);
                 });
@@ -429,13 +490,25 @@ namespace PermitControl.Infrastructure.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<string>("ActingRole")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
                     b.Property<Guid?>("DeviceId")
                         .HasColumnType("uuid");
+
+                    b.Property<string>("DisplayNameSnapshot")
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
 
                     b.Property<string>("EventType")
                         .IsRequired()
                         .HasMaxLength(40)
                         .HasColumnType("character varying(40)");
+
+                    b.Property<string>("JobTitleSnapshot")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
 
                     b.Property<DateTimeOffset>("OccurredAt")
                         .HasColumnType("timestamptz");
@@ -449,6 +522,10 @@ namespace PermitControl.Infrastructure.Persistence.Migrations
                     b.Property<int>("PermitRevision")
                         .HasColumnType("integer");
 
+                    b.Property<string>("PermitUserCodeSnapshot")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
                     b.Property<DateTimeOffset>("RecordedAt")
                         .HasColumnType("timestamptz");
 
@@ -459,6 +536,10 @@ namespace PermitControl.Infrastructure.Persistence.Migrations
 
                     b.Property<Guid?>("UserId")
                         .HasColumnType("uuid");
+
+                    b.Property<string>("WindowsUsernameSnapshot")
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
 
                     b.HasKey("Id");
 
@@ -596,6 +677,38 @@ namespace PermitControl.Infrastructure.Persistence.Migrations
                     b.ToTable("permit_modules", (string)null);
                 });
 
+            modelBuilder.Entity("PermitControl.Domain.PermitModuleFact", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ModuleKind")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<Guid>("PermitId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Value")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PermitId", "ModuleKind", "Name")
+                        .IsUnique();
+
+                    b.ToTable("permit_module_facts", (string)null);
+                });
+
             modelBuilder.Entity("PermitControl.Domain.PermitNumberCounter", b =>
                 {
                     b.Property<int>("Year")
@@ -636,6 +749,27 @@ namespace PermitControl.Infrastructure.Persistence.Migrations
                     b.HasIndex("PermitId");
 
                     b.ToTable("permit_participants", (string)null);
+                });
+
+            modelBuilder.Entity("PermitControl.Domain.PermitPolicySetting", b =>
+                {
+                    b.Property<string>("Key")
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("boolean");
+
+                    b.HasKey("Key");
+
+                    b.ToTable("permit_policies", (string)null);
+
+                    b.HasData(
+                        new
+                        {
+                            Key = "AllowSelfAuthorization",
+                            Enabled = false
+                        });
                 });
 
             modelBuilder.Entity("PermitControl.Domain.PermitPpe", b =>
@@ -754,6 +888,48 @@ namespace PermitControl.Infrastructure.Persistence.Migrations
                         .IsUnique();
 
                     b.ToTable("roles", (string)null);
+
+                    b.HasData(
+                        new
+                        {
+                            Id = new Guid("a0000001-0000-4000-8000-000000000001"),
+                            Name = "SUPER_ADMIN"
+                        },
+                        new
+                        {
+                            Id = new Guid("a0000002-0000-4000-8000-000000000002"),
+                            Name = "ADMIN"
+                        },
+                        new
+                        {
+                            Id = new Guid("a0000003-0000-4000-8000-000000000003"),
+                            Name = "REQUESTER"
+                        },
+                        new
+                        {
+                            Id = new Guid("a0000004-0000-4000-8000-000000000004"),
+                            Name = "PERMIT_AUTHORIZER"
+                        },
+                        new
+                        {
+                            Id = new Guid("a0000005-0000-4000-8000-000000000005"),
+                            Name = "SHIFT_SUPERVISOR"
+                        },
+                        new
+                        {
+                            Id = new Guid("a0000006-0000-4000-8000-000000000006"),
+                            Name = "CRAFT_RECEIVER"
+                        },
+                        new
+                        {
+                            Id = new Guid("a0000007-0000-4000-8000-000000000007"),
+                            Name = "SAFETY"
+                        },
+                        new
+                        {
+                            Id = new Guid("a0000008-0000-4000-8000-000000000008"),
+                            Name = "VIEWER"
+                        });
                 });
 
             modelBuilder.Entity("PermitControl.Domain.SyncEvent", b =>
@@ -797,6 +973,10 @@ namespace PermitControl.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamptz");
 
+                    b.Property<string>("Department")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
                     b.Property<string>("DisplayName")
                         .IsRequired()
                         .HasMaxLength(160)
@@ -814,17 +994,387 @@ namespace PermitControl.Infrastructure.Persistence.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
+                    b.Property<string>("JobTitle")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<string>("PermitUserCode")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<string>("PersonnelCode")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("PersonnelReference")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamptz");
+
                     b.Property<string>("Username")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<string>("WindowsDomain")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<string>("WindowsUsername")
                         .IsRequired()
                         .HasMaxLength(80)
                         .HasColumnType("character varying(80)");
 
                     b.HasKey("Id");
 
+                    b.HasIndex("PermitUserCode")
+                        .IsUnique();
+
                     b.HasIndex("Username")
                         .IsUnique();
 
+                    b.HasIndex("WindowsDomain", "WindowsUsername")
+                        .IsUnique();
+
                     b.ToTable("users", (string)null);
+
+                    b.HasData(
+                        new
+                        {
+                            Id = new Guid("b0000001-0000-4000-8000-000000000001"),
+                            AuthProvider = "LOCAL",
+                            CreatedAt = new DateTimeOffset(new DateTime(2026, 10, 23, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            DisplayName = "Bobby Fitzgerald",
+                            Email = "pcu-0001@permit-control.local",
+                            Enabled = true,
+                            JobTitle = "IT Manager",
+                            PermitUserCode = "PCU-0001",
+                            PersonnelCode = "IT",
+                            PersonnelReference = "3100",
+                            Username = "bobby.fitzgerald",
+                            WindowsDomain = "",
+                            WindowsUsername = "bobby.fitzgerald"
+                        },
+                        new
+                        {
+                            Id = new Guid("b0000002-0000-4000-8000-000000000002"),
+                            AuthProvider = "LOCAL",
+                            CreatedAt = new DateTimeOffset(new DateTime(2026, 10, 23, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            DisplayName = "Patrick Grigsby",
+                            Email = "pcu-0002@permit-control.local",
+                            Enabled = true,
+                            JobTitle = "Day Supervisor",
+                            PermitUserCode = "PCU-0002",
+                            PersonnelCode = "SS",
+                            PersonnelReference = "5200",
+                            Username = "patrick.grigsby",
+                            WindowsDomain = "",
+                            WindowsUsername = "patrick.grigsby"
+                        },
+                        new
+                        {
+                            Id = new Guid("b0000003-0000-4000-8000-000000000003"),
+                            AuthProvider = "LOCAL",
+                            CreatedAt = new DateTimeOffset(new DateTime(2026, 10, 23, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            DisplayName = "Mike Distefano",
+                            Email = "pcu-0003@permit-control.local",
+                            Enabled = true,
+                            JobTitle = "Shift Supervisor",
+                            PermitUserCode = "PCU-0003",
+                            PersonnelCode = "SS",
+                            PersonnelReference = "5200",
+                            Username = "mike.distefano",
+                            WindowsDomain = "",
+                            WindowsUsername = "mike.distefano"
+                        },
+                        new
+                        {
+                            Id = new Guid("b0000004-0000-4000-8000-000000000004"),
+                            AuthProvider = "LOCAL",
+                            CreatedAt = new DateTimeOffset(new DateTime(2026, 10, 23, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            DisplayName = "Tommy M Pantoja",
+                            Email = "pcu-0004@permit-control.local",
+                            Enabled = true,
+                            JobTitle = "Shift Supervisor",
+                            PermitUserCode = "PCU-0004",
+                            PersonnelCode = "SS",
+                            PersonnelReference = "5200",
+                            Username = "tommy.pantoja",
+                            WindowsDomain = "",
+                            WindowsUsername = "tommy.pantoja"
+                        },
+                        new
+                        {
+                            Id = new Guid("b0000005-0000-4000-8000-000000000005"),
+                            AuthProvider = "LOCAL",
+                            CreatedAt = new DateTimeOffset(new DateTime(2026, 10, 23, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            DisplayName = "John B. Fugere",
+                            Email = "pcu-0005@permit-control.local",
+                            Enabled = true,
+                            JobTitle = "Shift Supervisor",
+                            PermitUserCode = "PCU-0005",
+                            PersonnelCode = "SS",
+                            PersonnelReference = "5200",
+                            Username = "john.fugere",
+                            WindowsDomain = "",
+                            WindowsUsername = "john.fugere"
+                        },
+                        new
+                        {
+                            Id = new Guid("b0000006-0000-4000-8000-000000000006"),
+                            AuthProvider = "LOCAL",
+                            CreatedAt = new DateTimeOffset(new DateTime(2026, 10, 23, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            DisplayName = "Cody Lane Stanfill",
+                            Email = "pcu-0006@permit-control.local",
+                            Enabled = true,
+                            JobTitle = "Finishing Board Operator",
+                            PermitUserCode = "PCU-0006",
+                            PersonnelCode = "STEPUP",
+                            PersonnelReference = "5200",
+                            Username = "cody.stanfill",
+                            WindowsDomain = "",
+                            WindowsUsername = "cody.stanfill"
+                        },
+                        new
+                        {
+                            Id = new Guid("b0000007-0000-4000-8000-000000000007"),
+                            AuthProvider = "LOCAL",
+                            CreatedAt = new DateTimeOffset(new DateTime(2026, 10, 23, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            DisplayName = "Myral Niemtschk",
+                            Email = "pcu-0007@permit-control.local",
+                            Enabled = true,
+                            JobTitle = "Finishing Board Operator",
+                            PermitUserCode = "PCU-0007",
+                            PersonnelCode = "STEPUP",
+                            PersonnelReference = "5200",
+                            Username = "myral.niemtschk",
+                            WindowsDomain = "",
+                            WindowsUsername = "myral.niemtschk"
+                        },
+                        new
+                        {
+                            Id = new Guid("b0000008-0000-4000-8000-000000000008"),
+                            AuthProvider = "LOCAL",
+                            CreatedAt = new DateTimeOffset(new DateTime(2026, 10, 23, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            DisplayName = "Angie Balderaz",
+                            Email = "pcu-0008@permit-control.local",
+                            Enabled = true,
+                            JobTitle = "Reaction Board Operator",
+                            PermitUserCode = "PCU-0008",
+                            PersonnelCode = "RBOP",
+                            PersonnelReference = "5200",
+                            Username = "angie.balderaz",
+                            WindowsDomain = "",
+                            WindowsUsername = "angie.balderaz"
+                        });
+                });
+
+            modelBuilder.Entity("PermitControl.Domain.UserCodeCounter", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("LastValue")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("user_code_counters", (string)null);
+
+                    b.HasData(
+                        new
+                        {
+                            Id = 1,
+                            LastValue = 8
+                        });
+                });
+
+            modelBuilder.Entity("PermitControl.Domain.UserCredential", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamptz");
+
+                    b.Property<int>("FailedAttempts")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset?>("LockedUntil")
+                        .HasColumnType("timestamptz");
+
+                    b.Property<DateTimeOffset?>("PinChangedAt")
+                        .HasColumnType("timestamptz");
+
+                    b.Property<string>("PinHash")
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
+                    b.Property<string>("ResumeState")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamptz");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId")
+                        .IsUnique();
+
+                    b.ToTable("user_credentials", (string)null);
+
+                    b.HasData(
+                        new
+                        {
+                            Id = new Guid("c0000001-0000-4000-8000-000000000001"),
+                            CreatedAt = new DateTimeOffset(new DateTime(2026, 10, 23, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            FailedAttempts = 0,
+                            State = "NOT_ENROLLED",
+                            UserId = new Guid("b0000001-0000-4000-8000-000000000001")
+                        },
+                        new
+                        {
+                            Id = new Guid("c0000002-0000-4000-8000-000000000002"),
+                            CreatedAt = new DateTimeOffset(new DateTime(2026, 10, 23, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            FailedAttempts = 0,
+                            State = "NOT_ENROLLED",
+                            UserId = new Guid("b0000002-0000-4000-8000-000000000002")
+                        },
+                        new
+                        {
+                            Id = new Guid("c0000003-0000-4000-8000-000000000003"),
+                            CreatedAt = new DateTimeOffset(new DateTime(2026, 10, 23, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            FailedAttempts = 0,
+                            State = "NOT_ENROLLED",
+                            UserId = new Guid("b0000003-0000-4000-8000-000000000003")
+                        },
+                        new
+                        {
+                            Id = new Guid("c0000004-0000-4000-8000-000000000004"),
+                            CreatedAt = new DateTimeOffset(new DateTime(2026, 10, 23, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            FailedAttempts = 0,
+                            State = "NOT_ENROLLED",
+                            UserId = new Guid("b0000004-0000-4000-8000-000000000004")
+                        },
+                        new
+                        {
+                            Id = new Guid("c0000005-0000-4000-8000-000000000005"),
+                            CreatedAt = new DateTimeOffset(new DateTime(2026, 10, 23, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            FailedAttempts = 0,
+                            State = "NOT_ENROLLED",
+                            UserId = new Guid("b0000005-0000-4000-8000-000000000005")
+                        },
+                        new
+                        {
+                            Id = new Guid("c0000006-0000-4000-8000-000000000006"),
+                            CreatedAt = new DateTimeOffset(new DateTime(2026, 10, 23, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            FailedAttempts = 0,
+                            State = "NOT_ENROLLED",
+                            UserId = new Guid("b0000006-0000-4000-8000-000000000006")
+                        },
+                        new
+                        {
+                            Id = new Guid("c0000007-0000-4000-8000-000000000007"),
+                            CreatedAt = new DateTimeOffset(new DateTime(2026, 10, 23, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            FailedAttempts = 0,
+                            State = "NOT_ENROLLED",
+                            UserId = new Guid("b0000007-0000-4000-8000-000000000007")
+                        },
+                        new
+                        {
+                            Id = new Guid("c0000008-0000-4000-8000-000000000008"),
+                            CreatedAt = new DateTimeOffset(new DateTime(2026, 10, 23, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            FailedAttempts = 0,
+                            State = "NOT_ENROLLED",
+                            UserId = new Guid("b0000008-0000-4000-8000-000000000008")
+                        });
+                });
+
+            modelBuilder.Entity("PermitControl.Domain.UserPinHistory", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamptz");
+
+                    b.Property<string>("PinHash")
+                        .IsRequired()
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId", "CreatedAt");
+
+                    b.ToTable("user_pin_history", (string)null);
+                });
+
+            modelBuilder.Entity("PermitControl.Domain.UserQualification", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamptz");
+
+                    b.Property<DateTimeOffset?>("EffectiveDate")
+                        .HasColumnType("timestamptz");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset?>("ExpirationDate")
+                        .HasColumnType("timestamptz");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
+                    b.Property<string>("QualificationType")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamptz");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("VerifiedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId", "QualificationType");
+
+                    b.ToTable("user_qualifications", (string)null);
                 });
 
             modelBuilder.Entity("PermitControl.Domain.UserRole", b =>
@@ -840,6 +1390,136 @@ namespace PermitControl.Infrastructure.Persistence.Migrations
                     b.HasIndex("RoleId");
 
                     b.ToTable("user_roles", (string)null);
+
+                    b.HasData(
+                        new
+                        {
+                            UserId = new Guid("b0000001-0000-4000-8000-000000000001"),
+                            RoleId = new Guid("a0000001-0000-4000-8000-000000000001")
+                        },
+                        new
+                        {
+                            UserId = new Guid("b0000002-0000-4000-8000-000000000002"),
+                            RoleId = new Guid("a0000003-0000-4000-8000-000000000003")
+                        },
+                        new
+                        {
+                            UserId = new Guid("b0000002-0000-4000-8000-000000000002"),
+                            RoleId = new Guid("a0000004-0000-4000-8000-000000000004")
+                        },
+                        new
+                        {
+                            UserId = new Guid("b0000002-0000-4000-8000-000000000002"),
+                            RoleId = new Guid("a0000005-0000-4000-8000-000000000005")
+                        },
+                        new
+                        {
+                            UserId = new Guid("b0000003-0000-4000-8000-000000000003"),
+                            RoleId = new Guid("a0000003-0000-4000-8000-000000000003")
+                        },
+                        new
+                        {
+                            UserId = new Guid("b0000003-0000-4000-8000-000000000003"),
+                            RoleId = new Guid("a0000004-0000-4000-8000-000000000004")
+                        },
+                        new
+                        {
+                            UserId = new Guid("b0000003-0000-4000-8000-000000000003"),
+                            RoleId = new Guid("a0000005-0000-4000-8000-000000000005")
+                        },
+                        new
+                        {
+                            UserId = new Guid("b0000004-0000-4000-8000-000000000004"),
+                            RoleId = new Guid("a0000003-0000-4000-8000-000000000003")
+                        },
+                        new
+                        {
+                            UserId = new Guid("b0000004-0000-4000-8000-000000000004"),
+                            RoleId = new Guid("a0000004-0000-4000-8000-000000000004")
+                        },
+                        new
+                        {
+                            UserId = new Guid("b0000004-0000-4000-8000-000000000004"),
+                            RoleId = new Guid("a0000005-0000-4000-8000-000000000005")
+                        },
+                        new
+                        {
+                            UserId = new Guid("b0000005-0000-4000-8000-000000000005"),
+                            RoleId = new Guid("a0000003-0000-4000-8000-000000000003")
+                        },
+                        new
+                        {
+                            UserId = new Guid("b0000005-0000-4000-8000-000000000005"),
+                            RoleId = new Guid("a0000004-0000-4000-8000-000000000004")
+                        },
+                        new
+                        {
+                            UserId = new Guid("b0000005-0000-4000-8000-000000000005"),
+                            RoleId = new Guid("a0000005-0000-4000-8000-000000000005")
+                        },
+                        new
+                        {
+                            UserId = new Guid("b0000006-0000-4000-8000-000000000006"),
+                            RoleId = new Guid("a0000003-0000-4000-8000-000000000003")
+                        },
+                        new
+                        {
+                            UserId = new Guid("b0000006-0000-4000-8000-000000000006"),
+                            RoleId = new Guid("a0000004-0000-4000-8000-000000000004")
+                        },
+                        new
+                        {
+                            UserId = new Guid("b0000007-0000-4000-8000-000000000007"),
+                            RoleId = new Guid("a0000003-0000-4000-8000-000000000003")
+                        },
+                        new
+                        {
+                            UserId = new Guid("b0000007-0000-4000-8000-000000000007"),
+                            RoleId = new Guid("a0000004-0000-4000-8000-000000000004")
+                        },
+                        new
+                        {
+                            UserId = new Guid("b0000008-0000-4000-8000-000000000008"),
+                            RoleId = new Guid("a0000003-0000-4000-8000-000000000003")
+                        },
+                        new
+                        {
+                            UserId = new Guid("b0000008-0000-4000-8000-000000000008"),
+                            RoleId = new Guid("a0000004-0000-4000-8000-000000000004")
+                        });
+                });
+
+            modelBuilder.Entity("PermitControl.Domain.UserSession", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamptz");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("timestamptz");
+
+                    b.Property<DateTimeOffset?>("RevokedAt")
+                        .HasColumnType("timestamptz");
+
+                    b.Property<string>("TokenHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TokenHash")
+                        .IsUnique();
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("user_sessions", (string)null);
                 });
 
             modelBuilder.Entity("PermitControl.Domain.AtmosphericTest", b =>
@@ -862,6 +1542,21 @@ namespace PermitControl.Infrastructure.Persistence.Migrations
                         .IsRequired();
 
                     b.Navigation("Permit");
+                });
+
+            modelBuilder.Entity("PermitControl.Domain.CredentialAudit", b =>
+                {
+                    b.HasOne("PermitControl.Domain.User", null)
+                        .WithMany()
+                        .HasForeignKey("PerformedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("PermitControl.Domain.User", null)
+                        .WithMany()
+                        .HasForeignKey("TargetUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("PermitControl.Domain.Equipment", b =>
@@ -924,6 +1619,11 @@ namespace PermitControl.Infrastructure.Persistence.Migrations
                         .HasForeignKey("PermitId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.HasOne("PermitControl.Domain.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.Navigation("Permit");
                 });
@@ -997,6 +1697,17 @@ namespace PermitControl.Infrastructure.Persistence.Migrations
                     b.Navigation("Permit");
                 });
 
+            modelBuilder.Entity("PermitControl.Domain.PermitModuleFact", b =>
+                {
+                    b.HasOne("PermitControl.Domain.Permit", "Permit")
+                        .WithMany()
+                        .HasForeignKey("PermitId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Permit");
+                });
+
             modelBuilder.Entity("PermitControl.Domain.PermitParticipant", b =>
                 {
                     b.HasOne("PermitControl.Domain.Permit", "Permit")
@@ -1046,21 +1757,65 @@ namespace PermitControl.Infrastructure.Persistence.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("PermitControl.Domain.UserCredential", b =>
+                {
+                    b.HasOne("PermitControl.Domain.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("PermitControl.Domain.UserPinHistory", b =>
+                {
+                    b.HasOne("PermitControl.Domain.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("PermitControl.Domain.UserQualification", b =>
+                {
+                    b.HasOne("PermitControl.Domain.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("PermitControl.Domain.UserRole", b =>
                 {
                     b.HasOne("PermitControl.Domain.Role", "Role")
                         .WithMany()
                         .HasForeignKey("RoleId")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.HasOne("PermitControl.Domain.User", "User")
                         .WithMany()
                         .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.Navigation("Role");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("PermitControl.Domain.UserSession", b =>
+                {
+                    b.HasOne("PermitControl.Domain.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
 
                     b.Navigation("User");
                 });

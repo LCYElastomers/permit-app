@@ -5,8 +5,11 @@ import { plantClock } from "../plantClock";
 import { areaIdForName, type AreaCatalog } from "../services/areas";
 import { useAreaCatalog } from "../services/useAreaCatalog";
 import { useDevice } from "../services/device";
-import { GeneralWorkOnly, localDraftLabel } from "../services/generalWorkDraft";
-import { draftDocumentTarget } from "../services/permitDocumentActions";
+import { localDraftLabel, submitLocalPermit } from "../services/generalWorkDraft";
+import { useIdentity } from "../services/identity";
+import { pinMessage, submitPlantPermit } from "../services/plantDirectory";
+import { syncMayStart } from "../lib/connectivity";
+import { draftDocumentTarget, documentActionPlacement } from "../services/permitDocumentActions";
 import { usePermits } from "../state/PermitStore";
 import type { PermitDraft, PermitKind } from "../types";
 import {
@@ -16,9 +19,11 @@ import {
   authorizationRoles,
   detailFields,
   issueBlockers,
+  preparationGaps,
   kindTitle,
   toggleItem,
 } from "../workflow";
+import { useComposition } from "../components/Composition";
 import { PermitDocumentActions } from "../components/PermitDocumentActions";
 import { Field, Section, TouchSelect } from "../components/ui";
 import type { PlantLink } from "../lib/connectivity";
@@ -27,6 +32,7 @@ const COMPANIES = contractors.filter((item) => item.name !== "LCY").map((item) =
 
 function localSaveLine(form: PermitDraft, link: PlantLink): string {
   if (!form.id) return "";
+  if (form.lifecycleStatus === "PENDING_REVIEW" && form.permitNumber) return "SUBMITTED FOR REVIEW";
   if (form.permitNumber) return "SYNCHRONIZED";
   if (form.outboxStatus === "ATTENTION") return "SAVED LOCALLY · NEEDS ATTENTION";
   if (link === "unreachable") return "SAVED LOCALLY · PLANT LINK OFFLINE";
@@ -34,9 +40,11 @@ function localSaveLine(form: PermitDraft, link: PlantLink): string {
 }
 
 export function NewPermit() {
-  const { form, updateForm, saveDraft, issuePermit, resetForm } = usePermits();
+  const { form, updateForm, saveDraft, resetForm } = usePermits();
   const catalog = useAreaCatalog();
+  const composition = useComposition();
   const { link } = useDevice();
+  const identity = useIdentity();
   const [saveError, setSaveError] = useState("");
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
@@ -106,6 +114,9 @@ export function NewPermit() {
         <button type="button" className="btn btn-ghost" onClick={() => { resetForm(); setSaveError(""); }}>
           Clear
         </button>
+        {documentActionPlacement(composition) === "toolbar" ? (
+          <PermitDocumentActions target={draftDocumentTarget(form)} placement="toolbar" />
+        ) : null}
       </div>
 
       {form.kind === "general" && form.id ? (
@@ -118,7 +129,9 @@ export function NewPermit() {
           {form.permitNumber ? null : <p>Print and export are available after the plant record assigns a permit number.</p>}
         </section>
       ) : null}
-      {form.kind === "general" && form.id ? <PermitDocumentActions target={draftDocumentTarget(form)} /> : null}
+      {documentActionPlacement(composition) === "documents" && form.kind === "general" && form.id ? (
+        <PermitDocumentActions target={draftDocumentTarget(form)} placement="documents" />
+      ) : null}
 
       <div className="workflow-stage">
         <div className="workflow-main">
@@ -198,12 +211,8 @@ export function NewPermit() {
               setSaving(true);
               setSaveError("");
               void saveDraft()
-                .catch((error: unknown) => {
-                  setSaveError(
-                    error instanceof GeneralWorkOnly
-                      ? "Only General Work can be saved on this device."
-                      : "This draft could not be saved on this device. Local data is unavailable. The form is still here.",
-                  );
+                .catch(() => {
+                  setSaveError("This draft could not be saved on this device. Local data is unavailable. The form is still here.");
                 })
                 .finally(() => {
                   savingRef.current = false;
@@ -220,17 +229,27 @@ export function NewPermit() {
           ) : (
             <button
               type="button"
-              className="btn btn-danger btn-next"
-              disabled={blockers.length > 0 || Boolean(form.id)}
+              className="btn btn-next"
+              disabled={!form.id || preparationGaps(form).length > 0 || form.lifecycleStatus === "PENDING_REVIEW"}
               onClick={() => {
-                if (form.id) {
-                  setSaveError("This draft stays on the device. It has not been issued.");
+                if (!form.id) {
+                  setSaveError("Save the draft on this device before submitting it for review.");
                   return;
                 }
-                issuePermit();
+                void submitLocalPermit(form.id)
+                  .then(async (saved) => {
+                    updateForm(() => saved);
+                    if (!saved.permitNumber || !syncMayStart(link.link) || !identity.token) {
+                      setSaveError("Submitted on this device. Plant Link must be ready before the plant record leaves draft.");
+                      return;
+                    }
+                    await submitPlantPermit(identity.token, saved.id);
+                    setSaveError("");
+                  })
+                  .catch((error) => setSaveError(pinMessage(error) || "This draft could not be submitted. It is still saved on this device."));
               }}
             >
-              Issue Permit
+              Submit for Review
             </button>
           )}
         </div>
@@ -651,22 +670,21 @@ function AuthorizationStep({
           );
         })}
       </div>
-      {blockers.length > 0 ? (
-        <div className="blocker">
-          <div className="kicker">OUTSTANDING BEFORE ISSUE</div>
+      <div className="blocker">
+        <div className="kicker">REVIEW</div>
+        <p>{preparationGaps(form).length === 0 ? "Preparation is complete." : "Preparation is not complete."}</p>
+        <p>Names recorded here are on this device. They are not authenticated signatures.</p>
+        <p>Submit for Review is allowed after the draft is saved and preparation is complete. Authorize, Accept, and Activate stay unavailable until an authenticated person holds that role.</p>
+        {blockers.length > 0 ? (
           <ul>
             {blockers.map((item) => (
               <li key={item}>{item}</li>
             ))}
           </ul>
-        </div>
-      ) : (
-        <p className="notice">
-          {form.id
-            ? "Required sign-offs are complete. This draft stays on the device until plant synchronization exists."
-            : "Required sign-offs are complete. Issue permit will open the active record."}
-        </p>
-      )}
+        ) : (
+          <p>Required role names are recorded. That does not authorize work.</p>
+        )}
+      </div>
     </Section>
   );
 }

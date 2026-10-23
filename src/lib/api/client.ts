@@ -26,10 +26,22 @@ export async function apiRequest<T>(path: string, init?: RequestInit, timeoutMs 
     throw new ApiTransportError("offline");
   }
 
-  if (!response.ok) throw new ApiError(response.status);
+  if (!response.ok) {
+    let code = "request-failed";
+    try {
+      const body = (await response.json()) as { error?: unknown };
+      if (typeof body.error === "string" && body.error.trim()) code = body.error.trim();
+    } catch {
+      code = "request-failed";
+    }
+    throw new ApiError(response.status, code);
+  }
 
+  if (response.status === 204 || response.status === 205) return undefined as T;
+  const text = await response.text();
+  if (text.trim().length === 0) return undefined as T;
   try {
-    return (await response.json()) as T;
+    return JSON.parse(text) as T;
   } catch {
     throw new ApiTransportError("malformed");
   }

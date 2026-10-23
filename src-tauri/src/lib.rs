@@ -42,6 +42,34 @@ fn open_database(app: &tauri::AppHandle) -> Result<store::LocalDatabase, store::
     store::LocalDatabase::open(directory.join(store::DATABASE_FILE_NAME))
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WindowsAccount {
+    domain: Option<String>,
+    username: String,
+}
+
+fn split_windows_account(raw: &str, domain: Option<String>) -> WindowsAccount {
+    let mut domain = domain.filter(|value| !value.trim().is_empty());
+    let username = if let Some((account_domain, account_user)) = raw.split_once('\\') {
+        if !account_domain.trim().is_empty() {
+            domain = Some(account_domain.to_string());
+        }
+        account_user.to_string()
+    } else {
+        raw.to_string()
+    };
+    WindowsAccount { domain, username }
+}
+
+#[tauri::command]
+fn current_windows_account() -> WindowsAccount {
+    split_windows_account(
+        &std::env::var("USERNAME").unwrap_or_default(),
+        std::env::var("USERDOMAIN").ok(),
+    )
+}
+
 #[tauri::command]
 fn local_status(store: tauri::State<AppStore>) -> Result<store::LocalStatus, String> {
     with_store(&store, |database| database.status())
@@ -65,6 +93,15 @@ fn note_sync_cycle(store: tauri::State<AppStore>, phase: String) -> Result<store
 #[tauri::command]
 fn note_plant_contact(store: tauri::State<AppStore>) -> Result<store::LocalStatus, String> {
     with_store(&store, |database| database.note_plant_contact())
+}
+
+#[tauri::command]
+fn submit_permit_for_review(
+    store: tauri::State<AppStore>,
+    permit_id: String,
+    event_id: String,
+) -> Result<store::DraftRecord, String> {
+    with_store(&store, |database| database.submit_for_review(&permit_id, &event_id))
 }
 
 #[tauri::command]
@@ -178,12 +215,14 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            current_windows_account,
             local_status,
             list_reference_areas,
             replace_reference_areas,
             note_sync_cycle,
             note_plant_contact,
             list_local_drafts,
+            submit_permit_for_review,
             save_general_work_draft,
             list_pushable_permit_creates,
             acknowledge_permit_created,
@@ -193,6 +232,27 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while building tauri application");
+}
+
+#[cfg(test)]
+mod windows_account_tests {
+    use super::split_windows_account;
+
+    #[test]
+    fn splits_a_domain_qualified_windows_account() {
+        let account = split_windows_account(r"LCY\bobby.fitzgerald", None);
+        assert_eq!(account.domain.as_deref(), Some("LCY"));
+        assert_eq!(account.username, "bobby.fitzgerald");
+    }
+
+    #[test]
+    fn keeps_a_bare_username_and_optional_domain() {
+        let account = split_windows_account("bobby.fitzgerald", Some("LCY".to_string()));
+        assert_eq!(account.domain.as_deref(), Some("LCY"));
+        assert_eq!(account.username, "bobby.fitzgerald");
+        let bare = split_windows_account("bobby.fitzgerald", Some(" ".to_string()));
+        assert_eq!(bare.domain, None);
+    }
 }
 
 #[cfg(test)]

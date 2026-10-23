@@ -53,6 +53,7 @@ public sealed class GeneralWorkSync(PermitDbContext database) : IGeneralWorkSync
             database.AddRange(plan.Controls);
             database.AddRange(plan.Ppe);
             database.AddRange(plan.Modules);
+            database.AddRange(plan.ModuleFacts);
             await database.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             return GeneralWorkResult.Accepted(plan);

@@ -12,9 +12,16 @@ Timestamps are `timestamptz`. Enumerations are stored as strings such as `GENERA
 
 | Table | Purpose |
 | --- | --- |
-| `users` | Person known to the API. `auth_provider` is `LOCAL` now and can be `ENTRA` later. There is no password column. |
-| `roles` | Named role. |
-| `user_roles` | User-to-role assignment. |
+| `users` | Permit Control person. `id` is a server UUID. `permit_user_code` (`PCU-0001` and onward) is the immutable human identifier, unique, and never recycled. `username` is the normalized Windows account key. `windows_domain` and `windows_username` map the Windows account. Profile fields (`display_name`, personnel reference and code, job title, department, enabled) are editable. `auth_provider` is `LOCAL` now and can be `ENTRA` later. There is no password column and no PIN column. |
+| `roles` | Named application role: `SUPER_ADMIN`, `ADMIN`, `REQUESTER`, `PERMIT_AUTHORIZER`, `SHIFT_SUPERVISOR`, `CRAFT_RECEIVER`, `SAFETY`, `VIEWER`. |
+| `user_roles` | Explicit user-to-role assignment. Job title does not create these rows. `ON DELETE RESTRICT`. |
+| `user_credentials` | One current PIN credential per user: Argon2id hash, state, failed attempts, lock expiry, and the state to resume after lockout. The hash is never returned. |
+| `user_pin_history` | Previous Argon2id hashes used to reject reuse. Not plaintext and not returned. |
+| `user_qualifications` | Qualification held by a user. Separate from roles. |
+| `credential_audits` | Non-sensitive PIN audit: target user, actor, time, device, and a result code. No PIN and no hash. |
+| `user_sessions` | Opaque desktop session. The stored value is a SHA-256 of the bearer token, not a PIN hash. |
+| `user_code_counters` | Server allocation of the next `PCU-` code. Seeded at 8 so the next created user is `PCU-0009`. |
+| `permit_policies` | Named policy. `AllowSelfAuthorization` is false until changed. |
 | `areas` | Plant area. `name` is unique and required, up to 120 characters. There is no enabled flag. The desktop cache stores the same id and name in SQLite `reference_areas`. A future removal or deactivation has to be an explicit server fact. The cache must not invent an inactive flag, and dropping an area from the cache must not delete local permit history that still references that id. See `docs/SYNC.md`. |
 | `equipment` | Tagged equipment in an area. |
 | `contractors` | Contractor company. |
@@ -44,7 +51,9 @@ Indexes: unique `permit_number`, plus `status`, `permit_type`, `area_id`, `equip
 
 `permit_events` is append-only. Columns include `permit_id`, `permit_revision`, `event_type`, `occurred_at`, `recorded_at`, nullable `user_id`, nullable `device_id`, nullable `payload` (`jsonb`), and `sync_source` (`CLIENT` or `SERVER`). The event `id` is the client-generated idempotency key. The application does not update or delete these rows.
 
-Event types include `PERMIT_CREATED`, `PERMIT_UPDATED`, `JSA_VERIFIED`, `ISOLATION_VERIFIED`, `ATMOSPHERE_TEST_RECORDED`, `SUBMITTED`, `AUTHORIZED`, `ACCEPTED`, `ACTIVATED`, `SUSPENDED`, `REAUTHORIZED`, `EXTENDED`, `WORK_COMPLETED`, `CLOSED`, `ATTACHMENT_ADDED`, `ATTACHMENT_SUPERSEDED`, and `ADMINISTRATIVE_AMENDMENT`.
+Event types include `PERMIT_CREATED`, `PERMIT_UPDATED`, `JSA_VERIFIED`, `ISOLATION_VERIFIED`, `ATMOSPHERE_TEST_RECORDED`, `SUBMITTED`, `AUTHORIZED`, `ACCEPTED`, `ACTIVATED`, `SUSPENDED`, `REAUTHORIZED`, `EXTENDED`, `WORK_COMPLETED`, `CLOSED`, `ATTACHMENT_ADDED`, `ATTACHMENT_SUPERSEDED`, `ADMINISTRATIVE_AMENDMENT`, `PERMIT_SUBMITTED`, `PERMIT_AUTHORIZED`, `PERMIT_ACCEPTED`, `PERMIT_ACTIVATED`, `PERMIT_SUSPENDED`, `PERMIT_REAUTHORIZED`, `PERMIT_EXTENDED`, `PERMIT_CLOSED`, and `PERMIT_CANCELLED`.
+
+Lifecycle events and `permit_approvals` also store attribution snapshots: Permit Control user code, display name, job title, acting role, and Windows username. Later profile edits do not rewrite those columns. `permit_approvals.user_id` is `ON DELETE RESTRICT`.
 
 ## People, modules, and controls
 
@@ -71,20 +80,26 @@ Module kinds: `CORE`, `JSA`, `PROCEDURE`, `HAZARD_ASSESSMENT`, `PPE`, `LOTO_ISOL
 
 `attachments` stores metadata only: original name, stored name, `storage_provider` (`LOCAL_SERVER`), storage key, MIME type, size, SHA-256, author, time, and nullable `superseded_by`. File bytes are not a `bytea` column.
 
+`permit_module_facts` is the current value of one named module field: permit id, module kind, name, and value. It is not an event. Specialty permit details are written here when a permit is accepted. The foreign key to `permits` is `ON DELETE RESTRICT`.
+
 `permit_exports` is one generated PDF: permit id, revision, export type (`PRINT`, `SNAPSHOT`, or the reserved `FINAL_ARCHIVE`), storage key, MIME type, byte size, SHA-256 of the PDF bytes, generation time, nullable generated-by, and the permit status at generation. A new generation inserts a new row. The foreign key to `permits` is `ON DELETE RESTRICT`.
 
 `devices` identifies a client station. `sync_events` records that the server accepted a client event id. `PermitId` on that table is nullable and is not a foreign key. A sync event is an idempotency receipt, not a historical child of a permit. When the accepted event belongs to a permit, the receipt uses the same id as `permit_events` and may store that permit id. A null permit id is valid for accepted activity that does not belong to a permit. `ON DELETE CASCADE` would erase the receipt and let a retry look new. `ON DELETE RESTRICT` would block permit deletion because of the sync log rather than because permit history still exists. The sync engine that writes these rows is not implemented.
 
 ## Referential integrity
 
-Every permit child foreign key uses `ON DELETE RESTRICT`. Deleting a `permits` row is rejected while any of these rows still reference it: `atmospheric_tests`, `attachments`, `isolations`, `permit_approvals`, `permit_events`, `permit_modules`, `permit_participants`, `permit_revisions`, `permit_hazards`, `permit_controls`, `permit_ppe`, `permit_suspensions`, `permit_extensions`, `permit_reauthorizations`, `permit_closures`, and `permit_exports`. Normal outcomes are status changes (`CLOSED`, `CANCELLED`, `EXPIRED`, `SUPERSEDED`), not physical deletion.
+Every permit child foreign key uses `ON DELETE RESTRICT`. Deleting a `permits` row is rejected while any of these rows still reference it: `atmospheric_tests`, `attachments`, `isolations`, `permit_approvals`, `permit_events`, `permit_modules`, `permit_participants`, `permit_revisions`, `permit_hazards`, `permit_controls`, `permit_ppe`, `permit_suspensions`, `permit_extensions`, `permit_reauthorizations`, `permit_closures`, `permit_exports`, and `permit_module_facts`. Normal outcomes are status changes (`CLOSED`, `CANCELLED`, `EXPIRED`, `SUPERSEDED`), not physical deletion.
 
-`user_roles` still cascades when its user or role is deleted. That removes membership rows only. `permits` references to areas, equipment, contractors, and users are also `ON DELETE RESTRICT`.
+`user_roles`, credentials, PIN history, qualifications, credential audits, sessions, and permit approvals restrict deletion of the user. Disabling a user is the normal outcome. Physical deletion must not cascade permit history, approvals, exports, or audit rows. `permits` references to areas, equipment, contractors, and users are also `ON DELETE RESTRICT`.
 
 ## Device working state
 
 The desktop store is not a second copy of this PostgreSQL schema. General Work drafts keep the searchable header in SQLite columns and the rest of the open form in `local_permits.working_state`. That value is JSON with a version. Version 1 stores the workflow step, hazards, controls, detail fields, names, and signatures so the draft can be reopened on the device. The first successful `PERMIT_CREATED` push copies the header, people, hazards, controls, and PPE into the tables above and writes the remaining facts into `permit_events.payload` as `general-work-facts`. It does not store the device JSON document. The official `permit_number` is assigned by `permit_number_counters` on that acceptance. A draft may omit the area, the creator, and the planned window, so those permit columns are nullable. Details are in `docs/SYNC.md`.
 
+## PIN credentials
+
+PIN values are not stored. The current and historical credentials use Isopoh.Cryptography.Argon2 2.0.0 (MIT) with Argon2id, a unique 16-byte salt, 8192 KiB memory, time cost 2, and one lane. The encoded hash begins with `$argon2id$`. SQLite, permit events, the outbox, logs, and API responses do not contain the PIN, the hash, or the salt.
+
 ## Migration
 
-`PermitControl.Infrastructure` contains the EF Core migration `InitialFoundation`. Applying it requires a PostgreSQL database and is not part of the build.
+`PermitControl.Infrastructure` contains the EF Core migrations `InitialFoundation`, `GeneralWorkPermitSync`, `PermitPdfExport`, `PermitModuleFacts`, and `20261023145009_UserDirectory`. Applying them requires a PostgreSQL database and is not part of the build. The unapplied user-directory script is `server/permit-user-directory.sql`. Do not re-apply `server/permit-pdf-export.sql` or `server/permit-module-facts.sql` if those have already been applied.

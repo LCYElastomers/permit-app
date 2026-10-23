@@ -1,24 +1,26 @@
 import { localDraftLabel, localSavedLabel } from "../services/generalWorkDraft";
 import { usePermits } from "../state/PermitStore";
+import { kindTitle } from "../workflow";
 import { ScreenHead } from "../components/ui";
 
 export function DraftsScreen() {
   const { drafts, loadDraft } = usePermits();
+  const open = drafts.filter((draft) => (draft.lifecycleStatus ?? "DRAFT") === "DRAFT");
 
   return (
     <div className="screen">
-      <ScreenHead kicker="PERMITS" title="Drafts" meta={`${drafts.length} OPEN`} />
-      {drafts.length === 0 ? (
+      <ScreenHead kicker="PERMITS" title="Drafts" meta={`${open.length} OPEN`} />
+      {open.length === 0 ? (
         <p className="empty">No drafts saved on this device.</p>
       ) : (
         <div className="drafts-board">
-        {drafts.map((draft) => (
+        {open.map((draft) => (
           <button key={draft.id} type="button" className="permit-row" onClick={() => loadDraft(draft.id)}>
             <div className="row-top">
               <span className="pid mono">{draft.permitNumber ?? "LOCAL DRAFT"}</span>
-              <span className="kind">GENERAL WORK</span>
+              <span className="kind">{kindTitle(draft.kind)}</span>
               <span className="row-status">
-                <span className="screen-meta">DRAFT</span>
+                <span className="screen-meta">{draft.lifecycleStatus ?? "DRAFT"}</span>
               </span>
             </div>
             <div className="row-work">{draft.description || "Job description not entered"}</div>

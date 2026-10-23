@@ -26,6 +26,8 @@ ASP.NET Core API  (PermitControl.Api)
 
 The Tauri process must never open a PostgreSQL connection. The API is the only server-side interface. SQLite and PostgreSQL share identifiers and lifecycle meaning. They do not share a physical schema.
 
+The desktop native layer reads the Windows account. The client sends that account to the identity session endpoint only after Plant Link is ready. A unique enabled match opens the application as that Permit Control user. An unmapped or generic account asks the person to select a user and confirm that user's PIN. The session is an opaque bearer token. Lifecycle and security actions use the session user. A PIN is required to enroll, change a PIN, authorize, accept, activate, and perform sensitive user administration. PIN hashes stay on the server. Offline draft preparation does not verify a PIN.
+
 ## Field tablet
 
 Permit Control is used on Getac rugged tablets, including portrait, and on desktop leadership screens. Those are two layouts of the same application. Domain rules, local persistence, synchronization, and the six-step permit workflow stay shared. The portrait layout, touch targets, local-save wording, and safety presentation are specified in `docs/DESIGN.md`.
@@ -93,9 +95,9 @@ A timeout, lost connection, or HTTP 502, 503, or 504 leaves the row pending and 
 
 ## Not built yet
 
-- Live PostgreSQL deployment
-- Authentication (local passwords or Entra)
-- Server pull, and synchronization of any event other than General Work `PERMIT_CREATED`
+- Live PostgreSQL deployment of the user-directory migration
+- Microsoft Entra ID. `auth_provider` can become `ENTRA` later. This pass uses the Windows account plus a Permit Control PIN.
+- Server pull, and synchronization of any event other than `PERMIT_CREATED`
 - Attachment bytes and file upload
 - Final closed-permit archive PDF, manifest, and attachment preservation
 - Replacing mock permit data

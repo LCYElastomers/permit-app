@@ -98,6 +98,8 @@ export function screenLabel(screen: ListScreen): string {
       return "Contractors";
     case "equipment":
       return "Equipment";
+    case "users":
+      return "Users";
   }
 }
 
@@ -217,7 +219,7 @@ export function toggleItem(list: string[], value: string): string[] {
   return list.includes(value) ? list.filter((item) => item !== value) : [...list, value];
 }
 
-export function issueBlockers(draft: PermitDraft): string[] {
+export function preparationGaps(draft: PermitDraft): string[] {
   const missing: string[] = [];
   if (!draft.area) missing.push("Area");
   if (!draft.place.trim()) missing.push("Equipment / location");
@@ -229,6 +231,11 @@ export function issueBlockers(draft: PermitDraft): string[] {
   if (!draft.plannedStart) missing.push("Planned start");
   if (!draft.plannedEnd) missing.push("Planned expiration");
   if (draft.hazards.length === 0) missing.push("At least one hazard");
+  return missing;
+}
+
+export function issueBlockers(draft: PermitDraft): string[] {
+  const missing = preparationGaps(draft);
   for (const role of authorizationRoles(draft)) {
     if (role.required && !draft.signatures[role.id]) missing.push(`${role.label} sign-off`);
   }

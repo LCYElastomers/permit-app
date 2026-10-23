@@ -75,7 +75,7 @@ public sealed class GeneralWorkSyncTests
             Revision = push.Revision,
             EventType = push.EventType,
             OccurredAt = push.OccurredAt,
-            Body = new GeneralWorkBody { PermitType = "HOT_WORK", CompanyType = "LCY" },
+            Body = new GeneralWorkBody { PermitType = "WELDING", CompanyType = "LCY" },
         };
         var result = session.Accept(rejected, Recorded);
 
@@ -83,6 +83,51 @@ public sealed class GeneralWorkSyncTests
         Assert.Equal("permit-type-invalid", result.Error);
         Assert.Empty(session.Receipts);
         Assert.Empty(session.Permits);
+    }
+
+    [Theory]
+    [InlineData(PermitType.GENERAL_WORK)]
+    [InlineData(PermitType.HOT_WORK)]
+    [InlineData(PermitType.CONFINED_SPACE)]
+    [InlineData(PermitType.OPENING_BLINDING)]
+    [InlineData(PermitType.EXCAVATION)]
+    [InlineData(PermitType.LIVE_ELECTRICAL)]
+    public void EachPermitTypeKeepsItsIdentityAndModuleFacts(PermitType type)
+    {
+        var session = new GeneralWorkSession();
+        var push = Sample();
+        push.Body!.PermitType = type.ToString();
+        push.Body.ModuleFacts =
+        [
+            new ModuleFactInput { Module = "HOT_WORK", Name = "fireWatch", Value = "Alex Morgan" },
+            new ModuleFactInput { Module = "EXCAVATION", Name = "depth", Value = "4 ft" },
+            new ModuleFactInput { Module = "LOTO_ISOLATION", Name = "lockBox", Value = "LB-4" },
+            new ModuleFactInput { Module = "ATMOSPHERIC_MONITORING", Name = "initialTest", Value = "O2 20.9" },
+        ];
+        var result = session.Accept(push, Recorded);
+
+        Assert.Equal(GeneralWorkResultKind.Accepted, result.Kind);
+        Assert.Equal(type, result.Plan!.Permit.PermitType);
+        Assert.Equal(PermitId, result.PermitId);
+        Assert.Contains(result.Plan.ModuleFacts, fact => fact.Name == "fireWatch" && fact.Value == "Alex Morgan" && fact.ModuleKind == PermitModuleKind.HOT_WORK);
+        Assert.Contains(result.Plan.ModuleFacts, fact => fact.Name == "depth" && fact.Value == "4 ft");
+        Assert.Contains(result.Plan.Modules, module => module.Kind == PermitModuleKind.CORE && module.Required);
+        Assert.Contains(result.Plan.ModuleFacts, fact => fact.Name == "lockBox" && fact.Value == "LB-4");
+        Assert.Contains(result.Plan.ModuleFacts, fact => fact.Name == "initialTest" && fact.Value == "O2 20.9");
+        if (type == PermitType.HOT_WORK)
+            Assert.Contains(result.Plan.Modules, module => module.Kind == PermitModuleKind.LOTO_ISOLATION);
+        if (type is PermitType.EXCAVATION or PermitType.OPENING_BLINDING)
+            Assert.Contains(result.Plan.Modules, module => module.Kind == PermitModuleKind.ATMOSPHERIC_MONITORING);
+        if (type == PermitType.GENERAL_WORK)
+            Assert.DoesNotContain(result.Plan.Modules, module => module.Kind == PermitModuleKind.HOT_WORK);
+        if (type == PermitType.GENERAL_WORK)
+        {
+            Assert.Contains("general-work-facts", result.Plan.Event.Payload);
+        }
+        else
+        {
+            Assert.True(string.IsNullOrEmpty(result.Plan.Event.Payload));
+        }
     }
 
     [Fact]

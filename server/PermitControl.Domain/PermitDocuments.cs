@@ -15,6 +15,10 @@ public sealed class AuthoritativeGeneralWork
     public IReadOnlyList<PermitModule> Modules { get; init; } = [];
     public IReadOnlyList<PermitParticipant> Participants { get; init; } = [];
     public string? CreationFactsJson { get; init; }
+    public string? SuspensionReason { get; init; }
+    public DateTimeOffset? SuspendedAt { get; init; }
+    public IReadOnlyList<PermitModuleFact> ModuleFacts { get; set; } = [];
+    public IReadOnlyList<PermitApproval> Approvals { get; set; } = [];
 }
 
 public sealed class GeneralWorkFacts
@@ -211,7 +215,7 @@ public static class GeneralWorkDocuments
         var banner = new List<string>
         {
             "LCY PERMIT CONTROL",
-            "GENERAL WORK PERMIT",
+            PermitTitle(permit.PermitType),
             $"Permit number: {Shown(permit.PermitNumber)}",
             $"Permit UUID: {permit.Id:D}",
             $"Revision: {permit.CurrentRevision}",
@@ -265,9 +269,58 @@ public static class GeneralWorkDocuments
                 ItemSection("HAZARDS", source.Hazards.Select(item => item.Label)),
                 ItemSection("CONTROLS", source.Controls.Select(item => item.Label)),
                 ItemSection("PPE", source.Ppe.Select(item => item.Label).Concat(facts.PpeText)),
-                Section("GENERAL WORK CONDITIONS", Conditions(facts)),
+                ..(permit.PermitType == PermitType.GENERAL_WORK
+                    ? new[] { Section("GENERAL WORK CONDITIONS", Conditions(facts)) }
+                    : Array.Empty<DocumentSection>()),
+                ..ModuleFactSections(source.ModuleFacts),
+                ..Authorization(source.Approvals),
+                ..Suspension(source),
             ],
         };
+    }
+
+    private static string PermitTitle(PermitType type) => type switch
+    {
+        PermitType.GENERAL_WORK => "GENERAL WORK PERMIT",
+        PermitType.HOT_WORK => "HOT WORK PERMIT",
+        PermitType.CONFINED_SPACE => "CONFINED SPACE PERMIT",
+        PermitType.OPENING_BLINDING => "OPENING / BLINDING PERMIT",
+        PermitType.EXCAVATION => "EXCAVATION PERMIT",
+        PermitType.LIVE_ELECTRICAL => "LIVE ELECTRICAL PERMIT",
+        _ => "PERMIT TO WORK",
+    };
+
+    private static IEnumerable<DocumentSection> ModuleFactSections(IReadOnlyList<PermitModuleFact> facts)
+    {
+        foreach (var group in facts.GroupBy(item => item.ModuleKind).OrderBy(item => item.Key.ToString(), StringComparer.Ordinal))
+        {
+            var lines = group
+                .OrderBy(item => item.Name, StringComparer.Ordinal)
+                .Select(item => $"{item.Name}: {item.Value}")
+                .ToArray();
+            if (lines.Length > 0) yield return Section(group.Key.ToString().Replace('_', ' '), lines);
+        }
+    }
+
+    private static IEnumerable<DocumentSection> Authorization(IReadOnlyList<PermitApproval> approvals)
+    {
+        var rows = approvals
+            .Where(item => item.DecidedAt is not null && !string.IsNullOrWhiteSpace(item.DisplayNameSnapshot))
+            .OrderBy(item => item.DecidedAt)
+            .Select(item => $"{item.ActingRole}: {item.DisplayNameSnapshot} ({item.PermitUserCodeSnapshot}) {item.DecidedAt:yyyy-MM-dd HH:mm:ss} UTC")
+            .ToArray();
+        if (rows.Length == 0) yield break;
+        yield return Section("AUTHORIZATION", rows);
+    }
+
+    private static IEnumerable<DocumentSection> Suspension(AuthoritativeGeneralWork source)
+    {
+        if (string.IsNullOrWhiteSpace(source.SuspensionReason) && source.SuspendedAt is null) yield break;
+        yield return Section("SUSPENSION",
+        [
+            $"Reason: {Shown(source.SuspensionReason)}",
+            $"Suspended (UTC): {Stamp(source.SuspendedAt)}",
+        ]);
     }
 
     private static IReadOnlyList<string> Conditions(GeneralWorkFacts facts)
@@ -357,7 +410,7 @@ public static class PermitPdfExporting
     {
         if (exportId == Guid.Empty) return PermitPdfPrepared.Invalid("export-id-required");
         if (source is null || source.Permit.Id == Guid.Empty) return PermitPdfPrepared.NotFound();
-        if (source.Permit.PermitType != PermitType.GENERAL_WORK) return PermitPdfPrepared.Invalid("general-work-only");
+        if (!PermitModuleComposition.TryType(source.Permit.PermitType.ToString(), out _)) return PermitPdfPrepared.Invalid("permit-type-invalid");
         if (exportType == PermitExportType.FINAL_ARCHIVE) return PermitPdfPrepared.Invalid("final-archive-not-available");
         if (exportType is not (PermitExportType.PRINT or PermitExportType.SNAPSHOT)) return PermitPdfPrepared.Invalid("export-type-invalid");
 

@@ -87,6 +87,7 @@ function build(seed: Seed): Permit {
     kind: seed.kind,
     status: seed.status,
     sample: true,
+    authority: "sample",
     serverPermitId: null,
     revision: seed.revision ?? "01",
     area: seed.area,

@@ -33,7 +33,7 @@ export async function openAuthoritativePermitPdf(input: {
 }): Promise<void> {
   if (input.link !== "ready") {
     throw new PermitPdfUnavailable(
-      "The authoritative server document cannot be generated while Plant Link is offline. The permit on this device is unchanged.",
+      "Authoritative PDF unavailable while Plant Link is offline.",
     );
   }
 

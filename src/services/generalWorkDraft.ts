@@ -1,25 +1,55 @@
 import type { PermitDraft } from "../types";
 import { invokeCommand, notifyLocalStoreChanged } from "./localStore";
 
-export const WORKING_STATE_VERSION = 1;
+export const WORKING_STATE_VERSION = 2;
 
-export class GeneralWorkOnly extends Error {
-  readonly code = "general-work-only";
+const SERVER_TYPES = {
+  general: "GENERAL_WORK",
+  "hot-work": "HOT_WORK",
+  "confined-space": "CONFINED_SPACE",
+  "opening-blinding": "OPENING_BLINDING",
+  excavation: "EXCAVATION",
+  "live-electrical": "LIVE_ELECTRICAL",
+} as const;
 
-  constructor() {
-    super("Only General Work can be saved on this device.");
-    this.name = "GeneralWorkOnly";
-  }
+const KIND_FROM_SERVER: Record<string, PermitDraft["kind"]> = {
+  GENERAL_WORK: "general",
+  HOT_WORK: "hot-work",
+  CONFINED_SPACE: "confined-space",
+  OPENING_BLINDING: "opening-blinding",
+  EXCAVATION: "excavation",
+  LIVE_ELECTRICAL: "live-electrical",
+};
+
+export function serverPermitType(kind: PermitDraft["kind"]): string {
+  return SERVER_TYPES[kind];
+}
+
+export function kindFromServerPermitType(permitType: string): PermitDraft["kind"] {
+  return KIND_FROM_SERVER[permitType] ?? "general";
 }
 
 export interface GeneralWorkWorkingState {
-  version: typeof WORKING_STATE_VERSION;
+  version: 1;
   step: number;
   hazards: string[];
   controls: string[];
   fields: Record<string, string>;
   names: Record<string, string>;
   signatures: Record<string, { name: string; time: string }>;
+}
+
+export interface PermitWorkingState {
+  version: 2;
+  permitType: string;
+  workflowStep: number;
+  moduleState: {
+    hazards: string[];
+    controls: string[];
+    fields: Record<string, string>;
+    names: Record<string, string>;
+    signatures: Record<string, { name: string; time: string }>;
+  };
 }
 
 export interface GeneralWorkSaveRequest {
@@ -35,9 +65,10 @@ export interface GeneralWorkSaveRequest {
   companyName: string;
   requester: string;
   craft: string;
+  permitType: string;
   plannedStart: string | null;
   expiresAt: string | null;
-  workingState: GeneralWorkWorkingState;
+  workingState: PermitWorkingState;
 }
 
 export interface StoredDraft {
@@ -60,7 +91,7 @@ export interface StoredDraft {
   createdAt: string;
   updatedAt: string;
   currentRevision: number;
-  workingState: GeneralWorkWorkingState;
+  workingState: PermitWorkingState | GeneralWorkWorkingState;
   outboxStatus: string;
 }
 
@@ -86,26 +117,61 @@ export function generalWorkSaveRequest(
     companyName: draft.company,
     requester: draft.requester,
     craft: draft.craft,
+    permitType: serverPermitType(draft.kind),
     plannedStart: draft.plannedStart.trim() ? draft.plannedStart : null,
     expiresAt: draft.plannedEnd.trim() ? draft.plannedEnd : null,
     workingState: {
-      version: WORKING_STATE_VERSION,
-      step: draft.step,
-      hazards: draft.hazards,
-      controls: draft.controls,
-      fields: draft.fields,
-      names: draft.names,
-      signatures: draft.signatures,
+      version: 2,
+      permitType: serverPermitType(draft.kind),
+      workflowStep: draft.step,
+      moduleState: {
+        hazards: draft.hazards,
+        controls: draft.controls,
+        fields: draft.fields,
+        names: draft.names,
+        signatures: draft.signatures,
+      },
     },
   };
 }
 
+export function restoredModuleState(state: StoredDraft["workingState"]): {
+  kind: PermitDraft["kind"];
+  step: number;
+  hazards: string[];
+  controls: string[];
+  fields: Record<string, string>;
+  names: Record<string, string>;
+  signatures: Record<string, { name: string; time: string }>;
+} {
+  if (state.version === 2) {
+    return {
+      kind: kindFromServerPermitType(state.permitType),
+      step: state.workflowStep,
+      hazards: state.moduleState.hazards ?? [],
+      controls: state.moduleState.controls ?? [],
+      fields: state.moduleState.fields ?? {},
+      names: state.moduleState.names ?? {},
+      signatures: state.moduleState.signatures ?? {},
+    };
+  }
+  return {
+    kind: "general",
+    step: state.step,
+    hazards: state.hazards ?? [],
+    controls: state.controls ?? [],
+    fields: state.fields ?? {},
+    names: state.names ?? {},
+    signatures: state.signatures ?? {},
+  };
+}
+
 export function permitDraftFromRecord(record: StoredDraft): PermitDraft {
-  const state = record.workingState;
+  const state = restoredModuleState(record.workingState);
   return {
     id: record.id,
     code: "LOCAL DRAFT",
-    kind: "general",
+    kind: state.kind,
     step: state.step,
     area: record.areaName,
     areaId: record.areaId ?? "",
@@ -126,7 +192,17 @@ export function permitDraftFromRecord(record: StoredDraft): PermitDraft {
     updated: record.updatedAt,
     permitNumber: record.permitNumber,
     outboxStatus: record.outboxStatus,
+    lifecycleStatus: record.status,
   };
+}
+
+export async function submitLocalPermit(id: string): Promise<PermitDraft> {
+  const stored = await invokeCommand<StoredDraft>("submit_permit_for_review", {
+    permitId: id,
+    eventId: crypto.randomUUID(),
+  });
+  notifyLocalStoreChanged("draft-saved");
+  return permitDraftFromRecord(stored);
 }
 
 export function localDraftLabel(id: string): string {
@@ -152,7 +228,6 @@ export async function persistGeneralWorkDraft(
   draft: PermitDraft,
   writer: DraftWriter = saveThroughTauri,
 ): Promise<PermitDraft> {
-  if (draft.kind !== "general") throw new GeneralWorkOnly();
   const creating = !draft.id;
   const request = generalWorkSaveRequest(draft, {
     id: draft.id || crypto.randomUUID(),

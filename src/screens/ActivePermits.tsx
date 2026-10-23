@@ -1,16 +1,33 @@
+import { useEffect, useState } from "react";
 import { usePlantClock } from "../plantClock";
 import { usePermits } from "../state/PermitStore";
 import type { Permit } from "../types";
 import { permitType } from "../permitTypes";
-import { expiryLabel, expiryState, kindShort } from "../workflow";
+import { expiryLabel, expiryState, kindShort, kindTitle } from "../workflow";
 import { Kv, ScreenHead } from "../components/ui";
+import { listPlantPermits, permitFromPlant } from "../services/plantDirectory";
 
 export function ActivePermits() {
-  const { permits, openPermit, go, showActive, listArea, activeView } = usePermits();
+  const { permits, drafts, openPermit, openStoredPermit, openPlantPermit, go, showActive, listArea, activeView } = usePermits();
+  const [plant, setPlant] = useState<Permit[]>([]);
+  useEffect(() => {
+    let stopped = false;
+    void listPlantPermits("ACTIVE")
+      .then((rows) => {
+        if (!stopped) setPlant(rows.map(permitFromPlant));
+      })
+      .catch(() => {
+        if (!stopped) setPlant([]);
+      });
+    return () => {
+      stopped = true;
+    };
+  }, []);
+  const real = drafts.filter((draft) => draft.lifecycleStatus === "ACTIVE");
   const clock = usePlantClock();
 
   const active = permits
-    .filter((permit) => permit.status === "active")
+    .filter((permit) => permit.status === "active" && permit.sample !== false)
     .filter((permit) => (listArea ? permit.area === listArea : true))
     .slice()
     .sort((a, b) => b.started.localeCompare(a.started));
@@ -62,6 +79,26 @@ export function ActivePermits() {
           </button>
         </div>
       </div>
+      {plant.map((permit) => (
+        <button key={permit.serverPermitId} type="button" className="permit-row" onClick={() => openPlantPermit(permit, "active")}>
+          <div className="row-top">
+            <span className="pid mono">{permit.id}</span>
+            <span className="kind">{kindTitle(permit.kind)}</span>
+            <span className="row-status"><span className="screen-meta">ACTIVE · WORK AUTHORIZED</span></span>
+          </div>
+          <div className="row-work">{permit.work}</div>
+        </button>
+      ))}
+      {real.map((draft) => (
+        <button key={draft.id} type="button" className="permit-row" onClick={() => openStoredPermit(draft.id, "active")}>
+          <div className="row-top">
+            <span className="pid mono">{draft.permitNumber ?? "LOCAL"}</span>
+            <span className="kind">{kindTitle(draft.kind)}</span>
+            <span className="row-status"><span className="screen-meta">ACTIVE</span></span>
+          </div>
+          <div className="row-work">{draft.description || "Job description not entered"}</div>
+        </button>
+      ))}
       {shown.length === 0 ? (
         <p className="empty">No active permits in this view.</p>
       ) : (

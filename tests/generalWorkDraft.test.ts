@@ -5,6 +5,9 @@ import {
   persistGeneralWorkDraft,
   type StoredDraft,
 } from "../src/services/generalWorkDraft";
+import type { PermitKind } from "../src/types";
+import { detailDocumentTarget } from "../src/services/permitDocumentActions";
+import { storedPermitRecord } from "../src/state/PermitStore";
 import { emptyDraft } from "../src/workflow";
 
 const permitId = "44444444-4444-4444-8444-111111111111";
@@ -60,8 +63,10 @@ describe("general work local save", () => {
     const fromUnreachable = generalWorkSaveRequest(draft(), ids);
     expect(ready).not.toBe(unreachable);
     expect(fromReady).toEqual(fromUnreachable);
-    expect(fromReady.workingState.version).toBe(1);
-    expect(fromReady.workingState.step).toBe(3);
+    expect(fromReady.workingState.version).toBe(2);
+    expect(fromReady.workingState.permitType).toBe("GENERAL_WORK");
+    expect(fromReady.workingState.workflowStep).toBe(3);
+    expect(fromReady.workingState.moduleState.fields.taskType).toBe("Inspection");
     expect(fromReady).not.toHaveProperty("permitNumber");
     expect(JSON.stringify(fromReady)).not.toContain("PTW-");
     expect(JSON.stringify(fromReady)).not.toContain("permit-control.local");
@@ -97,5 +102,49 @@ describe("general work local save", () => {
     expect(request.id).toBe(permitId);
     expect(request.eventId).toBe("00000000-0000-4000-8000-000000000000");
     expect(request.outboxId).toBe("00000000-0000-4000-8000-000000000000");
+  });
+
+  it("saves and restores every permit classification without plant link", async () => {
+    const kinds: PermitKind[] = ["general", "hot-work", "confined-space", "opening-blinding", "excavation", "live-electrical"];
+    for (const kind of kinds) {
+      const saved = await persistGeneralWorkDraft(
+        { ...draft(), kind, fields: { fireWatch: "Alex Morgan", depth: "4 ft" } },
+        async (request) => ({ ...stored(request), permitType: request.permitType }),
+      );
+      expect(saved.kind).toBe(kind);
+      expect(saved.fields.fireWatch).toBe("Alex Morgan");
+      expect(saved.fields.depth).toBe("4 ft");
+      expect(saved.lifecycleStatus).toBe("DRAFT");
+    }
+  });
+
+  it("opens pending, active, and suspended local permits as real records", () => {
+    const base = {
+      ...emptyDraft("hot-work"),
+      id: permitId,
+      description: "Weld the spool",
+      place: "P-210",
+      workOrder: "WO-104700",
+      area: "Unit 2",
+      fields: { fireWatch: "Alex Morgan" },
+      updated: "2026-10-23T12:00:00Z",
+      permitNumber: "PTW-2026-00007",
+      outboxStatus: "ACKNOWLEDGED",
+    };
+    const pending = storedPermitRecord({ ...base, lifecycleStatus: "PENDING_REVIEW" });
+    expect(pending.status).toBe("pending");
+    expect(pending.kind).toBe("hot-work");
+    expect(pending.sample).toBe(false);
+    expect(pending.authority).toBe("authoritative");
+    expect(detailDocumentTarget(pending).permitId).toBe(permitId);
+    expect(pending.history.some((item) => item.label === "SUBMITTED FOR REVIEW")).toBe(true);
+    expect(pending.history.some((item) => item.label.includes("ACTIVE"))).toBe(false);
+    const active = storedPermitRecord({ ...base, lifecycleStatus: "ACTIVE" });
+    expect(active.status).toBe("active");
+    expect(detailDocumentTarget(active).permitId).toBe(permitId);
+    const suspended = storedPermitRecord({ ...base, lifecycleStatus: "SUSPENDED", permitNumber: null, outboxStatus: "PENDING" });
+    expect(suspended.status).toBe("suspended");
+    expect(detailDocumentTarget(suspended).permitId).toBeNull();
+    expect(detailDocumentTarget(suspended).kind).toBe("hot-work");
   });
 });

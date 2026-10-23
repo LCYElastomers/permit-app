@@ -505,6 +505,22 @@ button:disabled { cursor: default; opacity: 0.55; }
 }
 .wo-line { margin-top: 4px; font-size: 13px; color: var(--text); }
 
+.detail-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+.document-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+  align-items: center;
+}
+.document-toolbar .btn { height: 32px; }
+.document-toolbar .document-note { flex-basis: 100%; margin: 0; text-align: right; }
+
 .action-bar, .confirm-actions, .foot-actions {
   display: flex;
   gap: 6px;
@@ -1621,6 +1637,8 @@ input:-webkit-autofill {
 .composition-portrait .confirm {
   grid-template-columns: 1fr;
 }
+.composition-portrait .detail-actions,
+.composition-landscape .detail-actions { align-items: stretch; }
 
 .composition-portrait .form-field.span-2,
 .composition-portrait .field.wide { grid-column: auto; }

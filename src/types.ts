@@ -6,6 +6,8 @@ export type PermitKind =
   | "excavation"
   | "live-electrical";
 
+export type PermitAuthority = "authoritative" | "sample";
+
 export type PermitStatus =
   | "active"
   | "pending"
@@ -24,6 +26,7 @@ export type Screen =
   | "templates"
   | "contractors"
   | "equipment"
+  | "users"
   | "detail";
 
 export type ListScreen = Exclude<Screen, "detail">;
@@ -108,7 +111,14 @@ export interface Permit {
   signoffs: Signoff[];
   conditions: Condition[];
   serverPermitId?: string | null;
+  authority?: PermitAuthority;
   sample?: boolean;
+  plantRecord?: {
+    status: string;
+    revision: number;
+    missing: string[];
+    approvals: { actingRole: string; displayName: string; permitUserCode: string; jobTitle: string | null; at: string | null }[];
+  };
 }
 
 export interface PermitDraft {
@@ -135,6 +145,7 @@ export interface PermitDraft {
   updated: string;
   permitNumber: string | null;
   outboxStatus: string;
+  lifecycleStatus?: string;
 }
 
 export interface PermitTemplate {

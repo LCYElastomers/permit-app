@@ -31,12 +31,6 @@ public sealed class HealthController(IDatabaseAvailability database, IDatabasePr
 [Route("api/v1/permits")]
 public sealed class PermitsController(IDatabaseAvailability database) : ControllerBase
 {
-    [HttpGet]
-    public ActionResult<PermitListResponse> List() => DatabaseOr<PermitListResponse>();
-
-    [HttpGet("{id:guid}")]
-    public ActionResult<PermitSummary> Get(Guid id) => DatabaseOr<PermitSummary>();
-
     [HttpPost]
     public ActionResult<PermitSummary> Create([FromBody] CreatePermitRequest request)
     {

@@ -27,6 +27,14 @@ public sealed class GeneralWorkBody
     public string? Coordination { get; init; }
     public string? HeightControls { get; init; }
     public IReadOnlyDictionary<string, string>? Exclusions { get; init; }
+    public IReadOnlyList<ModuleFactInput>? ModuleFacts { get; set; }
+}
+
+public sealed class ModuleFactInput
+{
+    public string Module { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string Value { get; set; } = "";
 }
 
 public sealed class GeneralWorkPush
@@ -93,6 +101,7 @@ public sealed class GeneralWorkPlan
     public required IReadOnlyList<PermitControlRecord> Controls { get; init; }
     public required IReadOnlyList<PermitPpe> Ppe { get; init; }
     public required IReadOnlyList<PermitModule> Modules { get; init; }
+    public required IReadOnlyList<PermitModuleFact> ModuleFacts { get; init; }
 }
 
 public static class PermitNumbers
@@ -183,7 +192,7 @@ public static class GeneralWorkAcceptance
 
         if (push.OccurredAt == default) return "occurred-at-required";
         if (push.Body is null) return "permit-required";
-        if (!string.Equals(push.Body.PermitType, nameof(PermitType.GENERAL_WORK), StringComparison.Ordinal))
+        if (!PermitModuleComposition.TryType(push.Body.PermitType, out _))
         {
             return "permit-type-invalid";
         }
@@ -211,11 +220,15 @@ public static class GeneralWorkAcceptance
     {
         var body = push.Body ?? throw new InvalidOperationException("permit body is required");
         TryCompany(body.CompanyType, out var company);
+        if (!PermitModuleComposition.TryType(body.PermitType, out var permitType))
+        {
+            throw new InvalidOperationException("permit type is required");
+        }
         var permit = new Permit
         {
             Id = push.PermitId,
             PermitNumber = permitNumber,
-            PermitType = PermitType.GENERAL_WORK,
+            PermitType = permitType,
             Status = PermitStatus.DRAFT,
             AreaId = body.AreaId,
             EquipmentId = null,
@@ -259,10 +272,11 @@ public static class GeneralWorkAcceptance
             PermitId = permit.Id,
             Label = label,
         }).ToList();
-        var modules = new List<PermitModule> { Module(permit.Id, PermitModuleKind.CORE, true) };
-        if (hazards.Count > 0) modules.Add(Module(permit.Id, PermitModuleKind.HAZARD_ASSESSMENT, false));
-        if (ppe.Count > 0) modules.Add(Module(permit.Id, PermitModuleKind.PPE, false));
-        if (!string.IsNullOrWhiteSpace(body.HeightControls)) modules.Add(Module(permit.Id, PermitModuleKind.WORKING_AT_HEIGHT, false));
+        var modules = PermitModuleComposition.For(permitType)
+            .Select(item => Module(permit.Id, item.Kind, item.Required))
+            .ToList();
+        AddApplicableModules(modules, permitType, permit.Id, body);
+        var moduleFacts = ModuleFacts(permit.Id, body);
         return new GeneralWorkPlan
         {
             Permit = permit,
@@ -293,7 +307,41 @@ public static class GeneralWorkAcceptance
             Controls = controls,
             Ppe = ppe,
             Modules = modules,
+            ModuleFacts = moduleFacts,
         };
+    }
+
+    private static List<PermitModuleFact> ModuleFacts(Guid permitId, GeneralWorkBody body)
+    {
+        var facts = new List<PermitModuleFact>();
+        void Add(PermitModuleKind module, string name, string? value)
+        {
+            var trimmed = value?.Trim();
+            if (string.IsNullOrEmpty(trimmed) || trimmed.Length > 500 || name.Length > 80) return;
+            if (facts.Any(item => item.ModuleKind == module && item.Name == name)) return;
+            facts.Add(new PermitModuleFact
+            {
+                Id = Guid.NewGuid(),
+                PermitId = permitId,
+                ModuleKind = module,
+                Name = name,
+                Value = trimmed,
+            });
+        }
+
+        Add(PermitModuleKind.CORE, "taskType", body.TaskType);
+        Add(PermitModuleKind.CORE, "equipmentSystem", body.EquipmentSystem);
+        Add(PermitModuleKind.CORE, "serviceProcess", body.ServiceProcess);
+        Add(PermitModuleKind.CORE, "materialInService", body.MaterialInService);
+        Add(PermitModuleKind.CORE, "coordination", body.Coordination);
+        Add(PermitModuleKind.WORKING_AT_HEIGHT, "heightControls", body.HeightControls);
+        foreach (var item in body.ModuleFacts ?? [])
+        {
+            if (!Enum.TryParse(item.Module, out PermitModuleKind module) || !Enum.IsDefined(module)) continue;
+            Add(module, item.Name.Trim(), item.Value);
+        }
+
+        return facts;
     }
 
     private static string? Facts(GeneralWorkBody body)
@@ -316,6 +364,7 @@ public static class GeneralWorkAcceptance
         Add(facts, "heightControls", body.HeightControls);
         if (exclusions is { Count: > 0 }) facts["exclusions"] = exclusions;
         if (longPpe.Length > 0) facts["ppeText"] = longPpe;
+        if (!string.Equals(body.PermitType, nameof(PermitType.GENERAL_WORK), StringComparison.Ordinal)) return null;
         facts["kind"] = "general-work-facts";
         return JsonSerializer.Serialize(facts, PayloadJson);
     }
@@ -337,6 +386,37 @@ public static class GeneralWorkAcceptance
             RoleName = role,
             DisplayName = trimmed,
         });
+    }
+
+    private static void AddApplicableModules(List<PermitModule> modules, PermitType type, Guid permitId, GeneralWorkBody body)
+    {
+        var facts = body.ModuleFacts ?? [];
+        bool Fact(PermitModuleKind kind) => facts.Any(item =>
+            Enum.TryParse(item.Module, out PermitModuleKind parsed)
+            && Enum.IsDefined(parsed)
+            && parsed == kind
+            && !string.IsNullOrWhiteSpace(item.Value));
+        void Ensure(PermitModuleKind kind)
+        {
+            if (Fact(kind) && modules.All(item => item.Kind != kind))
+                modules.Add(Module(permitId, kind, false));
+        }
+
+        if ((!string.IsNullOrWhiteSpace(body.HeightControls) || Fact(PermitModuleKind.WORKING_AT_HEIGHT))
+            && modules.All(item => item.Kind != PermitModuleKind.WORKING_AT_HEIGHT))
+        {
+            modules.Add(Module(permitId, PermitModuleKind.WORKING_AT_HEIGHT, false));
+        }
+
+        if (type == PermitType.GENERAL_WORK) Ensure(PermitModuleKind.PROCEDURE);
+        else if (type == PermitType.HOT_WORK) Ensure(PermitModuleKind.LOTO_ISOLATION);
+        else if (type == PermitType.CONFINED_SPACE)
+        {
+            Ensure(PermitModuleKind.HOT_WORK);
+            Ensure(PermitModuleKind.FIRE_WATCH);
+        }
+        else if (type is PermitType.OPENING_BLINDING or PermitType.EXCAVATION)
+            Ensure(PermitModuleKind.ATMOSPHERIC_MONITORING);
     }
 
     private static PermitModule Module(Guid permitId, PermitModuleKind kind, bool required) => new()
@@ -369,6 +449,70 @@ public static class GeneralWorkAcceptance
         company = default;
         return false;
     }
+}
+
+public static class PermitModuleComposition
+{
+    public static bool TryType(string? value, out PermitType type) =>
+        Enum.TryParse(value, out type) && Enum.IsDefined(type);
+
+    public static IReadOnlyList<(PermitModuleKind Kind, bool Required)> For(PermitType type) => type switch
+    {
+        PermitType.GENERAL_WORK =>
+        [
+            (PermitModuleKind.CORE, true),
+            (PermitModuleKind.JSA, true),
+            (PermitModuleKind.HAZARD_ASSESSMENT, true),
+            (PermitModuleKind.PPE, true),
+        ],
+        PermitType.HOT_WORK =>
+        [
+            (PermitModuleKind.CORE, true),
+            (PermitModuleKind.JSA, true),
+            (PermitModuleKind.HAZARD_ASSESSMENT, true),
+            (PermitModuleKind.PPE, true),
+            (PermitModuleKind.ATMOSPHERIC_MONITORING, true),
+            (PermitModuleKind.HOT_WORK, true),
+            (PermitModuleKind.FIRE_WATCH, true),
+        ],
+        PermitType.CONFINED_SPACE =>
+        [
+            (PermitModuleKind.CORE, true),
+            (PermitModuleKind.JSA, true),
+            (PermitModuleKind.HAZARD_ASSESSMENT, true),
+            (PermitModuleKind.PPE, true),
+            (PermitModuleKind.LOTO_ISOLATION, true),
+            (PermitModuleKind.ATMOSPHERIC_MONITORING, true),
+            (PermitModuleKind.CONFINED_SPACE, true),
+            (PermitModuleKind.RESCUE, true),
+        ],
+        PermitType.OPENING_BLINDING =>
+        [
+            (PermitModuleKind.CORE, true),
+            (PermitModuleKind.JSA, true),
+            (PermitModuleKind.HAZARD_ASSESSMENT, true),
+            (PermitModuleKind.PPE, true),
+            (PermitModuleKind.LOTO_ISOLATION, true),
+            (PermitModuleKind.OPENING_BLINDING, true),
+        ],
+        PermitType.EXCAVATION =>
+        [
+            (PermitModuleKind.CORE, true),
+            (PermitModuleKind.JSA, true),
+            (PermitModuleKind.HAZARD_ASSESSMENT, true),
+            (PermitModuleKind.PPE, true),
+            (PermitModuleKind.EXCAVATION, true),
+        ],
+        PermitType.LIVE_ELECTRICAL =>
+        [
+            (PermitModuleKind.CORE, true),
+            (PermitModuleKind.JSA, true),
+            (PermitModuleKind.HAZARD_ASSESSMENT, true),
+            (PermitModuleKind.PPE, true),
+            (PermitModuleKind.LIVE_ELECTRICAL, true),
+        ],
+        _ => [(PermitModuleKind.CORE, true)],
+    };
 }
 
 public sealed class GeneralWorkSession

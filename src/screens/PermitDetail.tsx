@@ -5,8 +5,10 @@ import { permitType, personName } from "../permitTypes";
 import { usePlantClock } from "../plantClock";
 import { assetLine, authorizationHold, kindTitle, screenLabel } from "../workflow";
 import { PermitDocumentActions } from "../components/PermitDocumentActions";
-import { detailDocumentTarget } from "../services/permitDocumentActions";
+import { useComposition } from "../components/Composition";
+import { detailDocumentTarget, documentActionPlacement } from "../services/permitDocumentActions";
 import { Field, Section, StateMark } from "../components/ui";
+import { AuthorizationPanel } from "../components/AuthorizationPanel";
 
 export function PermitDetail() {
   const {
@@ -19,8 +21,10 @@ export function PermitDetail() {
     extendPermit,
     closePermit,
     reinstatePermit,
+    replacePlantPermit,
   } = usePermits();
   const clock = usePlantClock();
+  const composition = useComposition();
   const permit = permits.find((item) => item.id === selectedId);
   const [panel, setPanel] = useState<"none" | "suspend" | "close">("none");
   const [reason, setReason] = useState("");
@@ -43,6 +47,8 @@ export function PermitDetail() {
   const hold = authorizationHold(permit, clock.hm);
   const attachment = permit.attachments.find((item) => item.name === file) ?? null;
   const requester = [permit.requester, permit.requesterGroup].filter(Boolean).join(" · ");
+  const documents = detailDocumentTarget(permit);
+  const documentPlacement = documentActionPlacement(composition);
 
   return (
     <div className="screen">
@@ -57,7 +63,11 @@ export function PermitDetail() {
             <span className="rev mono">REV {permit.revision}</span>
           </h1>
           <div className="status-row">
-            {hold ? (
+            {permit.plantRecord ? (
+              <span className={`state ${permit.plantRecord.status === "ACTIVE" ? "state-ok" : "state-warn"}`}>
+                {permit.plantRecord.status === "ACTIVE" ? "ACTIVE · WORK AUTHORIZED" : `${permit.plantRecord.status} · NOT ACTIVE FOR WORK`}
+              </span>
+            ) : hold ? (
               <div className={`stop-mark${hold === "expired" ? " is-expired" : ""}`}>
                 <strong>{hold === "suspended" ? "SUSPENDED" : "EXPIRED"}</strong>
                 <span>WORK NOT AUTHORIZED</span>
@@ -71,7 +81,12 @@ export function PermitDetail() {
           <div className="detail-timing mono">{windowOf(permit) || "No window recorded"}</div>
           <div className="wo-line mono">{permit.workOrder}</div>
         </div>
-        {locked ? (
+        <div className="detail-actions">
+        {permit.plantRecord ? (
+          <AuthorizationPanel permit={permit} onUpdated={replacePlantPermit} />
+        ) : permit.sample === false ? (
+          <p className="notice">This device copy is not an authorization. Submit it to the plant record, then authorize it from Pending Review.</p>
+        ) : locked ? (
           <div className="readonly-plate">
             <span>RECORD</span>
             <strong>{permit.status === "expired" ? "EXPIRED" : "CLOSED"}</strong>
@@ -126,6 +141,8 @@ export function PermitDetail() {
             </button>
           </div>
         )}
+        {documentPlacement === "toolbar" ? <PermitDocumentActions target={documents} placement="toolbar" /> : null}
+        </div>
       </header>
 
       {panel === "suspend" && !locked ? (
@@ -208,7 +225,7 @@ export function PermitDetail() {
         </div>
       ) : null}
 
-      <PermitDocumentActions target={detailDocumentTarget(permit)} />
+      {documentPlacement === "documents" ? <PermitDocumentActions target={documents} placement="documents" /> : null}
 
       <div className="detail-layout">
         <div className="detail-main">
@@ -311,7 +328,11 @@ export function PermitDetail() {
                   <li key={signoff.role}>
                     <span className="role">{signoff.role}</span>
                     <span className={signoff.state === "outstanding" ? "name warn" : "name"}>
-                      {signoff.state === "signed" ? `${signoff.name}  ${signoff.time}` : "Outstanding"}
+                      {signoff.state === "signed"
+                        ? `${signoff.name}  ${signoff.time}`
+                        : signoff.name
+                          ? `${signoff.name} recorded on this device`
+                          : "Outstanding"}
                     </span>
                   </li>
                 ))}

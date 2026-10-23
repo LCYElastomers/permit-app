@@ -1,15 +1,26 @@
 import { usePermits } from "../state/PermitStore";
 import { permitType } from "../permitTypes";
-import { kindShort } from "../workflow";
+import { kindShort, kindTitle } from "../workflow";
 import { Kv, ScreenHead } from "../components/ui";
 
 export function SuspendedScreen() {
-  const { permits, openPermit } = usePermits();
-  const held = permits.filter((permit) => permit.status === "suspended");
+  const { permits, drafts, openPermit, openStoredPermit } = usePermits();
+  const real = drafts.filter((draft) => draft.lifecycleStatus === "SUSPENDED");
+  const held = permits.filter((permit) => permit.status === "suspended" && permit.sample !== false);
 
   return (
     <div className="screen">
       <ScreenHead kicker="OPERATIONS" title="Suspended" meta={`${held.length} HELD`} />
+      {real.map((draft) => (
+        <button key={draft.id} type="button" className="permit-row is-hold" onClick={() => openStoredPermit(draft.id, "suspended")}>
+          <div className="row-top">
+            <span className="pid mono">{draft.permitNumber ?? "LOCAL"}</span>
+            <span className="kind">{kindTitle(draft.kind)}</span>
+            <span className="row-status"><span className="screen-meta">SUSPENDED</span></span>
+          </div>
+          <div className="row-work">{draft.description || "Job description not entered"}</div>
+        </button>
+      ))}
       {held.length === 0 ? (
         <p className="empty">No permits are suspended.</p>
       ) : (

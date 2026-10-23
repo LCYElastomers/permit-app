@@ -43,6 +43,9 @@ interface PermitStoreValue {
   reinstatePermit: (id: string) => void;
   saveDraft: () => Promise<PermitDraft>;
   loadDraft: (id: string) => void;
+  openStoredPermit: (id: string, from: ListScreen) => void;
+  openPlantPermit: (permit: Permit, from: ListScreen) => void;
+  replacePlantPermit: (permit: Permit) => void;
   applyTemplate: (id: string) => void;
   issuePermit: () => string;
   resetForm: () => void;
@@ -110,6 +113,7 @@ function permitFromDraft(draft: PermitDraft, id: string, time: string): Permit {
     kind: draft.kind,
     status: "active",
     sample: true,
+    authority: "sample",
     serverPermitId: null,
     revision: "01",
     area: draft.area,
@@ -157,6 +161,39 @@ function permitFromDraft(draft: PermitDraft, id: string, time: string): Permit {
   };
 }
 
+function storedStatus(value: string | undefined): Permit["status"] {
+  if (value === "ACTIVE") return "active";
+  if (value === "SUSPENDED") return "suspended";
+  if (value === "EXPIRED") return "expired";
+  if (value === "CLOSED" || value === "CANCELLED") return "closed";
+  return "pending";
+}
+
+export function storedPermitRecord(draft: PermitDraft): Permit {
+  const synced = Boolean(draft.permitNumber);
+  const status = storedStatus(draft.lifecycleStatus);
+  const permit = permitFromDraft(draft, draft.permitNumber ?? draft.id, draft.plannedStart || "");
+  return {
+    ...permit,
+    status,
+    sample: false,
+    authority: synced ? "authoritative" : undefined,
+    serverPermitId: synced ? draft.id : null,
+    issued: "",
+    closed: "",
+    started: draft.plannedStart,
+    attachments: [],
+    suspension: null,
+    signoffs: permit.signoffs.map((item) => ({ ...item, state: "outstanding" as const, time: "" })),
+    history: [
+      { time: draft.updated, label: "SAVED ON THIS DEVICE", tone: "neutral" },
+      ...(draft.lifecycleStatus === "PENDING_REVIEW"
+        ? [{ time: draft.updated, label: "SUBMITTED FOR REVIEW", tone: "neutral" as const }]
+        : []),
+    ],
+  };
+}
+
 export function PermitProvider({ children }: { children: ReactNode }) {
   const [permits, setPermits] = useState<Permit[]>(() => structuredClone(initialPermits));
   const [drafts, setDrafts] = useState<PermitDraft[]>([]);
@@ -178,7 +215,13 @@ export function PermitProvider({ children }: { children: ReactNode }) {
           setForm((current) => {
             const next = rows.find((draft) => draft.id === current.id);
             if (!next) return current;
-            return { ...current, permitNumber: next.permitNumber, outboxStatus: next.outboxStatus, updated: next.updated };
+            return {
+              ...current,
+              permitNumber: next.permitNumber,
+              outboxStatus: next.outboxStatus,
+              updated: next.updated,
+              lifecycleStatus: next.lifecycleStatus,
+            };
           });
         })
         .catch(() => {
@@ -309,6 +352,30 @@ export function PermitProvider({ children }: { children: ReactNode }) {
     setOrigin("new");
   };
 
+  const openStoredPermit = (id: string, from: ListScreen) => {
+    const draft = drafts.find((item) => item.id === id);
+    if (!draft) return;
+    const permit = storedPermitRecord(draft);
+    setPermits((list) => [permit, ...list.filter((item) => item.id !== permit.id)]);
+    setOrigin(from);
+    setSelectedId(permit.id);
+    setReadonlyDetail(false);
+    setScreen("detail");
+  };
+
+  const openPlantPermit = (permit: Permit, from: ListScreen) => {
+    setPermits((list) => [permit, ...list.filter((item) => item.id !== permit.id)]);
+    setOrigin(from);
+    setSelectedId(permit.id);
+    setReadonlyDetail(false);
+    setScreen("detail");
+  };
+
+  const replacePlantPermit = (permit: Permit) => {
+    setPermits((list) => list.map((item) => (item.serverPermitId && item.serverPermitId === permit.serverPermitId ? permit : item)));
+    setSelectedId(permit.id);
+  };
+
   const applyTemplate = (id: string) => {
     const template = templates.find((item) => item.id === id);
     if (!template) return;
@@ -363,6 +430,9 @@ export function PermitProvider({ children }: { children: ReactNode }) {
         reinstatePermit,
         saveDraft,
         loadDraft,
+        openStoredPermit,
+        openPlantPermit,
+        replacePlantPermit,
         applyTemplate,
         issuePermit,
         resetForm,

@@ -33,7 +33,7 @@ public sealed class PdfSharpPermitRenderer : IPermitPdfRenderer
         foreach (var line in document.Banner)
         {
             var emphasis = IsTreatment(document, line);
-            var font = line is "LCY PERMIT CONTROL" or "GENERAL WORK PERMIT" || emphasis ? title : bold;
+            var font = line is "LCY PERMIT CONTROL" || line.EndsWith(" PERMIT", StringComparison.Ordinal) || emphasis ? title : bold;
             y = Draw(pdf, document, ref graphics, ref page, ref pageNumber, line, font, bold, title, y, emphasis);
         }
 

@@ -3,13 +3,21 @@ namespace PermitControl.Domain;
 public sealed class User
 {
     public Guid Id { get; set; }
+    public string PermitUserCode { get; set; } = "";
     public string Username { get; set; } = "";
     public string DisplayName { get; set; } = "";
     public string Email { get; set; } = "";
+    public string? WindowsDomain { get; set; }
+    public string WindowsUsername { get; set; } = "";
+    public string PersonnelReference { get; set; } = "";
+    public string PersonnelCode { get; set; } = "";
+    public string JobTitle { get; set; } = "";
+    public string? Department { get; set; }
     public AuthProvider AuthProvider { get; set; } = AuthProvider.LOCAL;
     public string? ExternalSubjectId { get; set; }
     public bool Enabled { get; set; } = true;
     public DateTimeOffset CreatedAt { get; set; }
+    public DateTimeOffset? UpdatedAt { get; set; }
 }
 
 public sealed class Role
@@ -96,6 +104,11 @@ public sealed class PermitEvent
     public Guid? DeviceId { get; set; }
     public string? Payload { get; set; }
     public SyncSource SyncSource { get; set; }
+    public string? PermitUserCodeSnapshot { get; set; }
+    public string? DisplayNameSnapshot { get; set; }
+    public string? JobTitleSnapshot { get; set; }
+    public string? ActingRole { get; set; }
+    public string? WindowsUsernameSnapshot { get; set; }
     public Permit? Permit { get; set; }
 }
 
@@ -117,6 +130,12 @@ public sealed class PermitApproval
     public Guid? UserId { get; set; }
     public string Decision { get; set; } = "";
     public DateTimeOffset? DecidedAt { get; set; }
+    public int PermitRevision { get; set; }
+    public string? PermitUserCodeSnapshot { get; set; }
+    public string? DisplayNameSnapshot { get; set; }
+    public string? JobTitleSnapshot { get; set; }
+    public string? ActingRole { get; set; }
+    public string? WindowsUsernameSnapshot { get; set; }
     public Permit? Permit { get; set; }
 }
 
@@ -245,6 +264,16 @@ public sealed class PermitNumberCounter
 {
     public int Year { get; set; }
     public int LastValue { get; set; }
+}
+
+public sealed class PermitModuleFact
+{
+    public Guid Id { get; set; }
+    public Guid PermitId { get; set; }
+    public PermitModuleKind ModuleKind { get; set; }
+    public string Name { get; set; } = "";
+    public string Value { get; set; } = "";
+    public Permit? Permit { get; set; }
 }
 
 public sealed class PermitExport

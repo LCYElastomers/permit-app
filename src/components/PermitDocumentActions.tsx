@@ -1,18 +1,38 @@
 import { useState } from "react";
+import { useComposition } from "./Composition";
 import { useDevice } from "../services/device";
-import { requestAuthoritativePdf, type DocumentActionTarget } from "../services/permitDocumentActions";
+import {
+  authoritativePdfNotice,
+  documentActionPlacement,
+  requestAuthoritativePdf,
+  type DocumentActionPlacement,
+  type DocumentActionTarget,
+} from "../services/permitDocumentActions";
 import { PermitPdfUnavailable, type PermitPdfExportType } from "../services/permitPdf";
 
-export function PermitDocumentActions({ target }: { target: DocumentActionTarget | null }) {
+export function PermitDocumentActions({
+  target,
+  placement,
+}: {
+  target: DocumentActionTarget | null;
+  placement?: DocumentActionPlacement;
+}) {
+  const composition = useComposition();
   const { link } = useDevice();
   const [message, setMessage] = useState("");
+  const resolved = placement ?? documentActionPlacement(composition);
   if (!target) return null;
 
+  const offline = authoritativePdfNotice(link.link);
   const request = async (exportType: PermitPdfExportType) => {
     setMessage("");
     try {
       await requestAuthoritativePdf(
-        { serverPermitId: target.permitId, kind: "general", sample: false },
+        {
+          serverPermitId: target.permitId,
+          kind: target.kind,
+          authority: target.permitId ? "authoritative" : "sample",
+        },
         exportType,
         link.link,
       );
@@ -30,11 +50,32 @@ export function PermitDocumentActions({ target }: { target: DocumentActionTarget
     }
   };
 
+  const note = message || offline;
+  if (resolved === "toolbar") {
+    return (
+      <div className="document-toolbar" aria-label="Documents">
+        <button type="button" className="btn btn-ghost" onClick={() => void request("PRINT")}>
+          View PDF
+        </button>
+        <button type="button" className="btn btn-ghost" onClick={() => void request("PRINT")}>
+          Print
+        </button>
+        <button type="button" className="btn btn-ghost" onClick={() => void request("SNAPSHOT")}>
+          Export PDF
+        </button>
+        {note ? <p className="document-note">{note}</p> : null}
+      </div>
+    );
+  }
+
   return (
     <section className="document-actions document-secondary" aria-label="Documents">
       <div className="kicker">DOCUMENTS</div>
       <p>Printed from the plant record. The PDF states the permit status. It does not change that status.</p>
       <div className="document-buttons">
+        <button type="button" className="btn" onClick={() => void request("PRINT")}>
+          View PDF
+        </button>
         <button type="button" className="btn" onClick={() => void request("PRINT")}>
           Print Permit
         </button>
@@ -42,7 +83,7 @@ export function PermitDocumentActions({ target }: { target: DocumentActionTarget
           Export PDF
         </button>
       </div>
-      {message ? <p className="document-note">{message}</p> : null}
+      {note ? <p className="document-note">{note}</p> : null}
     </section>
   );
 }

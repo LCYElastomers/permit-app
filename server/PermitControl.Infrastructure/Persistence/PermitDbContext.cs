@@ -8,6 +8,13 @@ public sealed class PermitDbContext(DbContextOptions<PermitDbContext> options) :
     public DbSet<User> Users => Set<User>();
     public DbSet<Role> Roles => Set<Role>();
     public DbSet<UserRole> UserRoles => Set<UserRole>();
+    public DbSet<UserCredential> UserCredentials => Set<UserCredential>();
+    public DbSet<UserPinHistory> UserPinHistories => Set<UserPinHistory>();
+    public DbSet<UserQualification> UserQualifications => Set<UserQualification>();
+    public DbSet<CredentialAudit> CredentialAudits => Set<CredentialAudit>();
+    public DbSet<UserSession> UserSessions => Set<UserSession>();
+    public DbSet<UserCodeCounter> UserCodeCounters => Set<UserCodeCounter>();
+    public DbSet<PermitPolicySetting> PermitPolicies => Set<PermitPolicySetting>();
     public DbSet<Area> Areas => Set<Area>();
     public DbSet<Equipment> Equipment => Set<Equipment>();
     public DbSet<Contractor> Contractors => Set<Contractor>();
@@ -31,6 +38,7 @@ public sealed class PermitDbContext(DbContextOptions<PermitDbContext> options) :
     public DbSet<SyncEvent> SyncEvents => Set<SyncEvent>();
     public DbSet<PermitNumberCounter> PermitNumberCounters => Set<PermitNumberCounter>();
     public DbSet<PermitExport> PermitExports => Set<PermitExport>();
+    public DbSet<PermitModuleFact> PermitModuleFacts => Set<PermitModuleFact>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

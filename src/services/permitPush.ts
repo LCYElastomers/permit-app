@@ -1,7 +1,7 @@
 import { ApiError, ApiTransportError, permitApiBaseUrl } from "../lib/api/client";
 import { API_TIMEOUT_MS } from "../lib/api/config";
 import { syncMayStart, type PlantLink } from "../lib/connectivity";
-import type { GeneralWorkWorkingState } from "./generalWorkDraft";
+import { restoredModuleState, type GeneralWorkWorkingState, type PermitWorkingState } from "./generalWorkDraft";
 import { invokeCommand, notifyLocalStoreChanged } from "./localStore";
 
 export interface PushableDraft {
@@ -17,7 +17,8 @@ export interface PushableDraft {
   craft: string;
   plannedStart: string | null;
   expiresAt: string | null;
-  workingState: GeneralWorkWorkingState;
+  permitType?: string;
+  workingState: GeneralWorkWorkingState | PermitWorkingState;
 }
 
 export interface PushablePermitCreate {
@@ -33,8 +34,43 @@ export type PushStep = "idle" | "synced" | "deferred" | "attention" | "stopped" 
 const PERMIT_NUMBER = /^PTW-\d{4}-\d{5,}$/;
 const ERROR_CODE = /^[a-z0-9-]{1,40}$/;
 
+const FIELD_MODULES: Record<string, string> = {
+  heightControls: "WORKING_AT_HEIGHT",
+  loto: "LOTO_ISOLATION",
+  lockBox: "LOTO_ISOLATION",
+  energyIsolation: "LOTO_ISOLATION",
+  zeroEnergy: "LOTO_ISOLATION",
+  blinds: "LOTO_ISOLATION",
+  initialTest: "ATMOSPHERIC_MONITORING",
+  retests: "ATMOSPHERIC_MONITORING",
+  atmospheric: "ATMOSPHERIC_MONITORING",
+  continuous: "ATMOSPHERIC_MONITORING",
+  hotWorkEquipment: "HOT_WORK",
+  areaPrep: "HOT_WORK",
+  combustibleClearance: "HOT_WORK",
+  ignitionControls: "HOT_WORK",
+  extinguishing: "HOT_WORK",
+  fireWatch: "FIRE_WATCH",
+  postFireWatch: "FIRE_WATCH",
+  vesselId: "CONFINED_SPACE",
+  entrant: "CONFINED_SPACE",
+  attendant: "CONFINED_SPACE",
+  rescue: "RESCUE",
+  hotWorkInside: "HOT_WORK",
+  depth: "EXCAVATION",
+  digLocation: "EXCAVATION",
+  competentPerson: "EXCAVATION",
+  soil: "EXCAVATION",
+  previousService: "OPENING_BLINDING",
+  blinded: "OPENING_BLINDING",
+  voltage: "LIVE_ELECTRICAL",
+  ppe: "PPE",
+};
+
 export function generalWorkPushBody(item: PushablePermitCreate) {
-  const fields = item.draft.workingState.fields ?? {};
+  const restored = restoredModuleState(item.draft.workingState);
+  const fields = restored.fields ?? {};
+  const permitType = item.draft.permitType ?? (item.draft.workingState.version === 2 ? item.draft.workingState.permitType : "GENERAL_WORK");
   const exclusions: Record<string, string> = {};
   for (const key of ["excludeOpening", "excludeContainment", "excludeEntry", "excludeIsolation", "excludeHotWork"]) {
     if (fields[key]) exclusions[key] = fields[key];
@@ -51,7 +87,7 @@ export function generalWorkPushBody(item: PushablePermitCreate) {
         userId: null,
         deviceId: null,
         permit: {
-          permitType: "GENERAL_WORK",
+          permitType,
           areaId: item.draft.areaId,
           areaName: item.draft.areaName,
           equipmentTag: item.draft.equipmentTag,
@@ -63,8 +99,8 @@ export function generalWorkPushBody(item: PushablePermitCreate) {
           craft: item.draft.craft,
           plannedStartClock: item.draft.plannedStart,
           plannedExpirationClock: item.draft.expiresAt,
-          hazards: item.draft.workingState.hazards,
-          controls: item.draft.workingState.controls,
+          hazards: restored.hazards,
+          controls: restored.controls,
           ppe,
           taskType: fields.taskType ?? "",
           equipmentSystem: fields.equipmentSystem ?? "",
@@ -73,6 +109,9 @@ export function generalWorkPushBody(item: PushablePermitCreate) {
           coordination: fields.coordination ?? "",
           heightControls: fields.heightControls ?? "",
           exclusions,
+          moduleFacts: Object.entries(fields)
+            .filter(([, value]) => value.trim().length > 0)
+            .map(([name, value]) => ({ module: FIELD_MODULES[name] ?? "CORE", name, value })),
         },
       },
     ],

@@ -19,6 +19,8 @@ import { PendingReview } from "../screens/PendingReview";
 import { PermitDetail } from "../screens/PermitDetail";
 import { SuspendedScreen } from "../screens/SuspendedScreen";
 import { TemplatesScreen } from "../screens/TemplatesScreen";
+import { UsersScreen } from "../screens/UsersScreen";
+import { SessionBanner } from "./SessionBanner";
 
 const NAV: { label: string; items: { id: ListScreen; label: string }[] }[] = [
   {
@@ -41,6 +43,7 @@ const NAV: { label: string; items: { id: ListScreen; label: string }[] }[] = [
   {
     label: "ADMINISTRATION",
     items: [
+      { id: "users", label: "Users" },
       { id: "templates", label: "Templates" },
       { id: "contractors", label: "Contractors" },
       { id: "equipment", label: "Equipment" },
@@ -60,6 +63,7 @@ const MORE_ROUTES: { id: ListScreen; label: string }[] = [
   { id: "suspended", label: "Suspended" },
   { id: "drafts", label: "Drafts" },
   { id: "archive", label: "Archive" },
+  { id: "users", label: "Users" },
   { id: "templates", label: "Templates" },
   { id: "contractors", label: "Contractors" },
   { id: "equipment", label: "Equipment" },
@@ -113,7 +117,7 @@ export function Shell() {
     PERMIT_SCREENS.includes(screen as ListScreen) ||
     (screen === "detail" && PERMIT_SCREENS.includes(origin));
   const moreActive =
-    moreOpen || ["drafts", "archive", "templates", "contractors", "equipment"].includes(screen);
+    moreOpen || ["drafts", "archive", "templates", "contractors", "equipment", "users"].includes(screen);
 
   return (
     <div className={`shell composition-${composition}`}>
@@ -192,6 +196,7 @@ export function Shell() {
           </div>
         ) : null}
         {composition === "portrait" ? null : <PlantStatus />}
+        <SessionBanner />
         <main className="stage" ref={stageRef}>
           {screen === "command" && <CommandCenter />}
           {screen === "active" && <ActivePermits />}
@@ -203,6 +208,7 @@ export function Shell() {
           {screen === "templates" && <TemplatesScreen />}
           {screen === "contractors" && <ContractorsScreen />}
           {screen === "equipment" && <EquipmentScreen />}
+          {screen === "users" && <UsersScreen />}
           {screen === "detail" && <PermitDetail key={selectedId ?? "none"} />}
         </main>
         {composition !== "desktop" && moreOpen ? (
