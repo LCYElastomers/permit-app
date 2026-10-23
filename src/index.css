@@ -1538,6 +1538,11 @@ input:-webkit-autofill {
   border-bottom: 1px solid var(--border-subtle);
   background: var(--canvas);
 }
+.document-secondary {
+  margin: 0 0 8px;
+  background: transparent;
+}
+.document-secondary .kicker { margin-bottom: 4px; }
 .document-actions p { margin: 8px 0 0; color: var(--text-dim); }
 .document-buttons { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .document-note { letter-spacing: 0.02em; }

@@ -4,6 +4,8 @@ import type { Permit } from "../types";
 import { permitType, personName } from "../permitTypes";
 import { usePlantClock } from "../plantClock";
 import { assetLine, authorizationHold, kindTitle, screenLabel } from "../workflow";
+import { PermitDocumentActions } from "../components/PermitDocumentActions";
+import { detailDocumentTarget } from "../services/permitDocumentActions";
 import { Field, Section, StateMark } from "../components/ui";
 
 export function PermitDetail() {
@@ -205,6 +207,8 @@ export function PermitDetail() {
           </div>
         </div>
       ) : null}
+
+      <PermitDocumentActions target={detailDocumentTarget(permit)} />
 
       <div className="detail-layout">
         <div className="detail-main">

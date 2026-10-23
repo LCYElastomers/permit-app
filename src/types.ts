@@ -107,6 +107,8 @@ export interface Permit {
   } | null;
   signoffs: Signoff[];
   conditions: Condition[];
+  serverPermitId?: string | null;
+  sample?: boolean;
 }
 
 export interface PermitDraft {

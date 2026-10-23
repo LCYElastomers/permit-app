@@ -38,7 +38,7 @@ A synchronized General Work permit can be rendered on the server into a working 
 
 `FINAL_ARCHIVE` is reserved and refused. When a General Work permit can be closed, closure will generate one final PDF, hash it, store it in the archive namespace, record that export, preserve attachments, and later write `manifest.json`. That final artifact is not replaced. Closure does not exist yet, so that archive path is not built.
 
-A draft PDF states `DRAFT` and `NOT AUTHORIZED FOR WORK`. Synchronization does not authorize work. Plant Link must be ready before the desktop app can ask for the PDF. A failed request leaves the local draft unchanged. There is no offline renderer.
+Any authoritative General Work permit can be printed or exported. The PDF states the lifecycle status stored on the server. Only `ACTIVE` says `WORK AUTHORIZED`. Every other known status has an explicit non-authorizing or historical line, and an unrecognized status says `NOT AUTHORIZED FOR WORK`. A later page repeats the permit number, revision, status, and that line. Each generation records the status and revision on a new `permit_exports` row and does not replace an earlier file. Plant Link must be ready before the desktop app can ask for the PDF. A failed request leaves the local permit unchanged. There is no offline renderer. Station sample permits are not server records and do not call the export API.
 
 ## Local database
 

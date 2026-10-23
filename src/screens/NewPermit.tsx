@@ -6,7 +6,7 @@ import { areaIdForName, type AreaCatalog } from "../services/areas";
 import { useAreaCatalog } from "../services/useAreaCatalog";
 import { useDevice } from "../services/device";
 import { GeneralWorkOnly, localDraftLabel } from "../services/generalWorkDraft";
-import { openAuthoritativePermitPdf, PermitPdfUnavailable, type PermitPdfExportType } from "../services/permitPdf";
+import { draftDocumentTarget } from "../services/permitDocumentActions";
 import { usePermits } from "../state/PermitStore";
 import type { PermitDraft, PermitKind } from "../types";
 import {
@@ -19,6 +19,7 @@ import {
   kindTitle,
   toggleItem,
 } from "../workflow";
+import { PermitDocumentActions } from "../components/PermitDocumentActions";
 import { Field, Section, TouchSelect } from "../components/ui";
 import type { PlantLink } from "../lib/connectivity";
 
@@ -37,7 +38,6 @@ export function NewPermit() {
   const catalog = useAreaCatalog();
   const { link } = useDevice();
   const [saveError, setSaveError] = useState("");
-  const [pdfMessage, setPdfMessage] = useState("");
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
   const [signError, setSignError] = useState("");
@@ -58,21 +58,6 @@ export function NewPermit() {
 
   const setField = (key: string, value: string) => {
     updateForm((current) => ({ ...current, fields: { ...current.fields, [key]: value } }));
-  };
-
-  const requestPdf = async (exportType: PermitPdfExportType) => {
-    if (!form.id) return;
-    setPdfMessage("");
-    try {
-      await openAuthoritativePermitPdf({ permitId: form.id, exportType, link: link.link });
-      setPdfMessage(exportType === "PRINT" ? "The server PDF is open. Print it from the PDF window. This draft is still not authorized for work." : "The server PDF is open. This draft is still not authorized for work.");
-    } catch (error) {
-      setPdfMessage(
-        error instanceof PermitPdfUnavailable
-          ? error.message
-          : "The server document could not be generated. The draft on this device is unchanged.",
-      );
-    }
   };
 
   return (
@@ -118,7 +103,7 @@ export function NewPermit() {
         <div className="kind-meta mono">
           {form.permitNumber ? form.permitNumber : form.id ? `LOCAL DRAFT ${localDraftLabel(form.id)}` : "UNSAVED"}
         </div>
-        <button type="button" className="btn btn-ghost" onClick={() => { resetForm(); setSaveError(""); setPdfMessage(""); }}>
+        <button type="button" className="btn btn-ghost" onClick={() => { resetForm(); setSaveError(""); }}>
           Clear
         </button>
       </div>
@@ -130,21 +115,10 @@ export function NewPermit() {
             <span>NOT AUTHORIZED FOR WORK</span>
           </div>
           <p>A printed copy of this draft does not authorize work.</p>
-          {form.permitNumber ? (
-            <div className="document-buttons">
-              <button type="button" className="btn" onClick={() => void requestPdf("PRINT")}>
-                Print Permit
-              </button>
-              <button type="button" className="btn" onClick={() => void requestPdf("SNAPSHOT")}>
-                Export PDF
-              </button>
-            </div>
-          ) : (
-            <p>Print and export are available after the plant record assigns a permit number.</p>
-          )}
-          {pdfMessage ? <p className="document-note">{pdfMessage}</p> : null}
+          {form.permitNumber ? null : <p>Print and export are available after the plant record assigns a permit number.</p>}
         </section>
       ) : null}
+      {form.kind === "general" && form.id ? <PermitDocumentActions target={draftDocumentTarget(form)} /> : null}
 
       <div className="workflow-stage">
         <div className="workflow-main">

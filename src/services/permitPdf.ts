@@ -33,7 +33,7 @@ export async function openAuthoritativePermitPdf(input: {
 }): Promise<void> {
   if (input.link !== "ready") {
     throw new PermitPdfUnavailable(
-      "The authoritative server document cannot be generated while Plant Link is offline. The draft on this device is unchanged.",
+      "The authoritative server document cannot be generated while Plant Link is offline. The permit on this device is unchanged.",
     );
   }
 
@@ -46,7 +46,7 @@ export async function openAuthoritativePermitPdf(input: {
     PDF_TIMEOUT_MS,
   );
   if (!receipt.id || !receipt.filename || receipt.filename.includes("/") || receipt.filename.includes("\\")) {
-    throw new PermitPdfUnavailable("The server document could not be generated. The draft on this device is unchanged.");
+    throw new PermitPdfUnavailable("The server document could not be generated. The permit on this device is unchanged.");
   }
 
   const response = await fetch(`${permitApiBaseUrl}/api/v1/permit-exports/${receipt.id}/content`, {

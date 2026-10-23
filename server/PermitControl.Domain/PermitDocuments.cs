@@ -42,8 +42,17 @@ public sealed class DocumentSection
     public required IReadOnlyList<string> Lines { get; init; }
 }
 
+public sealed class DocumentRunningHeader
+{
+    public required string PermitNumber { get; init; }
+    public required int Revision { get; init; }
+    public required string Status { get; init; }
+    public required string Authority { get; init; }
+}
+
 public sealed class PermitDocument
 {
+    public required DocumentRunningHeader RunningHeader { get; init; }
     public required IReadOnlyList<string> Banner { get; init; }
     public required IReadOnlyList<DocumentSection> Sections { get; init; }
 
@@ -164,6 +173,25 @@ public static class GeneralWorkFactsReader
     }
 }
 
+public static class PermitDocumentStatus
+{
+    public readonly record struct Treatment(string Status, string Authority);
+
+    public static Treatment Describe(PermitStatus status) => status switch
+    {
+        PermitStatus.DRAFT => new("DRAFT", "NOT AUTHORIZED FOR WORK"),
+        PermitStatus.PENDING_REVIEW => new("PENDING REVIEW", "NOT AUTHORIZED FOR WORK"),
+        PermitStatus.AUTHORIZED => new("AUTHORIZED", "NOT ACTIVE FOR WORK"),
+        PermitStatus.ACTIVE => new("ACTIVE", "WORK AUTHORIZED"),
+        PermitStatus.SUSPENDED => new("SUSPENDED", "WORK NOT AUTHORIZED"),
+        PermitStatus.EXPIRED => new("EXPIRED", "WORK NOT AUTHORIZED"),
+        PermitStatus.CANCELLED => new("CANCELLED", "WORK NOT AUTHORIZED"),
+        PermitStatus.CLOSED => new("CLOSED", "HISTORICAL RECORD"),
+        PermitStatus.SUPERSEDED => new("SUPERSEDED", "NOT CURRENT"),
+        _ => new("UNRECOGNIZED STATUS", "NOT AUTHORIZED FOR WORK"),
+    };
+}
+
 public static class GeneralWorkDocuments
 {
     private static readonly Dictionary<string, string> ExclusionLabels = new(StringComparer.Ordinal)
@@ -179,7 +207,7 @@ public static class GeneralWorkDocuments
     {
         var permit = source.Permit;
         var facts = GeneralWorkFactsReader.Read(source.CreationFactsJson);
-        var authorized = permit.Status is PermitStatus.AUTHORIZED or PermitStatus.ACTIVE;
+        var treatment = PermitDocumentStatus.Describe(permit.Status);
         var banner = new List<string>
         {
             "LCY PERMIT CONTROL",
@@ -187,37 +215,33 @@ public static class GeneralWorkDocuments
             $"Permit number: {Shown(permit.PermitNumber)}",
             $"Permit UUID: {permit.Id:D}",
             $"Revision: {permit.CurrentRevision}",
-            $"Lifecycle status: {permit.Status}",
+            $"Lifecycle status: {ShownStatus(permit.Status)}",
             $"Generated (UTC): {generatedAtUtc:yyyy-MM-dd HH:mm:ss} UTC",
             $"Export: {exportId:D}",
             $"Modules: {Modules(source.Modules)}",
+            treatment.Status,
+            treatment.Authority,
         };
-        if (permit.Status == PermitStatus.DRAFT)
-        {
-            banner.Add("DRAFT");
-            banner.Add("NOT AUTHORIZED FOR WORK");
-        }
-        else if (!authorized)
-        {
-            banner.Add(permit.Status.ToString());
-            banner.Add("NOT AUTHORIZED FOR WORK");
-        }
-        else
-        {
-            banner.Add($"Authorization: {permit.Status}");
-        }
 
         var requester = Person(source.Participants, "Requester");
         var craft = Person(source.Participants, "Craft / Permit Receiver");
         return new PermitDocument
         {
+            RunningHeader = new DocumentRunningHeader
+            {
+                PermitNumber = Shown(permit.PermitNumber),
+                Revision = permit.CurrentRevision,
+                Status = treatment.Status,
+                Authority = treatment.Authority,
+            },
             Banner = banner,
             Sections =
             [
                 Section("GENERAL INFORMATION",
                 [
                     $"Permit number: {Shown(permit.PermitNumber)}",
-                    $"Status: {permit.Status}",
+                    $"Permit type: {permit.PermitType}",
+                    $"Status: {treatment.Status}",
                     $"Revision: {permit.CurrentRevision}",
                     $"Area: {Shown(source.AreaName ?? facts.AreaName)}",
                     $"Equipment / tag: {Shown(source.EquipmentTag ?? facts.EquipmentTag)}",
@@ -228,6 +252,10 @@ public static class GeneralWorkDocuments
                     $"Craft / permit receiver: {Shown(craft)}",
                     $"Planned start: {Shown(facts.PlannedStartClock)}",
                     $"Planned expiration: {Shown(facts.PlannedExpirationClock)}",
+                    $"Planned start (record): {Stamp(permit.PlannedStart)}",
+                    $"Expires (record): {Stamp(permit.ExpiresAt)}",
+                    $"Activated (record): {Stamp(permit.ActivatedAt)}",
+                    $"Modules: {Modules(source.Modules)}",
                 ]),
                 Section("WORK SCOPE",
                 [
@@ -289,6 +317,12 @@ public static class GeneralWorkDocuments
         var trimmed = value?.Trim();
         return string.IsNullOrEmpty(trimmed) ? "—" : trimmed;
     }
+
+    private static string ShownStatus(PermitStatus status) =>
+        Enum.IsDefined(status) ? status.ToString() : "UNRECOGNIZED";
+
+    private static string Stamp(DateTimeOffset? value) =>
+        value is null ? "—" : value.Value.ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss") + " UTC";
 }
 
 public static class PermitExportKeys
@@ -342,7 +376,7 @@ public static class PermitPdfExporting
             Sha256 = PermitExportKeys.Sha256Hex(content),
             GeneratedAt = generatedAtUtc,
             GeneratedBy = null,
-            DocumentClassification = source.Permit.Status.ToString(),
+            DocumentClassification = Enum.IsDefined(source.Permit.Status) ? source.Permit.Status.ToString() : "UNRECOGNIZED",
         };
         var receipt = new PermitPdfReceipt
         {
