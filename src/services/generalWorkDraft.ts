@@ -69,6 +69,8 @@ export interface GeneralWorkSaveRequest {
   plannedStart: string | null;
   expiresAt: string | null;
   workingState: PermitWorkingState;
+  permitNumber?: string | null;
+  currentRevision?: number;
 }
 
 export interface StoredDraft {
@@ -193,6 +195,7 @@ export function permitDraftFromRecord(record: StoredDraft): PermitDraft {
     permitNumber: record.permitNumber,
     outboxStatus: record.outboxStatus,
     lifecycleStatus: record.status,
+    currentRevision: record.currentRevision,
   };
 }
 
@@ -226,6 +229,23 @@ export async function listLocalDrafts(): Promise<PermitDraft[]> {
 
 async function saveThroughTauri(request: GeneralWorkSaveRequest): Promise<StoredDraft> {
   return invokeCommand<StoredDraft>("save_general_work_draft", { draft: request });
+}
+
+export async function persistPermitCorrection(draft: PermitDraft): Promise<PermitDraft> {
+  const request = generalWorkSaveRequest(draft, {
+    id: draft.id,
+    eventId: crypto.randomUUID(),
+    outboxId: crypto.randomUUID(),
+  });
+  const stored = await invokeCommand<StoredDraft>("queue_permit_revision", {
+    draft: {
+      ...request,
+      permitNumber: draft.permitNumber,
+      currentRevision: draft.currentRevision && draft.currentRevision > 0 ? draft.currentRevision : 1,
+    },
+  });
+  notifyLocalStoreChanged("draft-saved");
+  return permitDraftFromRecord(stored);
 }
 
 export async function persistGeneralWorkDraft(

@@ -25,6 +25,7 @@ public interface IPlantDirectory
     Task<string?> AuthorizeAsync(string? token, Guid permitId, string pin, int revision, Guid? deviceId, CancellationToken cancellationToken);
     Task<string?> AcceptAsync(string? token, Guid permitId, string pin, int revision, Guid? deviceId, CancellationToken cancellationToken);
     Task<string?> ActivateAsync(string? token, Guid permitId, string pin, int revision, string? actingRole, Guid? deviceId, CancellationToken cancellationToken);
+    Task<string?> ReturnForCorrectionAsync(string? token, Guid permitId, int revision, Guid? deviceId, CancellationToken cancellationToken);
 }
 
 public sealed record IdentityBootstrap(string Kind, SessionStart? Session, IReadOnlyList<UserChoice> Choices);

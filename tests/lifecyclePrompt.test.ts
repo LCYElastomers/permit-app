@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { lifecyclePrompt, plantStatusCopy, safeDiagnostic } from "../src/services/lifecyclePrompt";
+import { lifecyclePrompt, plantStatusCopy, requiredModules, safeDiagnostic } from "../src/services/lifecyclePrompt";
 
 const base = {
   jobDescription: "Inspect pump",
@@ -60,6 +60,61 @@ describe("pending review lifecycle", () => {
     });
     expect(prompt.action).toBe("accept");
     expect(prompt.actingRole).toBe("CRAFT_RECEIVER");
+  });
+
+  it("blocks authorization when required PPE is missing and names PPE", () => {
+    const prompt = lifecyclePrompt({ ...base, status: "PENDING_REVIEW", ppe: [] });
+    expect(prompt.action).toBeNull();
+    expect(prompt.nextTitle).toBe("AUTHORIZATION BLOCKED");
+    expect(prompt.blocked).toContain("PPE");
+    expect(prompt.gaps).toEqual(["PPE"]);
+    expect(prompt.correction).toBe("edit");
+    expect(prompt.focus).toBe("ppe");
+    expect(prompt.readiness.find((item) => item.label === "PPE")?.state).toBe("INCOMPLETE");
+    expect(prompt.workAuthorized).toBe(false);
+  });
+
+  it("uses module-aware PPE readiness for every permit type", () => {
+    for (const permitType of ["GENERAL_WORK", "HOT_WORK", "CONFINED_SPACE", "OPENING_BLINDING", "EXCAVATION", "LIVE_ELECTRICAL"]) {
+      expect(requiredModules(permitType)).toContain("PPE");
+      const blocked = lifecyclePrompt({ ...base, status: "PENDING_REVIEW", ppe: [], permitType });
+      expect(blocked.action).toBeNull();
+      expect(blocked.gaps).toContain("PPE");
+      const ready = lifecyclePrompt({ ...base, status: "PENDING_REVIEW", permitType });
+      expect(ready.action).toBe("authorize");
+    }
+    const hotWork = requiredModules("HOT_WORK");
+    expect(hotWork).toEqual(expect.arrayContaining(["PPE", "HOT_WORK", "FIRE_WATCH", "ATMOSPHERIC_MONITORING"]));
+  });
+
+  it("keeps a pending review permit editable without a new identity", () => {
+    const prompt = lifecyclePrompt({ ...base, status: "PENDING_REVIEW" });
+    expect(prompt.correction).toBe("edit");
+    expect(prompt.action).toBe("authorize");
+  });
+
+  it("offers return for correction when an authorized permit is not ready", () => {
+    const prompt = lifecyclePrompt({
+      ...base,
+      status: "AUTHORIZED",
+      ppe: [],
+      approvals: [{ actingRole: "PERMIT_AUTHORIZER" }],
+    });
+    expect(prompt.action).toBeNull();
+    expect(prompt.correction).toBe("return");
+    expect(prompt.blocked).toContain("PPE");
+    expect(prompt.workAuthorized).toBe(false);
+  });
+
+  it("withholds casual editing from active, suspended, and closed permits", () => {
+    expect(lifecyclePrompt({ ...base, status: "ACTIVE", approvals: [{ actingRole: "PERMIT_AUTHORIZER" }] }).correction).toBe("none");
+    expect(lifecyclePrompt({ ...base, status: "SUSPENDED" }).correction).toBe("reauthorize");
+    expect(lifecyclePrompt({ ...base, status: "CLOSED" }).correction).toBe("none");
+    expect(lifecyclePrompt({ ...base, status: "CANCELLED" }).correction).toBe("none");
+    expect(lifecyclePrompt({ ...base, status: "EXPIRED" }).correction).toBe("none");
+    expect(lifecyclePrompt({ ...base, status: "SUPERSEDED" }).correction).toBe("none");
+    expect(lifecyclePrompt({ ...base, status: "ACTIVE" }).detail).toBe("WORK AUTHORIZED");
+    expect(lifecyclePrompt({ ...base, status: "PENDING_REVIEW", ppe: [] }).detail).toBe("NOT AUTHORIZED FOR WORK");
   });
 
   it("blocks activation while a required qualification is missing", () => {

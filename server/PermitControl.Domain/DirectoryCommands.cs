@@ -11,6 +11,7 @@ public sealed record CommandResult(
     UserQualification? Qualification = null,
     PermitApproval? Approval = null,
     PermitEvent? Event = null,
+    PermitRevision? Revision = null,
     string? SessionToken = null,
     UserSession? Session = null);
 
@@ -225,6 +226,7 @@ public static class LifecycleCommands
         IReadOnlyCollection<string> roles,
         IReadOnlyList<PermitApproval> approvals,
         int hazardCount,
+        int ppeCount,
         bool allowSelf,
         string pin,
         int revision,
@@ -235,7 +237,7 @@ public static class LifecycleCommands
         if (!PermitCapabilities.Has(roles, nameof(AppRole.PERMIT_AUTHORIZER))) return new CommandResult("capability-required");
         if (permit.Status != PermitStatus.PENDING_REVIEW) return new CommandResult("lifecycle-conflict");
         if (permit.CurrentRevision != revision) return new CommandResult("revision-conflict");
-        if (hazardCount < 1 || string.IsNullOrWhiteSpace(permit.JobDescription) || string.IsNullOrWhiteSpace(permit.WorkOrder))
+        if (PermitPreparation.Blocking(permit.PermitType, permit.JobDescription, permit.WorkOrder, hazardCount, ppeCount).Count > 0)
         {
             return new CommandResult("permit-incomplete");
         }
@@ -271,6 +273,8 @@ public static class LifecycleCommands
         IReadOnlyList<PermitApproval> approvals,
         IReadOnlyCollection<PermitModuleKind> modules,
         IReadOnlyCollection<QualificationType> qualified,
+        int hazardCount,
+        int ppeCount,
         string pin,
         int revision,
         string? actingRole,
@@ -291,6 +295,11 @@ public static class LifecycleCommands
             return new CommandResult("lifecycle-conflict");
         }
 
+        if (PermitPreparation.Blocking(permit.PermitType, permit.JobDescription, permit.WorkOrder, hazardCount, ppeCount).Count > 0)
+        {
+            return new CommandResult("permit-incomplete");
+        }
+
         var missing = SpecialtyRequirements.Missing(permit.PermitType, modules, qualified);
         if (missing.Count > 0) return new CommandResult("specialty-incomplete");
         var pinError = Confirmed(credential, pin, now, hasher, deviceId);
@@ -299,6 +308,39 @@ public static class LifecycleCommands
         permit.ActivatedAt = now;
         permit.UpdatedAt = now;
         return Record(permit, actor, role, "ACTIVATED", PermitEventType.PERMIT_ACTIVATED, now, deviceId);
+    }
+
+    public static CommandResult ReturnForCorrection(
+        Permit permit,
+        User actor,
+        IReadOnlyCollection<string> roles,
+        int revision,
+        DateTimeOffset now,
+        Guid? deviceId)
+    {
+        if (!PermitCapabilities.Has(roles, nameof(AppRole.REQUESTER)) && !PermitCapabilities.Has(roles, nameof(AppRole.PERMIT_AUTHORIZER)))
+        {
+            return new CommandResult("capability-required");
+        }
+
+        if (permit.Status != PermitStatus.AUTHORIZED) return new CommandResult("lifecycle-conflict");
+        if (permit.CurrentRevision != revision) return new CommandResult("revision-conflict");
+        permit.CurrentRevision += 1;
+        permit.Status = PermitStatus.PENDING_REVIEW;
+        permit.UpdatedAt = now;
+        var recorded = new PermitRevision
+        {
+            Id = Guid.NewGuid(),
+            PermitId = permit.Id,
+            Number = permit.CurrentRevision,
+            CreatedBy = actor.Id,
+            CreatedAt = now,
+        };
+        var acting = PermitCapabilities.Has(roles, nameof(AppRole.PERMIT_AUTHORIZER))
+            ? nameof(AppRole.PERMIT_AUTHORIZER)
+            : nameof(AppRole.REQUESTER);
+        var result = Record(permit, actor, acting, "RETURNED_FOR_CORRECTION", PermitEventType.PERMIT_RETURNED_FOR_CORRECTION, now, deviceId);
+        return result with { Approval = null, Revision = recorded };
     }
 
     private static CommandResult Confirmed(UserCredential credential, string pin, DateTimeOffset now, IPinHasher hasher, Guid? deviceId)

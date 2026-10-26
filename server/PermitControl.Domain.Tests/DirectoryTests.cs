@@ -1,5 +1,6 @@
 using System.Text.Json;
 using PermitControl.Domain;
+using PermitControl.Infrastructure.Documents;
 
 namespace PermitControl.Domain.Tests;
 
@@ -238,6 +239,102 @@ public sealed class DirectoryTests
         Assert.Null(world.AddQualification(DirectorySeed.Bobby, profile.Id, QualificationType.GAS_TESTER, Now));
         Assert.Contains(world.Qualifications, item => item.UserId == profile.Id && item.QualificationType == QualificationType.GAS_TESTER);
         Assert.Equal("capability-required", world.SetRoles(DirectorySeed.Patrick, null, profile.Id, [nameof(AppRole.SUPER_ADMIN)], Now));
+    }
+
+    [Fact]
+    public void Missing_ppe_blocks_authorization_and_return_for_correction_keeps_history()
+    {
+        var world = Ready();
+        foreach (var type in Enum.GetValues<PermitType>())
+        {
+            Assert.Contains("PPE", PermitPreparation.RequiredModules(type));
+            Assert.Contains("PPE", PermitPreparation.Blocking(type, "Work", "WO-1", 1, 0));
+            Assert.DoesNotContain("PPE", PermitPreparation.Blocking(type, "Work", "WO-1", 1, 1));
+        }
+
+        var permit = world.AddPermit(PermitType.GENERAL_WORK, "Gauge", "WO-1", PermitModuleKind.PPE);
+        world.Ppe.RemoveAll(item => item.PermitId == permit.Id);
+        Assert.Null(world.Submit(permit.Id, DirectorySeed.Patrick, Now));
+        Assert.Equal("permit-incomplete", world.Authorize(permit.Id, DirectorySeed.Mike, Pin, 1, Now));
+        Assert.Equal(PermitStatus.PENDING_REVIEW, world.Permits.Single(item => item.Id == permit.Id).Status);
+
+        world.Ppe.Add(new PermitPpe { Id = Guid.NewGuid(), PermitId = permit.Id, Label = "Gloves" });
+        Assert.Null(world.Authorize(permit.Id, DirectorySeed.Mike, Pin, 1, Now.AddMinutes(1)));
+        var authorized = world.Approvals.Single(item => item.PermitId == permit.Id && item.Decision == "AUTHORIZED");
+        Assert.Equal(1, authorized.PermitRevision);
+        Assert.Equal("Mike Distefano", authorized.DisplayNameSnapshot);
+
+        Assert.Equal("lifecycle-conflict", world.Activate(permit.Id, DirectorySeed.Bobby, Pin, 1, Now.AddMinutes(2)));
+        world.Ppe.RemoveAll(item => item.PermitId == permit.Id);
+        Assert.Null(world.Accept(permit.Id, DirectorySeed.Bobby, Pin, 1, Now.AddMinutes(2)));
+        Assert.Equal("permit-incomplete", world.Activate(permit.Id, DirectorySeed.Bobby, Pin, 1, Now.AddMinutes(3), nameof(AppRole.CRAFT_RECEIVER)));
+
+        Assert.Null(world.ReturnForCorrection(permit.Id, DirectorySeed.Mike, 1, Now.AddMinutes(4)));
+        var current = world.Permits.Single(item => item.Id == permit.Id);
+        Assert.Equal(PermitStatus.PENDING_REVIEW, current.Status);
+        Assert.Equal(2, current.CurrentRevision);
+        Assert.Equal(permit.Id, current.Id);
+        Assert.Equal("PTW-2026-00021", current.PermitNumber);
+        Assert.Contains(world.Approvals, item => item.PermitId == permit.Id && item.Decision == "AUTHORIZED" && item.PermitRevision == 1);
+        Assert.Contains(world.Events, item => item.PermitId == permit.Id && item.EventType == PermitEventType.PERMIT_RETURNED_FOR_CORRECTION && item.PermitRevision == 2);
+        Assert.Equal("revision-conflict", world.Authorize(permit.Id, DirectorySeed.Bobby, Pin, 1, Now.AddMinutes(5)));
+        Assert.Equal("permit-incomplete", world.Authorize(permit.Id, DirectorySeed.Bobby, Pin, 2, Now.AddMinutes(5)));
+        world.Ppe.Add(new PermitPpe { Id = Guid.NewGuid(), PermitId = permit.Id, Label = "Hard hat" });
+        Assert.Null(world.Authorize(permit.Id, DirectorySeed.Bobby, Pin, 2, Now.AddMinutes(6)));
+        Assert.NotEqual(PermitStatus.ACTIVE, current.Status);
+
+        var historical = GeneralWorkDocuments.Compose(new AuthoritativeGeneralWork
+        {
+            Permit = new Permit
+            {
+                Id = permit.Id,
+                PermitNumber = current.PermitNumber,
+                PermitType = PermitType.GENERAL_WORK,
+                Status = PermitStatus.AUTHORIZED,
+                CurrentRevision = 1,
+                JobDescription = "Gauge",
+                WorkOrder = "WO-1",
+            },
+            Approvals = [authorized],
+        }, Guid.NewGuid(), Now);
+        var historicalBytes = new PdfSharpPermitRenderer().Render(historical);
+        current.Status = PermitStatus.PENDING_REVIEW;
+        current.CurrentRevision = 2;
+        var corrected = GeneralWorkDocuments.Compose(new AuthoritativeGeneralWork
+        {
+            Permit = current,
+            Approvals = [authorized],
+        }, Guid.NewGuid(), Now.AddMinutes(4));
+        var correctedBytes = new PdfSharpPermitRenderer().Render(corrected);
+        Assert.Contains("NOT ACTIVE FOR WORK", historical.Banner);
+        Assert.Contains("REV 01", historical.Banner);
+        Assert.Contains("PENDING REVIEW", corrected.Banner);
+        Assert.Contains("NOT AUTHORIZED FOR WORK", corrected.Banner);
+        Assert.Contains("REV 02", corrected.Banner);
+        Assert.True(corrected.Contains("Rev 01"));
+        Assert.False(corrected.Contains("WORK AUTHORIZED"));
+        Assert.NotEqual(historicalBytes, correctedBytes);
+        var active = GeneralWorkDocuments.Compose(new AuthoritativeGeneralWork
+        {
+            Permit = new Permit
+            {
+                Id = permit.Id,
+                PermitNumber = current.PermitNumber,
+                PermitType = PermitType.GENERAL_WORK,
+                Status = PermitStatus.ACTIVE,
+                CurrentRevision = 2,
+                JobDescription = "Gauge",
+                WorkOrder = "WO-1",
+            },
+        }, Guid.NewGuid(), Now);
+        Assert.Contains("WORK AUTHORIZED", active.Banner);
+        Assert.DoesNotContain("WORK AUTHORIZED", corrected.Banner);
+        current.Status = PermitStatus.ACTIVE;
+        Assert.Equal("lifecycle-conflict", world.ReturnForCorrection(permit.Id, DirectorySeed.Mike, 2, Now.AddMinutes(7)));
+        current.Status = PermitStatus.SUSPENDED;
+        Assert.Equal("lifecycle-conflict", world.ReturnForCorrection(permit.Id, DirectorySeed.Mike, 2, Now.AddMinutes(8)));
+        current.Status = PermitStatus.CLOSED;
+        Assert.Equal("lifecycle-conflict", world.ReturnForCorrection(permit.Id, DirectorySeed.Mike, 2, Now.AddMinutes(9)));
     }
 
     private static DirectoryWorld Ready()

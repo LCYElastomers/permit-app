@@ -9,7 +9,7 @@ import {
   type SetStateAction,
 } from "react";
 import { initialPermits, templates } from "../data/mock";
-import { listLocalDrafts, persistGeneralWorkDraft } from "../services/generalWorkDraft";
+import { listLocalDrafts, persistGeneralWorkDraft, persistPermitCorrection } from "../services/generalWorkDraft";
 import { onLocalStoreChanged } from "../services/localStore";
 import { GENERAL_EXCLUSIONS, permitType } from "../permitTypes";
 import { plantClock } from "../plantClock";
@@ -45,6 +45,7 @@ interface PermitStoreValue {
   loadDraft: (id: string) => void;
   openStoredPermit: (id: string, from: ListScreen) => void;
   openPlantPermit: (permit: Permit, from: ListScreen) => void;
+  openCorrection: (permit: Permit, step?: number) => void;
   replacePlantPermit: (permit: Permit) => void;
   applyTemplate: (id: string) => void;
   issuePermit: () => string;
@@ -338,7 +339,10 @@ export function PermitProvider({ children }: { children: ReactNode }) {
   };
 
   const saveDraft = async () => {
-    const saved = await persistGeneralWorkDraft(form);
+    const correcting = Boolean(
+      form.id && form.permitNumber && (form.lifecycleStatus === "DRAFT" || form.lifecycleStatus === "PENDING_REVIEW"),
+    );
+    const saved = correcting ? await persistPermitCorrection(form) : await persistGeneralWorkDraft(form);
     setDrafts((list) => [saved, ...list.filter((draft) => draft.id !== saved.id)]);
     setForm(saved);
     return saved;
@@ -361,6 +365,35 @@ export function PermitProvider({ children }: { children: ReactNode }) {
     setSelectedId(permit.id);
     setReadonlyDetail(false);
     setScreen("detail");
+  };
+
+  const openCorrection = (permit: Permit, step = 0) => {
+    const status = permit.plantRecord?.status;
+    if (!permit.serverPermitId || (status !== "DRAFT" && status !== "PENDING_REVIEW")) return;
+    setForm({
+      ...emptyDraft(permit.kind),
+      id: permit.serverPermitId,
+      code: permit.id,
+      step,
+      area: permit.area,
+      areaId: permit.areaId ?? "",
+      place: permit.equipment || permit.location,
+      workOrder: permit.workOrder,
+      description: permit.jobDescription,
+      companyType: permit.companyType === "LCY" ? "LCY" : "Contractor",
+      company: permit.company,
+      requester: permit.requester,
+      craft: permit.craft,
+      hazards: [...permit.hazards],
+      controls: [...permit.precautions],
+      fields: permit.ppe.length > 0 ? { ppe: permit.ppe.join(", ") } : {},
+      lifecycleStatus: status,
+      permitNumber: permit.id,
+      currentRevision: permit.plantRecord?.revision ?? 1,
+      updated: "",
+    });
+    setScreen("new");
+    setOrigin("pending");
   };
 
   const openPlantPermit = (permit: Permit, from: ListScreen) => {
@@ -432,6 +465,7 @@ export function PermitProvider({ children }: { children: ReactNode }) {
         loadDraft,
         openStoredPermit,
         openPlantPermit,
+        openCorrection,
         replacePlantPermit,
         applyTemplate,
         issuePermit,

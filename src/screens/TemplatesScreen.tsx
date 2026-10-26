@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { templates } from "../data/mock";
 import { usePermits } from "../state/PermitStore";
+import { catalogLabel } from "../services/catalogLabels";
 import { kindTitle } from "../workflow";
 import { ScreenHead } from "../components/ui";
 
@@ -59,13 +60,13 @@ export function TemplatesScreen() {
             <div className="subhead">DEFAULT HAZARDS</div>
             <ul className="taglist hazard">
               {template.hazards.map((item) => (
-                <li key={item}>{item}</li>
+                <li key={item}>{catalogLabel(item)}</li>
               ))}
             </ul>
             <div className="subhead">DEFAULT CONTROLS</div>
             <ul className="taglist">
               {template.controls.map((item) => (
-                <li key={item}>{item}</li>
+                <li key={item}>{catalogLabel(item)}</li>
               ))}
             </ul>
             <button type="button" className="btn" onClick={() => applyTemplate(template.id)}>

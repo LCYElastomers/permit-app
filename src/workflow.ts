@@ -221,6 +221,33 @@ export function toggleItem(list: string[], value: string): string[] {
   return list.includes(value) ? list.filter((item) => item !== value) : [...list, value];
 }
 
+const SCOPE_GAPS = new Set([
+  "Area",
+  "Equipment / location",
+  "Job description",
+  "Work order",
+  "Company",
+  "Requester",
+  "Craft / permit receiver",
+  "Planned start",
+  "Planned expiration",
+]);
+
+export function preparationSections(draft: PermitDraft): { label: string; complete: boolean }[] {
+  const missing = new Set(preparationGaps(draft));
+  return [
+    { label: "Scope", complete: [...SCOPE_GAPS].every((item) => !missing.has(item)) },
+    { label: "Hazards", complete: !missing.has("At least one hazard") },
+    { label: "Controls", complete: ![...missing].some((item) => item.toLowerCase().includes("control")) },
+    { label: "Permit Details", complete: ![...missing].some((item) => item.toLowerCase().includes("detail")) },
+  ];
+}
+
+/** Local submit depends on the permit content. Plant Link is not an input. */
+export function canSubmitForReview(draft: PermitDraft): boolean {
+  return draft.lifecycleStatus !== "PENDING_REVIEW" && preparationGaps(draft).length === 0;
+}
+
 export function preparationGaps(draft: PermitDraft): string[] {
   const missing: string[] = [];
   if (!draft.area) missing.push("Area");

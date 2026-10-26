@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import lcyLogo from "../assets/lcy-logo.png";
 import { useComposition } from "./Composition";
 import { assets, contractors, templates } from "../data/mock";
 import { usePlantClock } from "../plantClock";
@@ -128,11 +129,8 @@ export function Shell() {
       {composition === "desktop" ? (
         <aside id="app-nav" className="nav">
           <div className="brand">
-            <div className="brand-mark" />
-            <div>
-              <div className="brand-code">LCY</div>
-              <div className="brand-name">PERMIT CONTROL</div>
-            </div>
+            <img className="brand-logo" src={lcyLogo} alt="LCY" />
+            <div className="brand-name">PERMIT CONTROL</div>
           </div>
           <div className="nav-scroll">
             {NAV.map((section) => (
@@ -192,7 +190,7 @@ export function Shell() {
         </nav>
       ) : null}
       <div className="workspace">
-        <OpsBar link={link} />
+        <OpsBar link={link} showLogo={composition !== "desktop"} />
         {local.status === "failed" ? (
           <div className="storage-banner" role="status">
             <strong>LOCAL DATA UNAVAILABLE</strong>
@@ -342,11 +340,12 @@ function PlantLinkStatus({ link }: { link: PlantLinkSnapshot }) {
   );
 }
 
-function OpsBar({ link }: { link: PlantLinkSnapshot }) {
+function OpsBar({ link, showLogo }: { link: PlantLinkSnapshot; showLogo: boolean }) {
   const clock = usePlantClock();
   return (
     <header className="opsbar">
       <div className="ops-seg">
+        {showLogo ? <img className="ops-logo" src={lcyLogo} alt="LCY" /> : null}
         <span className="ops-plant">BAYTOWN</span>
         <span className="ops-slash">/</span>
         <span>PERMIT CONTROL</span>

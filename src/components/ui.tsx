@@ -1,5 +1,4 @@
-import { useState, type ReactNode } from "react";
-import { useComposition } from "./Composition";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import type { PermitStatus } from "../types";
 import { statusLabel } from "../workflow";
 
@@ -77,77 +76,90 @@ export function TouchSelect({
   options: { id: string; label: string }[];
   onChange: (id: string) => void;
 }) {
-  const composition = useComposition();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [coarse, setCoarse] = useState(() => typeof window !== "undefined" && window.matchMedia("(any-pointer: coarse)").matches);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const listId = useId();
   const selected = options.find((option) => option.id === value);
+  const close = () => {
+    setOpen(false);
+    setQuery("");
+  };
 
-  if (composition === "desktop") {
-    return (
-      <label className="form-field">
-        <span>{label}</span>
-        <select value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)}>
-          <option value="">{placeholder}</option>
-          {options.map((option) => (
-            <option key={option.id} value={option.id}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-      </label>
-    );
-  }
+  useEffect(() => {
+    const media = window.matchMedia("(any-pointer: coarse)");
+    const apply = () => setCoarse(media.matches);
+    apply();
+    media.addEventListener("change", apply);
+    return () => media.removeEventListener("change", apply);
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    searchRef.current?.focus();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setOpen(false);
+      setQuery("");
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open]);
 
   const needle = query.trim().toLowerCase();
   const shown = options.filter((option) => option.label.toLowerCase().includes(needle));
 
   return (
     <div className="form-field">
-      <span>{label}</span>
-      <button type="button" className="picker-trigger" disabled={disabled} onClick={() => setOpen(true)}>
+      <span id={`${listId}-label`}>{label}</span>
+      <button
+        type="button"
+        className={coarse ? "picker-trigger is-coarse" : "picker-trigger"}
+        disabled={disabled}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-controls={listId}
+        aria-labelledby={`${listId}-label`}
+        onClick={() => setOpen(true)}
+      >
         <span>{selected?.label || placeholder}</span>
         <span aria-hidden="true">›</span>
       </button>
       {open ? (
-        <div className="picker-sheet" role="dialog" aria-label={label}>
+        <div className="picker-sheet" role="dialog" aria-modal="true" aria-labelledby={`${listId}-label`}>
           <div className="picker-bar">
             <label className="form-field">
               <span>Search</span>
-              <input value={query} onChange={(event) => setQuery(event.target.value)} />
+              <input ref={searchRef} value={query} onChange={(event) => setQuery(event.target.value)} />
             </label>
             <button
               type="button"
               className="btn btn-ghost"
               onClick={() => {
                 onChange("");
-                setOpen(false);
-                setQuery("");
+                close();
               }}
             >
               Clear
             </button>
-            <button
-              type="button"
-              className="btn"
-              onClick={() => {
-                setOpen(false);
-                setQuery("");
-              }}
-            >
+            <button type="button" className="btn" onClick={close}>
               Close
             </button>
           </div>
-          <div className="picker-list">
+          <div className="picker-list" id={listId} role="listbox" aria-labelledby={`${listId}-label`}>
             {shown.length === 0 ? <p className="empty">No matches.</p> : null}
             {shown.map((option) => (
               <button
                 key={option.id}
                 type="button"
+                role="option"
+                aria-selected={option.id === value}
                 className={option.id === value ? "picker-option on" : "picker-option"}
                 onClick={() => {
                   onChange(option.id);
-                  setOpen(false);
-                  setQuery("");
+                  close();
                 }}
               >
                 <span>{option.label}</span>

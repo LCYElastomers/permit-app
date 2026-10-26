@@ -64,7 +64,7 @@ public class PermitPdfTests
         Assert.Contains("Line break", text);
         Assert.Contains("Gas monitor", text);
         Assert.Contains("Hard hat", text);
-        Assert.Contains("Process opening required? NO", text);
+        Assert.Contains("PROCESS OPENING REQUIRED?", text);
     }
 
     [Fact]
@@ -197,9 +197,17 @@ public class PermitPdfTests
         Assert.Contains("PTW-2026-00001", later);
         Assert.Contains("REV 01", later);
         Assert.Contains(heading, later);
-        Assert.Contains(authority, later);
         Assert.Contains("Page 2", later);
-        Assert.Equal(status == PermitStatus.ACTIVE, later.Contains("WORK AUTHORIZED", StringComparison.Ordinal));
+        if (status == PermitStatus.ACTIVE)
+        {
+            Assert.Contains("ACTIVE", later);
+            Assert.DoesNotContain("WORK NOT AUTHORIZED", later);
+        }
+        else
+        {
+            Assert.Contains(authority, later);
+            Assert.DoesNotContain("WORK AUTHORIZED", later);
+        }
     }
 
     [Fact]
@@ -384,6 +392,30 @@ public class PermitPdfTests
     }
 
     [Fact]
+    public void Workflow_codes_print_as_display_labels_and_acronyms_stay()
+    {
+        var source = Sample(PermitStatus.ACTIVE);
+        source.Hazards = Marks("atmospheric", "stored energy", "fire/hot work", "H2S");
+        source.Controls = Controls("LOTO", "JSA", "fire watch", "PPE");
+        var document = GeneralWorkDocuments.Compose(source, Guid.NewGuid(), GeneratedAt);
+        var hazards = document.Sections.Single(section => section.Title == "HAZARDS").Lines;
+        Assert.Contains("Atmospheric", hazards);
+        Assert.Contains("Stored Energy", hazards);
+        Assert.Contains("Fire / Hot Work", hazards);
+        Assert.Contains("H2S", hazards);
+        Assert.DoesNotContain("atmospheric", hazards);
+        var controls = document.Sections.Single(section => section.Title == "CONTROLS").Lines;
+        Assert.Contains("LOTO", controls);
+        Assert.Contains("JSA", controls);
+        Assert.Contains("Fire Watch", controls);
+        Assert.Contains("PPE", controls);
+        Assert.Contains("AUTHORIZED BY", document.Presentation.People.Select(person => person.Role));
+        Assert.Equal("ACTIVE", document.Presentation.RunningState);
+        var suspended = GeneralWorkDocuments.Compose(Sample(PermitStatus.SUSPENDED), Guid.NewGuid(), GeneratedAt);
+        Assert.Equal("SUSPENDED - WORK NOT AUTHORIZED", suspended.Presentation.RunningState);
+    }
+
+    [Fact]
     public void Visual_fixtures_are_written_for_inspection()
     {
         var renderer = new PdfSharpPermitRenderer();
@@ -413,7 +445,22 @@ public class PermitPdfTests
         WritePreview(directory, "general-work-suspended.pdf", renderer, Sample(PermitStatus.SUSPENDED, suspensionReason: "Line opened before the monitor cleared", suspendedAt: GeneratedAt));
         WritePreview(directory, "general-work-multipage.pdf", renderer, Sample(PermitStatus.DRAFT, Enumerable.Range(1, 80).Select(index => new PermitHazard { Label = $"Hazard line {index:00} for page break" }).ToArray()));
         WritePreview(directory, "general-work-safety-lists.pdf", renderer, active);
+        var hot = Sample(PermitStatus.ACTIVE);
+        hot.Permit.PermitType = PermitType.HOT_WORK;
+        hot.Permit.PermitNumber = "PTW-2026-00027";
+        hot.Permit.CurrentRevision = 2;
+        hot.Permit.JobDescription = "Weld support bracket at pump discharge piping and verify equipment alignment following completion.";
+        hot.Hazards = Marks("fire/hot work", "stored energy", "atmospheric");
+        hot.Controls = Controls("fire watch", "barricades", "LOTO");
+        hot.Ppe = Clothing("Hard hat", "Safety glasses", "FR clothing", "Gloves");
+        hot.ModuleFacts =
+        [
+            new PermitModuleFact { ModuleKind = PermitModuleKind.HOT_WORK, Name = "combustibleClearance", Value = "35 ft" },
+            new PermitModuleFact { ModuleKind = PermitModuleKind.FIRE_WATCH, Name = "fireWatch", Value = "Alex Morgan" },
+        ];
+        WritePreview(directory, "hot-work-active.pdf", renderer, hot);
         Assert.True(File.Exists(Path.Combine(directory, "general-work-active.pdf")));
+        Assert.True(File.Exists(Path.Combine(directory, "hot-work-active.pdf")));
     }
 
     private static void WritePreview(string directory, string name, PdfSharpPermitRenderer renderer, AuthoritativeGeneralWork source)

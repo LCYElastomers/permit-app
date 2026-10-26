@@ -46,6 +46,12 @@ describe("sync status", () => {
     expect(describePermitSave({ id: "local", permitNumber: "PTW-2026-00042", lifecycleStatus: "PENDING_REVIEW" }, "ready")).toBe(
       "SYNCHRONIZED · SUBMITTED FOR REVIEW",
     );
+    expect(
+      describePermitSave({ id: "local", permitNumber: null, lifecycleStatus: "PENDING_REVIEW", outboxStatus: "PENDING" }, "unreachable"),
+    ).toBe("PENDING REVIEW · SAVED LOCALLY · PLANT LINK OFFLINE");
+    expect(describePermitSave({ id: "local", permitNumber: null, lifecycleStatus: "PENDING_REVIEW" }, "ready")).toBe(
+      "PENDING REVIEW · SAVED LOCALLY · PENDING SYNC",
+    );
   });
 });
 

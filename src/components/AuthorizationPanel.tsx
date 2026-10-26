@@ -1,15 +1,21 @@
 import { useState } from "react";
+import { useDevice } from "../services/device";
 import { useIdentity } from "../services/identity";
 import { lifecyclePrompt } from "../services/lifecyclePrompt";
-import { actOnPlantPermit, canPerform, getPlantPermit, notifyPlantPermitsChanged, permitFromPlant, pinMessage } from "../services/plantDirectory";
+import { actOnPlantPermit, canPerform, getPlantPermit, notifyPlantPermitsChanged, permitFromPlant, pinMessage, returnPlantPermitForCorrection } from "../services/plantDirectory";
+import { serverPermitType } from "../services/generalWorkDraft";
+import { usePermits } from "../state/PermitStore";
 import { kindTitle } from "../workflow";
 import type { Permit } from "../types";
 
 export function AuthorizationPanel({ permit, onUpdated }: { permit: Permit; onUpdated: (permit: Permit) => void }) {
   const identity = useIdentity();
+  const { link } = useDevice();
+  const { openCorrection } = usePermits();
   const record = permit.plantRecord;
   const [pin, setPin] = useState("");
   const [confirming, setConfirming] = useState(false);
+  const [returning, setReturning] = useState(false);
   const [message, setMessage] = useState("");
   if (!record || !permit.serverPermitId) return null;
   const shown = lifecyclePrompt({
@@ -24,10 +30,34 @@ export function AuthorizationPanel({ permit, onUpdated }: { permit: Permit; onUp
     approvals: record.approvals,
     canAuthorize: canPerform(identity.user, "PERMIT_AUTHORIZER"),
     canAccept: canPerform(identity.user, "CRAFT_RECEIVER"),
+    canCorrect: canPerform(identity.user, "PERMIT_AUTHORIZER") || canPerform(identity.user, "REQUESTER"),
     actorId: identity.user?.id ?? null,
     createdBy: record.createdBy ?? null,
     allowSelfAuthorization: record.allowSelfAuthorization ?? false,
+    permitType: serverPermitType(permit.kind),
   });
+  const edit = (step = 0) => openCorrection(permit, step);
+  const returnForCorrection = async () => {
+    if (!identity.token || !permit.serverPermitId) {
+      setMessage("Plant Link has not established a Permit Control session.");
+      return;
+    }
+    if (link.link !== "ready") {
+      setMessage("Plant Link must be READY before an authorized permit can be returned for correction.");
+      return;
+    }
+    setMessage("");
+    try {
+      await returnPlantPermitForCorrection(identity.token, permit.serverPermitId, record.revision);
+      const updated = permitFromPlant(await getPlantPermit(permit.serverPermitId));
+      onUpdated(updated);
+      notifyPlantPermitsChanged();
+      setReturning(false);
+      openCorrection(updated, shown.focus === "ppe" ? 3 : 0);
+    } catch (error) {
+      setMessage(pinMessage(error));
+    }
+  };
   const run = async () => {
     if (!shown.action || !identity.token) {
       setMessage("Plant Link has not established a Permit Control session.");
@@ -68,6 +98,35 @@ export function AuthorizationPanel({ permit, onUpdated }: { permit: Permit; onUp
           <div className="confirm-actions">
             <button type="button" className="btn btn-ghost" onClick={() => setConfirming(false)}>Cancel</button>
             <button type="button" className="btn" onClick={() => void run()}>{shown.nextTitle}</button>
+          </div>
+        </div>
+      ) : null}
+      {shown.gaps.length > 0 ? (
+        <>
+          <div className="kicker">BLOCKING ITEM</div>
+          {shown.gaps.map((gap) => (
+            <p key={gap}>{gap === "PPE" ? "PPE selection must be completed before this Permit may be authorized." : `${gap} must be completed before this permit may advance.`}</p>
+          ))}
+        </>
+      ) : null}
+      {shown.correction === "edit" ? (
+        <div className="confirm-actions">
+          <button type="button" className="btn" onClick={() => edit(shown.focus === "ppe" ? 3 : 0)}>Edit permit</button>
+          {shown.focus === "ppe" ? <button type="button" className="btn btn-ghost" onClick={() => edit(3)}>Edit PPE</button> : null}
+        </div>
+      ) : null}
+      {shown.correction === "return" && !returning ? (
+        <button type="button" className="btn" onClick={() => setReturning(true)}>Return for correction</button>
+      ) : null}
+      {returning ? (
+        <div className="confirm">
+          <div className="kicker">EDIT AUTHORIZED PERMIT</div>
+          <p>This Permit has already been authorized.</p>
+          <p>Changing Permit conditions will create a new revision and invalidate the current authorization.</p>
+          <p>The updated Permit must be reviewed and authorized again before work may be activated.</p>
+          <div className="confirm-actions">
+            <button type="button" className="btn btn-ghost" onClick={() => setReturning(false)}>Cancel</button>
+            <button type="button" className="btn" onClick={() => void returnForCorrection()}>Edit permit</button>
           </div>
         </div>
       ) : null}

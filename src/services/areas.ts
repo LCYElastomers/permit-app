@@ -47,3 +47,9 @@ export function presentAreaCatalog(
 export function areaIdForName(areas: AreaRecord[], name: string): string {
   return areas.find((area) => area.name === name)?.id ?? "";
 }
+
+/** The picker stores the area id. The name is only what the field displays. */
+export function areaSelection(areas: AreaRecord[], id: string): { areaId: string; area: string } {
+  const area = areas.find((item) => item.id === id);
+  return { areaId: area?.id ?? "", area: area?.name ?? "" };
+}

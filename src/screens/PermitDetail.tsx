@@ -6,6 +6,7 @@ import { usePlantClock } from "../plantClock";
 import { assetLine, authorizationHold, kindTitle, screenLabel } from "../workflow";
 import { PermitDocumentActions } from "../components/PermitDocumentActions";
 import { useComposition } from "../components/Composition";
+import { catalogLabel } from "../services/catalogLabels";
 import { detailDocumentTarget, documentActionPlacement } from "../services/permitDocumentActions";
 import { Field, Section, StateMark } from "../components/ui";
 import { AuthorizationPanel } from "../components/AuthorizationPanel";
@@ -23,6 +24,8 @@ export function PermitDetail() {
     closePermit,
     reinstatePermit,
     replacePlantPermit,
+    drafts,
+    loadDraft,
   } = usePermits();
   const clock = usePlantClock();
   const composition = useComposition();
@@ -50,6 +53,7 @@ export function PermitDetail() {
   const requester = [permit.requester, permit.requesterGroup].filter(Boolean).join(" · ");
   const documents = detailDocumentTarget(permit);
   const documentPlacement = documentActionPlacement(composition);
+  const localDraft = drafts.find((draft) => draft.id === permit.serverPermitId || draft.id === permit.id || (permit.id !== "" && draft.permitNumber === permit.id));
 
   return (
     <div className="screen">
@@ -86,7 +90,12 @@ export function PermitDetail() {
         {permit.plantRecord ? (
           <AuthorizationPanel permit={permit} onUpdated={replacePlantPermit} />
         ) : permit.sample === false ? (
-          <p className="notice">This device copy is not an authorization. Submit it to the plant record, then authorize it from Pending Review.</p>
+          <div className="notice">
+            <p>This device copy is not an authorization. Submit it to the plant record, then authorize it from Pending Review.</p>
+            {localDraft && (localDraft.lifecycleStatus === "DRAFT" || localDraft.lifecycleStatus === "PENDING_REVIEW") ? (
+              <button type="button" className="btn" onClick={() => loadDraft(localDraft.id)}>Edit permit</button>
+            ) : null}
+          </div>
         ) : locked ? (
           <div className="readonly-plate">
             <span>RECORD</span>
@@ -390,9 +399,9 @@ function ItemList({ items, hazard = false }: { items: string[]; hazard?: boolean
   if (items.length === 0) return <p className="empty tight">None recorded.</p>;
   return (
     <ul className={hazard ? "taglist hazard" : "taglist"}>
-      {items.map((item) => (
-        <li key={item}>{item}</li>
-      ))}
+        {items.map((item) => (
+          <li key={item}>{catalogLabel(item)}</li>
+        ))}
     </ul>
   );
 }

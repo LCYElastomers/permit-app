@@ -89,7 +89,7 @@ pub struct LocalStatus {
     pub reference_areas_synced_at: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GeneralWorkDraftInput {
     pub id: String,
@@ -112,6 +112,10 @@ pub struct GeneralWorkDraftInput {
     #[serde(default)]
     pub expires_at: Option<String>,
     pub working_state: serde_json::Value,
+    #[serde(default)]
+    pub permit_number: Option<String>,
+    #[serde(default = "default_revision")]
+    pub current_revision: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -561,6 +565,280 @@ impl LocalDatabase {
         Ok(())
     }
 
+    /// Saves preparation on the same permit and queues PERMIT_REVISED once a number exists.
+    /// A pending create already carries the current draft, so a second event is not added.
+    /// An authorized, active, or closed permit is refused here.
+    pub fn queue_permit_revision(&mut self, draft: GeneralWorkDraftInput) -> Result<DraftRecord, StoreError> {
+        let incoming_number = draft
+            .permit_number
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        if let Some(number) = &incoming_number {
+            if !permit_number_ok(number) {
+                return Err(StoreError::InvalidChange);
+            }
+        }
+        if draft.current_revision < 1 {
+            return Err(StoreError::InvalidChange);
+        }
+        let revision = draft.current_revision;
+        let prepared = prepare_general_work(draft)?;
+        if !is_uuid(&prepared.event_id) || !is_uuid(&prepared.outbox_id) || prepared.event_id == prepared.outbox_id {
+            return Err(StoreError::InvalidChange);
+        }
+        let now = utc_now();
+        let tx = self.conn.transaction().map_err(fail)?;
+        let existing: Option<(String, Option<String>, i64)> = tx
+            .query_row(
+                "SELECT status, permit_number, current_revision FROM local_permits WHERE id = ?1",
+                params![prepared.id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .ok();
+        let stored_revision = if let Some((status, stored_number, stored_revision)) = existing {
+            if status != "DRAFT" && status != "PENDING_REVIEW" {
+                return Err(StoreError::InvalidChange);
+            }
+            if let (Some(stored), Some(incoming)) = (stored_number.as_deref(), incoming_number.as_deref()) {
+                if stored != incoming {
+                    return Err(StoreError::InvalidChange);
+                }
+            }
+            let changed = tx
+                .execute(
+                    "UPDATE local_permits
+                     SET area_id = ?1, area_name = ?2, equipment_tag = ?3, work_order = ?4,
+                         job_description = ?5, company_type = ?6, company_name = ?7, requester = ?8,
+                         craft = ?9, planned_start = ?10, expires_at = ?11, working_state = ?12,
+                         updated_at = ?13, sync_state = 'PENDING'
+                     WHERE id = ?14 AND status IN ('DRAFT', 'PENDING_REVIEW')",
+                    params![
+                        prepared.area_id,
+                        prepared.area_name,
+                        prepared.equipment_tag,
+                        prepared.work_order,
+                        prepared.job_description,
+                        prepared.company_type,
+                        prepared.company_name,
+                        prepared.requester,
+                        prepared.craft,
+                        prepared.planned_start,
+                        prepared.expires_at,
+                        prepared.working_state,
+                        now,
+                        prepared.id,
+                    ],
+                )
+                .map_err(fail)?;
+            if changed != 1 {
+                return Err(StoreError::InvalidChange);
+            }
+            stored_revision
+        } else {
+            let Some(number) = incoming_number else {
+                return Err(StoreError::InvalidChange);
+            };
+            tx.execute(
+                "INSERT INTO local_permits (
+                    id, permit_number, permit_type, status, area_id, equipment_id, work_order,
+                    job_description, created_by, created_at, updated_at, planned_start, expires_at,
+                    current_revision, sync_state, area_name, equipment_tag, company_type, company_name,
+                    requester, craft, working_state
+                 ) VALUES (
+                    ?1, ?2, ?3, 'PENDING_REVIEW', ?4, NULL, ?5,
+                    ?6, NULL, ?7, ?7, ?8, ?9,
+                    ?10, 'PENDING', ?11, ?12, ?13, ?14,
+                    ?15, ?16, ?17
+                 )",
+                params![
+                    prepared.id,
+                    number,
+                    prepared.permit_type,
+                    prepared.area_id,
+                    prepared.work_order,
+                    prepared.job_description,
+                    now,
+                    prepared.planned_start,
+                    prepared.expires_at,
+                    revision,
+                    prepared.area_name,
+                    prepared.equipment_tag,
+                    prepared.company_type,
+                    prepared.company_name,
+                    prepared.requester,
+                    prepared.craft,
+                    prepared.working_state,
+                ],
+            )
+            .map_err(fail)?;
+            revision
+        };
+        let numbered: Option<String> = tx
+            .query_row(
+                "SELECT permit_number FROM local_permits WHERE id = ?1",
+                params![prepared.id],
+                |row| row.get(0),
+            )
+            .map_err(fail)?;
+        if numbered.as_deref().is_some_and(|value| !value.is_empty()) {
+            let pending: i64 = tx
+                .query_row(
+                    "SELECT COUNT(*) FROM outbox
+                     WHERE entity_id = ?1 AND status = 'PENDING' AND operation IN ('create', 'revise')",
+                    params![prepared.id],
+                    |row| row.get(0),
+                )
+                .map_err(fail)?;
+            if pending == 0 {
+                tx.execute(
+                    "INSERT INTO local_permit_events (
+                        id, permit_id, permit_revision, event_type, occurred_at, recorded_at,
+                        user_id, device_id, payload, sync_state
+                     ) VALUES (?1, ?2, ?3, 'PERMIT_REVISED', ?4, ?4, NULL, NULL, NULL, 'PENDING')",
+                    params![prepared.event_id, prepared.id, stored_revision, now],
+                )
+                .map_err(fail)?;
+                tx.execute(
+                    "INSERT INTO outbox (
+                        id, event_id, entity_type, entity_id, operation, created_at,
+                        attempt_count, last_attempt_at, status, last_error_code
+                     ) VALUES (?1, ?2, 'permit', ?3, 'revise', ?4, 0, NULL, 'PENDING', NULL)",
+                    params![prepared.outbox_id, prepared.event_id, prepared.id, now],
+                )
+                .map_err(fail)?;
+                tx.execute("UPDATE sync_state SET current_sync_state = 'PENDING' WHERE id = 1", [])
+                    .map_err(fail)?;
+            }
+        }
+        tx.commit().map_err(fail)?;
+        self.read_draft(&prepared.id)
+    }
+
+    pub fn list_pushable_permit_revisions(&self) -> Result<Vec<PushablePermitCreate>, StoreError> {
+        let mut statement = self
+            .conn
+            .prepare(
+                "SELECT outbox.id, outbox.event_id, outbox.entity_id, events.occurred_at, events.permit_revision
+                 FROM outbox
+                 JOIN local_permit_events AS events ON events.id = outbox.event_id
+                 JOIN local_permits AS permits ON permits.id = outbox.entity_id
+                 WHERE outbox.status = 'PENDING'
+                   AND outbox.operation = 'revise'
+                   AND events.event_type = 'PERMIT_REVISED'
+                   AND permits.status IN ('DRAFT', 'PENDING_REVIEW')
+                   AND permits.permit_number IS NOT NULL
+                   AND permits.permit_number != ''
+                 ORDER BY outbox.created_at, outbox.id",
+            )
+            .map_err(fail)?;
+        let keys = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, i64>(4)?,
+                ))
+            })
+            .map_err(fail)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(fail)?;
+        drop(statement);
+        let mut items = Vec::with_capacity(keys.len());
+        for (outbox_id, event_id, permit_id, occurred_at, permit_revision) in keys {
+            items.push(PushablePermitCreate {
+                outbox_id,
+                event_id,
+                occurred_at,
+                permit_revision,
+                draft: self.read_draft(&permit_id)?,
+            });
+        }
+        Ok(items)
+    }
+
+    pub fn acknowledge_permit_revised(
+        &mut self,
+        outbox_id: &str,
+        event_id: &str,
+        permit_id: &str,
+        permit_number: &str,
+    ) -> Result<DraftRecord, StoreError> {
+        if !permit_number_ok(permit_number) {
+            return Err(StoreError::InvalidChange);
+        }
+        let now = utc_now();
+        let tx = self.conn.transaction().map_err(fail)?;
+        let stored: Option<String> = tx
+            .query_row(
+                "SELECT permit_number FROM local_permits WHERE id = ?1 AND status IN ('DRAFT', 'PENDING_REVIEW')",
+                params![permit_id],
+                |row| row.get(0),
+            )
+            .ok();
+        if stored.as_deref() != Some(permit_number) {
+            return Err(StoreError::InvalidChange);
+        }
+        let already: i64 = tx
+            .query_row(
+                "SELECT COUNT(*) FROM outbox
+                 WHERE id = ?1 AND event_id = ?2 AND entity_id = ?3 AND status = 'ACKNOWLEDGED' AND operation = 'revise'",
+                params![outbox_id, event_id, permit_id],
+                |row| row.get(0),
+            )
+            .map_err(fail)?;
+        if already == 1 {
+            tx.commit().map_err(fail)?;
+            return self.read_draft(permit_id);
+        }
+        let matched: i64 = tx
+            .query_row(
+                "SELECT COUNT(*) FROM outbox
+                 WHERE id = ?1 AND event_id = ?2 AND entity_id = ?3 AND status = 'PENDING' AND operation = 'revise'",
+                params![outbox_id, event_id, permit_id],
+                |row| row.get(0),
+            )
+            .map_err(fail)?;
+        if matched != 1 {
+            return Err(StoreError::InvalidChange);
+        }
+        tx.execute(
+            "UPDATE local_permit_events SET sync_state = 'ACKNOWLEDGED'
+             WHERE id = ?1 AND permit_id = ?2 AND event_type = 'PERMIT_REVISED'",
+            params![event_id, permit_id],
+        )
+        .map_err(fail)?;
+        tx.execute(
+            "UPDATE outbox SET status = 'ACKNOWLEDGED', last_error_code = NULL, last_attempt_at = ?1 WHERE id = ?2",
+            params![now, outbox_id],
+        )
+        .map_err(fail)?;
+        let remaining: i64 = tx
+            .query_row(
+                "SELECT COUNT(*) FROM outbox WHERE entity_id = ?1 AND status != 'ACKNOWLEDGED'",
+                params![permit_id],
+                |row| row.get(0),
+            )
+            .map_err(fail)?;
+        let permit_sync = if remaining == 0 { "SYNCHRONIZED" } else { "PENDING" };
+        tx.execute(
+            "UPDATE local_permits SET sync_state = ?1, updated_at = ?2 WHERE id = ?3",
+            params![permit_sync, now, permit_id],
+        )
+        .map_err(fail)?;
+        let resting = resting_sync_state(&tx)?;
+        tx.execute(
+            "UPDATE sync_state SET last_permit_sync_at = ?1, current_sync_state = ?2 WHERE id = 1",
+            params![now, resting],
+        )
+        .map_err(fail)?;
+        tx.commit().map_err(fail)?;
+        self.read_draft(permit_id)
+    }
+
     fn read_draft(&self, id: &str) -> Result<DraftRecord, StoreError> {
         self.conn
             .query_row(
@@ -1003,6 +1281,10 @@ fn prepare_general_work(draft: GeneralWorkDraftInput) -> Result<PreparedDraft, S
 
 fn default_permit_type() -> String {
     "GENERAL_WORK".to_string()
+}
+
+fn default_revision() -> i64 {
+    1
 }
 
 fn permit_type_ok(value: &str) -> bool {
@@ -1596,6 +1878,8 @@ mod tests {
             planned_start: Some("15:00".to_string()),
             expires_at: Some("19:00".to_string()),
             permit_type: "GENERAL_WORK".to_string(),
+            permit_number: None,
+            current_revision: 1,
             working_state: serde_json::json!({
                 "version": 1,
                 "step": 3,
@@ -1923,6 +2207,82 @@ mod tests {
     }
 
     #[test]
+    fn submit_without_a_saved_permit_writes_nothing() {
+        let (_dir, mut database) = temp_store();
+        let failed = database.submit_for_review(
+            "44444444-4444-4444-8444-999999999999",
+            "77777777-7777-4777-8777-999999999999",
+            "88888888-8888-4888-8888-999999999999",
+            None,
+        );
+        assert!(failed.is_err());
+        assert_eq!(counts(&database), (0, 0, 0));
+    }
+
+    #[test]
+    fn every_permit_type_submits_offline_and_creation_stays_ahead_of_submission() {
+        let (_dir, mut database) = temp_store();
+        let types = [
+            "GENERAL_WORK",
+            "HOT_WORK",
+            "CONFINED_SPACE",
+            "OPENING_BLINDING",
+            "EXCAVATION",
+            "LIVE_ELECTRICAL",
+        ];
+        for (index, permit_type) in types.iter().enumerate() {
+            let suffix = format!("{:012}", index + 1);
+            let mut draft = sample_draft(&suffix);
+            draft.permit_type = (*permit_type).to_string();
+            draft.working_state = serde_json::json!({
+                "version": 2,
+                "permitType": permit_type,
+                "workflowStep": 5,
+                "moduleState": {
+                    "hazards": ["heat"],
+                    "controls": ["watch"],
+                    "fields": {},
+                    "names": {},
+                    "signatures": {}
+                }
+            });
+            database.save_general_work_draft(draft).unwrap();
+            let submitted = database
+                .submit_for_review(
+                    &format!("44444444-4444-4444-8444-{suffix}"),
+                    &format!("77777777-7777-4777-8777-{suffix}"),
+                    &format!("88888888-8888-4888-8888-{suffix}"),
+                    None,
+                )
+                .unwrap();
+            assert_eq!(submitted.permit_type, *permit_type);
+            assert_eq!(submitted.status, "PENDING_REVIEW");
+            assert!(submitted.permit_number.is_none());
+        }
+        assert_eq!(database.list_pushable_permit_creates().unwrap().len(), 6);
+        assert!(database.list_pushable_permit_submissions().unwrap().is_empty());
+        assert_eq!(database.status().unwrap().pending_count, 12);
+        let create = database.list_pushable_permit_creates().unwrap().remove(0);
+        database
+            .acknowledge_permit_created(&create.outbox_id, &create.event_id, &create.draft.id, "PTW-2026-00011")
+            .unwrap();
+        let submissions = database.list_pushable_permit_submissions().unwrap();
+        assert_eq!(submissions.len(), 1);
+        assert_eq!(submissions[0].permit_id, create.draft.id);
+        let acked = database
+            .acknowledge_permit_submitted(
+                &submissions[0].outbox_id,
+                &submissions[0].event_id,
+                &submissions[0].permit_id,
+                "PTW-2026-00011",
+            )
+            .unwrap();
+        assert_eq!(acked.status, "PENDING_REVIEW");
+        assert_eq!(database.list_pushable_permit_submissions().unwrap().len(), 0);
+        assert_eq!(database.list_pushable_permit_creates().unwrap().len(), 5);
+    }
+
+    #[test]
     fn permanent_rejection_needs_attention_and_unsupported_work_stays_pending() {
         let (_dir, mut database) = temp_store();
         database.save_general_work_draft(sample_draft("111111111111")).unwrap();
@@ -1962,5 +2322,83 @@ mod tests {
         assert_eq!(statuses, vec!["create:ATTENTION".to_string(), "suspend:PENDING".to_string()]);
         assert_eq!(database.note_sync_cycle("stopped").unwrap().sync_state, "PENDING");
         assert!(database.status().unwrap().last_permit_sync_at.is_none());
+    }
+
+    #[test]
+    fn revision_keeps_identity_and_refuses_active_or_closed_permits() {
+        let (_dir, mut database) = temp_store();
+        let mut created = sample_draft("111111111111");
+        let saved = database.save_general_work_draft(created.clone()).unwrap();
+        assert!(database.list_pushable_permit_revisions().unwrap().is_empty());
+        created.job_description = "Gauge glass inspection with gloves".to_string();
+        created.permit_number = Some("PTW-2026-00021".to_string());
+        created.current_revision = 1;
+        created.event_id = "55555555-5555-4555-8555-222222222222".to_string();
+        created.outbox_id = "66666666-6666-4666-8666-222222222222".to_string();
+        let revised = database.queue_permit_revision(created.clone()).unwrap();
+        assert_eq!(revised.id, saved.id);
+        assert_eq!(revised.permit_number, None);
+        assert_eq!(revised.job_description, "Gauge glass inspection with gloves");
+        assert_eq!(revised.status, "DRAFT");
+        assert_eq!(database.list_pushable_permit_creates().unwrap().len(), 1);
+        assert!(database.list_pushable_permit_revisions().unwrap().is_empty());
+        database
+            .acknowledge_permit_created(
+                "66666666-6666-4666-8666-111111111111",
+                "55555555-5555-4555-8555-111111111111",
+                &saved.id,
+                "PTW-2026-00021",
+            )
+            .unwrap();
+        database
+            .submit_for_review(
+                &saved.id,
+                "77777777-7777-4777-8777-111111111111",
+                "88888888-8888-4888-8888-111111111111",
+                None,
+            )
+            .unwrap();
+        created.event_id = "55555555-5555-4555-8555-333333333333".to_string();
+        created.outbox_id = "66666666-6666-4666-8666-333333333333".to_string();
+        let pending = database.queue_permit_revision(created.clone()).unwrap();
+        assert_eq!(pending.id, saved.id);
+        assert_eq!(pending.permit_number.as_deref(), Some("PTW-2026-00021"));
+        assert_eq!(pending.status, "PENDING_REVIEW");
+        assert_eq!(database.list_pushable_permit_revisions().unwrap().len(), 1);
+        created.job_description = "Corrected again".to_string();
+        created.event_id = "55555555-5555-4555-8555-444444444444".to_string();
+        created.outbox_id = "66666666-6666-4666-8666-444444444444".to_string();
+        let again = database.queue_permit_revision(created.clone()).unwrap();
+        assert_eq!(again.job_description, "Corrected again");
+        assert_eq!(database.list_pushable_permit_revisions().unwrap().len(), 1);
+        let pushed = database.list_pushable_permit_revisions().unwrap().remove(0);
+        let acknowledged = database
+            .acknowledge_permit_revised(&pushed.outbox_id, &pushed.event_id, &saved.id, "PTW-2026-00021")
+            .unwrap();
+        assert_eq!(acknowledged.status, "PENDING_REVIEW");
+        assert_eq!(acknowledged.permit_number.as_deref(), Some("PTW-2026-00021"));
+        assert!(database.list_pushable_permit_revisions().unwrap().is_empty());
+        database
+            .conn
+            .execute("UPDATE local_permits SET status = 'ACTIVE' WHERE id = ?1", params![saved.id])
+            .unwrap();
+        assert!(database.queue_permit_revision(created.clone()).is_err());
+        database
+            .conn
+            .execute("UPDATE local_permits SET status = 'CLOSED' WHERE id = ?1", params![saved.id])
+            .unwrap();
+        assert!(database.queue_permit_revision(created).is_err());
+
+        let mut plant = sample_draft("222222222222");
+        plant.permit_number = Some("PTW-2026-00022".to_string());
+        plant.current_revision = 2;
+        plant.job_description = "Returned preparation".to_string();
+        let staged = database.queue_permit_revision(plant).unwrap();
+        assert_eq!(staged.id, "44444444-4444-4444-8444-222222222222");
+        assert_eq!(staged.permit_number.as_deref(), Some("PTW-2026-00022"));
+        assert_eq!(staged.status, "PENDING_REVIEW");
+        assert_eq!(staged.current_revision, 2);
+        assert_eq!(database.list_pushable_permit_creates().unwrap().len(), 0);
+        assert_eq!(database.list_pushable_permit_revisions().unwrap().len(), 1);
     }
 }

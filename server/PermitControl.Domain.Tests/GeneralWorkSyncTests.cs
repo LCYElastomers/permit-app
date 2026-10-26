@@ -229,6 +229,68 @@ public sealed class GeneralWorkSyncTests
         DeviceId = deviceId,
     };
 
+    [Fact]
+    public void Revision_replaces_preparation_and_keeps_the_permit_identity()
+    {
+        var session = new GeneralWorkSession();
+        var created = session.Accept(Sample(), Recorded);
+        Assert.Equal(GeneralWorkResultKind.Accepted, created.Kind);
+        session.Submit(new GeneralWorkPush
+        {
+            EventId = Guid.Parse("66666666-6666-4666-8666-111111111111"),
+            PermitId = PermitId,
+            Revision = 1,
+            EventType = "PERMIT_SUBMITTED",
+            OccurredAt = Recorded.AddMinutes(1),
+        }, Recorded.AddMinutes(1));
+        var revised = session.Revise(new GeneralWorkPush
+        {
+            EventId = Guid.Parse("77777777-7777-4777-8777-111111111111"),
+            PermitId = PermitId,
+            Revision = 1,
+            EventType = "PERMIT_REVISED",
+            OccurredAt = Recorded.AddMinutes(2),
+            Body = new GeneralWorkBody
+            {
+                JobDescription = "Gauge glass inspection with gloves",
+                WorkOrder = "WO-104700",
+                Hazards = ["slip/trip"],
+                Controls = ["barricade"],
+                Ppe = ["Gloves", "Hard hat"],
+            },
+        }, Recorded.AddMinutes(2));
+        Assert.Equal(GeneralWorkResultKind.Accepted, revised.Kind);
+        Assert.Equal(PermitId, revised.PermitId);
+        Assert.Equal("PTW-2026-00001", revised.PermitNumber);
+        Assert.Equal(PermitStatus.PENDING_REVIEW, session.Permits.Single().Status);
+        Assert.Equal("Gauge glass inspection with gloves", session.Permits.Single().JobDescription);
+        Assert.Equal(["Gloves", "Hard hat"], revised.Plan!.Ppe.Select(item => item.Label));
+        Assert.Equal(PermitEventType.PERMIT_REVISED, revised.Plan.Event.EventType);
+        var again = session.Revise(new GeneralWorkPush
+        {
+            EventId = Guid.Parse("77777777-7777-4777-8777-111111111111"),
+            PermitId = PermitId,
+            Revision = 1,
+            EventType = "PERMIT_REVISED",
+            OccurredAt = Recorded.AddMinutes(2),
+            Body = new GeneralWorkBody { JobDescription = "ignored", Ppe = ["Ignored"] },
+        }, Recorded.AddMinutes(3));
+        Assert.Equal(GeneralWorkResultKind.Duplicate, again.Kind);
+        Assert.Equal("Gauge glass inspection with gloves", session.Permits.Single().JobDescription);
+        session.Permits.Single().Status = PermitStatus.AUTHORIZED;
+        var blocked = session.Revise(new GeneralWorkPush
+        {
+            EventId = Guid.Parse("88888888-8888-4888-8888-111111111111"),
+            PermitId = PermitId,
+            Revision = 1,
+            EventType = "PERMIT_REVISED",
+            OccurredAt = Recorded.AddMinutes(4),
+            Body = new GeneralWorkBody { Ppe = ["Gloves"] },
+        }, Recorded.AddMinutes(4));
+        Assert.Equal(GeneralWorkResultKind.Conflict, blocked.Kind);
+        Assert.Equal("lifecycle-conflict", blocked.Error);
+    }
+
     private static GeneralWorkPush Sample() => new()
     {
         EventId = EventId,

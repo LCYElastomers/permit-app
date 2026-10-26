@@ -70,7 +70,8 @@ export function describePermitSave(
 ): string {
   if (!form.id) return "";
   if (!form.permitNumber) {
-    const place = form.lifecycleStatus === "PENDING_REVIEW" ? "SUBMITTED LOCALLY" : "LOCAL DRAFT · SAVED LOCALLY";
+    const submitted = form.lifecycleStatus === "PENDING_REVIEW";
+    const place = submitted ? "PENDING REVIEW · SAVED LOCALLY" : "LOCAL DRAFT · SAVED LOCALLY";
     if (form.outboxStatus === "ATTENTION") return `${place} · NEEDS ATTENTION`;
     if (link === "unreachable") return `${place} · PLANT LINK OFFLINE`;
     return `${place} · PENDING SYNC`;

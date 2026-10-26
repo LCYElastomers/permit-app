@@ -1,4 +1,13 @@
 import { useEffect, useState } from "react";
+import {
+  AdminButton,
+  AdminEditorModal,
+  AdminEmptyState,
+  AdminError,
+  AdminField,
+  AdminFieldGroup,
+  AdminStatus,
+} from "../components/admin";
 import { ScreenHead } from "../components/ui";
 import { useIdentity } from "../services/identity";
 import {
@@ -14,8 +23,29 @@ import {
   type PlantUser,
 } from "../services/plantDirectory";
 
-const ROLES = ["SUPER_ADMIN", "ADMIN", "REQUESTER", "PERMIT_AUTHORIZER", "SHIFT_SUPERVISOR", "CRAFT_RECEIVER", "SAFETY", "VIEWER"];
-const QUALIFICATIONS = ["GAS_TESTER", "FIRE_WATCH", "ATTENDANT", "AUTHORIZED_ENTRANT", "COMPETENT_PERSON", "QUALIFIED_ELECTRICAL_WORKER", "SAFETY_WATCH"];
+const ROLES: { code: string; label: string }[] = [
+  { code: "SUPER_ADMIN", label: "Super Admin" },
+  { code: "ADMIN", label: "Admin" },
+  { code: "REQUESTER", label: "Requester" },
+  { code: "PERMIT_AUTHORIZER", label: "Permit Authorizer" },
+  { code: "SHIFT_SUPERVISOR", label: "Shift Supervisor" },
+  { code: "CRAFT_RECEIVER", label: "Craft / Permit Receiver" },
+  { code: "SAFETY", label: "Safety" },
+  { code: "VIEWER", label: "Viewer" },
+];
+
+const QUALIFICATIONS: { code: string; label: string }[] = [
+  { code: "GAS_TESTER", label: "Gas Tester" },
+  { code: "FIRE_WATCH", label: "Fire Watch" },
+  { code: "ATTENDANT", label: "Confined Space Attendant" },
+  { code: "AUTHORIZED_ENTRANT", label: "Authorized Entrant" },
+  { code: "COMPETENT_PERSON", label: "Competent Person" },
+  { code: "QUALIFIED_ELECTRICAL_WORKER", label: "Qualified Electrical Worker" },
+  { code: "SAFETY_WATCH", label: "Safety Watch" },
+];
+
+type UserTab = "profile" | "access" | "qualifications" | "security";
+type Notice = { title: string; body: string } | null;
 
 const blank = (): PlantUser => ({
   id: "",
@@ -36,20 +66,49 @@ const blank = (): PlantUser => ({
   qualifications: [],
 });
 
-export function UsersScreen() {
+function roleLabel(code: string) {
+  return ROLES.find((item) => item.code === code)?.label ?? code;
+}
+
+function sameRoles(left: string[], right: string[]) {
+  return [...left].sort().join("|") === [...right].sort().join("|");
+}
+
+function profileSignature(user: PlantUser) {
+  return JSON.stringify({
+    displayName: user.displayName,
+    windowsUsername: user.windowsUsername,
+    windowsDomain: user.windowsDomain ?? "",
+    personnelReference: user.personnelReference,
+    personnelCode: user.personnelCode,
+    jobTitle: user.jobTitle,
+    department: user.department ?? "",
+  });
+}
+
+function contextual(message: string, fallback: string) {
+  if (!message || message === "Permit Control could not complete that action.") return fallback;
+  return message;
+}
+
+export function UsersScreen({ embedded = false, focus = "directory" }: { embedded?: boolean; focus?: "directory" | "roles" | "qualifications" } = {}) {
   const identity = useIdentity();
   const [users, setUsers] = useState<PlantUser[]>([]);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<"all" | "enabled" | "disabled">("all");
-  const [selected, setSelected] = useState<PlantUser | null>(null);
-  const [pin, setPin] = useState("");
-  const [qualification, setQualification] = useState(QUALIFICATIONS[0]);
-  const [message, setMessage] = useState("");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [notice, setNotice] = useState<Notice>(null);
+  const [loaded, setLoaded] = useState(false);
+  const [savedNote, setSavedNote] = useState("");
   const allowed = canPerform(identity.user, "ADMIN");
+  const openingTab: UserTab = focus === "roles" ? "access" : focus === "qualifications" ? "qualifications" : "profile";
 
   const load = async () => {
-    if (!identity.token || !allowed) return;
-    setUsers(await listPlantUsers(identity.token, search, filter));
+    if (!identity.token || !allowed) return [];
+    const rows = await listPlantUsers(identity.token, search, filter);
+    setUsers(rows);
+    return rows;
   };
 
   useEffect(() => {
@@ -57,126 +116,277 @@ export function UsersScreen() {
     let stopped = false;
     void listPlantUsers(identity.token, search, filter)
       .then((rows) => {
-        if (!stopped) setUsers(rows);
+        if (!stopped) {
+          setUsers(rows);
+          setLoaded(true);
+        }
       })
       .catch((error) => {
-        if (!stopped) setMessage(pinMessage(error));
+        if (!stopped) setNotice({ title: "USERS UNAVAILABLE", body: contextual(pinMessage(error), "Permit Control could not read the user directory.") });
       });
     return () => {
       stopped = true;
     };
   }, [identity.token, identity.user, allowed, filter, search]);
 
-  const run = async (action: () => Promise<void>) => {
-    setMessage("");
-    try {
-      await action();
-      await load();
-    } catch (error) {
-      setMessage(pinMessage(error));
-    }
-  };
-
   if (!allowed) return <div className="screen"><p className="empty">User administration requires a Permit Control administrator.</p></div>;
 
+  const selected = creating ? null : users.find((user) => user.id === selectedId) ?? null;
+  const index = selected ? users.findIndex((user) => user.id === selected.id) : -1;
+  const openEditor = creating || selected !== null;
+
   return (
-    <div className="screen">
-      <ScreenHead kicker="ADMINISTRATION" title="Users" meta={`${users.length} SHOWN`} />
-      <div className="list-filter">
-        <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search name, ID, Windows account, title" />
-        <button type="button" className="btn" onClick={() => void load()}>Search</button>
-        <select value={filter} onChange={(event) => setFilter(event.target.value as typeof filter)}>
-          <option value="all">All</option>
-          <option value="enabled">Enabled</option>
-          <option value="disabled">Disabled</option>
-        </select>
-        <button type="button" className="btn" onClick={() => setSelected(blank())}>New user</button>
+    <div className={embedded ? "admin-users" : "screen"}>
+      <div className={embedded ? undefined : "admin-console"}>
+        {embedded ? null : <ScreenHead kicker="ADMINISTRATION" title="Users" meta={`${users.length} SHOWN`} />}
+        {embedded && focus === "roles" ? <p className="admin-inline-note">Open a person to assign the roles that allow them to act. The stored role code is unchanged.</p> : null}
+        {embedded && focus === "qualifications" ? <p className="admin-inline-note">Open a person to record specialty qualifications a rule can require.</p> : null}
+        <div className="admin-list-tools">
+          <AdminField label="Search" width="standard">
+            <input value={search} onChange={(event) => setSearch(event.target.value)} />
+          </AdminField>
+          <AdminField label="Status" width="small">
+            <select value={filter} onChange={(event) => setFilter(event.target.value as typeof filter)}>
+              <option value="all">All</option>
+              <option value="enabled">Enabled</option>
+              <option value="disabled">Disabled</option>
+            </select>
+          </AdminField>
+          <AdminButton variant="primary" onClick={() => { setCreating(true); setSelectedId(null); setSavedNote(""); }}>New user</AdminButton>
+        </div>
+        {savedNote ? <p className="admin-inline-note">{savedNote}</p> : null}
+        {notice && !openEditor ? <AdminError title={notice.title} onRetry={() => void load().catch(() => undefined)}>{notice.body}</AdminError> : null}
+        {loaded && users.length === 0 ? (
+          <AdminEmptyState title="NO PEOPLE MATCH" action={<AdminButton variant="primary" onClick={() => { setCreating(true); setSelectedId(null); }}>New user</AdminButton>}>
+            Adjust the search or add the first account for this plant.
+          </AdminEmptyState>
+        ) : (
+          <div className="admin-list">
+            {users.map((user) => (
+              <button key={user.id} type="button" id={`admin-user-${user.id}`} className="admin-user-row" onClick={() => { setCreating(false); setSelectedId(user.id); setNotice(null); }}>
+                <span className="mono">{user.permitUserCode}</span>
+                <strong>{user.displayName}</strong>
+                <span>{user.jobTitle || "No job title"}</span>
+                <AdminStatus tone={user.enabled ? "ok" : "warn"}>{user.enabled ? "Enabled" : "Disabled"}</AdminStatus>
+                <span>{user.roles.map(roleLabel).join(" · ") || "No roles"}</span>
+              </button>
+            ))}
+          </div>
+        )}
+        {openEditor ? (
+          <UserEditor
+            key={creating ? "new" : selected?.id}
+            user={creating ? blank() : selected ?? blank()}
+            tab={openingTab}
+            token={identity.token}
+            restoreId={selected ? `admin-user-${selected.id}` : undefined}
+            onPrevious={index > 0 ? () => setSelectedId(users[index - 1].id) : undefined}
+            onNext={index >= 0 && index < users.length - 1 ? () => setSelectedId(users[index + 1].id) : undefined}
+            onClose={() => { setCreating(false); setSelectedId(null); }}
+            onSaved={async (saved) => {
+              setCreating(false);
+              setSelectedId(null);
+              setSavedNote(`${saved.displayName || "User"} saved.`);
+              await load();
+            }}
+          />
+        ) : null}
       </div>
-      {users.map((user) => (
-        <button key={user.id} type="button" className="permit-row" onClick={() => setSelected(user)}>
-          <div className="row-top">
-            <span className="pid mono">{user.permitUserCode}</span>
-            <span className="kind">{user.displayName}</span>
-            <span className="row-status"><span className="screen-meta">{user.enabled ? "ENABLED" : "DISABLED"}</span></span>
-          </div>
-          <div className="row-work">{user.windowsUsername} · {user.jobTitle || "No job title"} · {user.roles.join(", ")}</div>
-        </button>
-      ))}
-      {selected ? (
-        <form className="blocker" onSubmit={(event) => event.preventDefault()}>
-          <div className="kicker">PROFILE {selected.permitUserCode || "NEW"}</div>
-          <Text label="Display name" value={selected.displayName} onChange={(displayName) => setSelected({ ...selected, displayName })} />
-          <Text label="Windows username" value={selected.windowsUsername} onChange={(windowsUsername) => setSelected({ ...selected, windowsUsername })} />
-          <Text label="Windows domain" value={selected.windowsDomain ?? ""} onChange={(windowsDomain) => setSelected({ ...selected, windowsDomain })} />
-          <Text label="Personnel reference" value={selected.personnelReference} onChange={(personnelReference) => setSelected({ ...selected, personnelReference })} />
-          <Text label="Personnel code" value={selected.personnelCode} onChange={(personnelCode) => setSelected({ ...selected, personnelCode })} />
-          <Text label="Job title" value={selected.jobTitle} onChange={(jobTitle) => setSelected({ ...selected, jobTitle })} />
-          <Text label="Department" value={selected.department ?? ""} onChange={(department) => setSelected({ ...selected, department })} />
-          <div className="kicker">ACCESS / ROLES</div>
-          {ROLES.map((role) => (
-            <label key={role}>
-              <input
-                type="checkbox"
-                checked={selected.roles.includes(role)}
-                onChange={(event) => {
-                  const roles = event.target.checked ? [...selected.roles, role] : selected.roles.filter((item) => item !== role);
-                  setSelected({ ...selected, roles });
-                }}
-              />
-              {role.replaceAll("_", " ")}
-            </label>
-          ))}
-          <div className="kicker">SECURITY / PIN</div>
-          <p>Status {selected.pinState}. Last changed {selected.pinChangedAt ?? "—"}. Failed attempts {selected.failedAttempts ?? "—"}. Lockout {selected.lockedUntil ?? "none"}.</p>
-          <Text label="Administrator PIN" value={pin} onChange={setPin} numeric />
-          <div className="confirm-actions">
-            <button
-              type="button"
-              className="btn"
-              onClick={() => void run(async () => {
-                if (!identity.token) return;
-                if (!selected.id) {
-                  const created = await createPlantUser(identity.token, selected);
-                  setSelected(created);
-                  return;
-                }
-                await savePlantUser(identity.token, selected);
-                await setPlantRoles(identity.token, selected.id, selected.roles, pin);
-              })}
-            >
-              Save profile
-            </button>
-            {selected.id ? (
-              <>
-                <button type="button" className="btn" onClick={() => void run(async () => { if (identity.token) await setPlantEnabled(identity.token, selected.id, !selected.enabled, pin); })}>{selected.enabled ? "Disable user" : "Enable user"}</button>
-                <button type="button" className="btn" onClick={() => void run(async () => { if (identity.token) await plantPinAction(identity.token, selected.id, "require-change", pin); })}>Require PIN change</button>
-                <button type="button" className="btn" onClick={() => void run(async () => { if (identity.token) await plantPinAction(identity.token, selected.id, "reset-enrollment", pin); })}>Reset PIN enrollment</button>
-                <button type="button" className="btn" onClick={() => void run(async () => { if (identity.token) await plantPinAction(identity.token, selected.id, "unlock", pin); })}>Unlock PIN</button>
-              </>
-            ) : null}
-          </div>
-          {selected.id ? (
-            <>
-              <div className="kicker">QUALIFICATIONS</div>
-              <ul>{selected.qualifications.map((item) => <li key={item.id}>{item.qualificationType}</li>)}</ul>
-              <select value={qualification} onChange={(event) => setQualification(event.target.value)}>
-                {QUALIFICATIONS.map((item) => <option key={item}>{item}</option>)}
-              </select>
-              <button type="button" className="btn" onClick={() => void run(async () => { if (identity.token) await addPlantQualification(identity.token, selected.id, qualification); })}>Add qualification</button>
-            </>
-          ) : null}
-          {message ? <p className="form-error">{message}</p> : null}
-        </form>
-      ) : null}
     </div>
   );
 }
 
-function Text({ label, value, onChange, numeric = false }: { label: string; value: string; onChange: (value: string) => void; numeric?: boolean }) {
+function UserEditor({
+  user,
+  tab,
+  token,
+  restoreId,
+  onPrevious,
+  onNext,
+  onClose,
+  onSaved,
+}: {
+  user: PlantUser;
+  tab: UserTab;
+  token: string | null;
+  restoreId?: string;
+  onPrevious?: () => void;
+  onNext?: () => void;
+  onClose: () => void;
+  onSaved: (user: PlantUser) => Promise<void>;
+}) {
+  const [draft, setDraft] = useState(user);
+  const [enabled, setEnabled] = useState(user.enabled);
+  const [added, setAdded] = useState<string[]>([]);
+  const [pin, setPin] = useState("");
+  const [active, setActive] = useState<UserTab>(tab);
+  const [notice, setNotice] = useState<Notice>(null);
+  const [securityNote, setSecurityNote] = useState("");
+  const held = new Set(draft.qualifications.filter((item) => item.enabled).map((item) => item.qualificationType));
+  const dirty = profileSignature(draft) !== profileSignature(user)
+    || !sameRoles(draft.roles, user.roles)
+    || enabled !== user.enabled
+    || added.length > 0
+    || pin.length > 0;
+
+  const patch = (next: Partial<PlantUser>) => setDraft((current) => ({ ...current, ...next }));
+  const fail = (error: unknown, title: string, fallback: string) => {
+    setNotice({ title, body: `${contextual(pinMessage(error), fallback)} Your changes remain in the editor.` });
+  };
+
+  const save = async () => {
+    if (!token) return;
+    if (!draft.displayName.trim() || !draft.windowsUsername.trim()) {
+      setNotice({ title: "USER NOT SAVED", body: "Enter a display name and Windows username. Your changes remain in the editor." });
+      setActive("profile");
+      return;
+    }
+    setNotice(null);
+    try {
+      let saved = { ...draft, enabled: user.enabled };
+      if (!draft.id) {
+        saved = await createPlantUser(token, { ...draft, enabled });
+      } else {
+        await savePlantUser(token, { ...draft, enabled: user.enabled });
+        if (!sameRoles(draft.roles, user.roles)) await setPlantRoles(token, draft.id, draft.roles, pin);
+        if (enabled !== user.enabled) await setPlantEnabled(token, draft.id, enabled, pin);
+      }
+      const userId = saved.id || draft.id;
+      if (!draft.id) setDraft(saved);
+      for (const qualification of added) {
+        await addPlantQualification(token, userId, qualification);
+      }
+      setPin("");
+      setAdded([]);
+      document.body.dataset.adminRestore = `admin-user-${userId}`;
+      await onSaved(saved.id ? saved : { ...draft, id: userId });
+    } catch (error) {
+      fail(error, "USER NOT SAVED", "Permit Control could not save this user.");
+    }
+  };
+
+  const security = async (action: "require-change" | "reset-enrollment" | "unlock", label: string) => {
+    if (!token || !draft.id) return;
+    setNotice(null);
+    setSecurityNote("");
+    try {
+      await plantPinAction(token, draft.id, action, pin);
+      setPin("");
+      setSecurityNote(`${label} completed. Profile edits in this window are still here.`);
+    } catch (error) {
+      fail(error, "SECURITY ACTION NOT COMPLETED", "Permit Control could not complete that security action.");
+    }
+  };
+
   return (
-    <label className="confirm-field">
-      <span>{label}</span>
-      <input value={value} inputMode={numeric ? "numeric" : "text"} autoComplete="off" onChange={(event) => onChange(event.target.value)} />
-    </label>
+    <AdminEditorModal
+      title={draft.id ? "Edit user" : "New user"}
+      code={draft.permitUserCode || undefined}
+      subtitle={draft.id ? `${draft.displayName}${draft.jobTitle ? ` · ${draft.jobTitle}` : ""}` : "Create a Permit Control identity."}
+      subject="this user"
+      wide
+      dirty={dirty}
+      primaryLabel={draft.id ? "Save changes" : "Create user"}
+      restoreId={draft.id ? `admin-user-${draft.id}` : restoreId}
+      recordLabel={draft.permitUserCode || "New user"}
+      onPrevious={onPrevious}
+      onNext={onNext}
+      onClose={onClose}
+      onSave={() => void save()}
+      error={notice ? <AdminError title={notice.title}>{notice.body}</AdminError> : null}
+    >
+      <div className="admin-tabs" role="tablist" aria-label="User editor">
+        {(["profile", "access", "qualifications", "security"] as const).map((item) => (
+          <button key={item} type="button" role="tab" aria-selected={active === item} className={active === item ? "is-active" : undefined} onClick={() => setActive(item)}>
+            {item === "profile" ? "Profile" : item === "access" ? "Access" : item === "qualifications" ? "Qualifications" : "Security"}
+          </button>
+        ))}
+      </div>
+      {active === "profile" ? (
+        <div role="tabpanel">
+          <AdminFieldGroup>
+            <AdminField label="Permit Control ID" width="medium" help={draft.id ? "Assigned by Permit Control and kept with the account." : "Assigned when the account is created."}>
+              <input value={draft.permitUserCode} readOnly />
+            </AdminField>
+            <AdminField label="Display name" width="standard"><input value={draft.displayName} onChange={(event) => patch({ displayName: event.target.value })} /></AdminField>
+            <AdminField label="Windows username" width="medium"><input value={draft.windowsUsername} onChange={(event) => patch({ windowsUsername: event.target.value })} /></AdminField>
+            <AdminField label="Windows domain" width="medium"><input value={draft.windowsDomain ?? ""} onChange={(event) => patch({ windowsDomain: event.target.value })} /></AdminField>
+            <AdminField label="Personnel reference" width="medium"><input value={draft.personnelReference} onChange={(event) => patch({ personnelReference: event.target.value })} /></AdminField>
+            <AdminField label="Personnel code" width="small"><input value={draft.personnelCode} onChange={(event) => patch({ personnelCode: event.target.value })} /></AdminField>
+            <AdminField label="Job title" width="standard"><input value={draft.jobTitle} onChange={(event) => patch({ jobTitle: event.target.value })} /></AdminField>
+            <AdminField label="Department" width="standard"><input value={draft.department ?? ""} onChange={(event) => patch({ department: event.target.value })} /></AdminField>
+            <label className="admin-check">
+              <input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} />
+              <span>Enabled</span>
+            </label>
+          </AdminFieldGroup>
+          {draft.id && enabled !== user.enabled ? <p className="admin-inline-note">Changing enabled state is confirmed with your administrator PIN when you save.</p> : null}
+        </div>
+      ) : null}
+      {active === "access" ? (
+        <div role="tabpanel">
+          <p className="admin-inline-note">Roles decide who can request, authorize, accept, and administer permits.</p>
+          <div className="admin-checks">
+            {ROLES.map((role) => (
+              <label key={role.code} className="admin-check">
+                <input
+                  type="checkbox"
+                  checked={draft.roles.includes(role.code)}
+                  onChange={(event) => {
+                    const roles = event.target.checked ? [...draft.roles, role.code] : draft.roles.filter((item) => item !== role.code);
+                    patch({ roles });
+                  }}
+                />
+                <span>{role.label}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+      ) : null}
+      {active === "qualifications" ? (
+        <div role="tabpanel">
+          <p className="admin-inline-note">Qualifications already on the account stay recorded. New selections are added when you save.</p>
+          <div className="admin-checks">
+            {QUALIFICATIONS.map((item) => {
+              const recorded = held.has(item.code);
+              return (
+                <label key={item.code} className="admin-check">
+                  <input
+                    type="checkbox"
+                    checked={recorded || added.includes(item.code)}
+                    disabled={recorded}
+                    onChange={(event) => setAdded((current) => event.target.checked ? [...current, item.code] : current.filter((code) => code !== item.code))}
+                  />
+                  <span>{item.label}</span>
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+      {active === "security" ? (
+        <div role="tabpanel">
+          <dl className="admin-facts">
+            <div><dt>PIN status</dt><dd>{draft.pinState}</dd></div>
+            <div><dt>Last changed</dt><dd>{draft.pinChangedAt ?? "—"}</dd></div>
+            <div><dt>Failed attempts</dt><dd>{draft.failedAttempts ?? "—"}</dd></div>
+            <div><dt>Lockout</dt><dd>{draft.lockedUntil ?? "None"}</dd></div>
+          </dl>
+          {securityNote ? <p className="admin-inline-note">{securityNote}</p> : null}
+          {draft.id ? (
+            <div className="admin-toolbar">
+              <AdminButton variant="secondary" onClick={() => void security("require-change", "Require PIN change")}>Require PIN change</AdminButton>
+              <AdminButton variant="danger" onClick={() => void security("reset-enrollment", "Reset PIN enrollment")}>Reset PIN enrollment</AdminButton>
+              <AdminButton variant="secondary" onClick={() => void security("unlock", "Unlock PIN")}>Unlock PIN</AdminButton>
+            </div>
+          ) : <p className="admin-inline-note">PIN actions are available after the account is created.</p>}
+        </div>
+      ) : null}
+      {draft.id ? (
+        <AdminField label="Administrator PIN" width="small" help="Used to confirm role changes, enabled state, and security actions. The PIN is not stored in this editor.">
+          <input inputMode="numeric" autoComplete="off" value={pin} onChange={(event) => setPin(event.target.value)} />
+        </AdminField>
+      ) : null}
+    </AdminEditorModal>
   );
 }

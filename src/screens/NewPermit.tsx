@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { contractors } from "../data/mock";
 import { GENERAL_EXCLUSIONS, PERMIT_TYPES, typeRecommendations } from "../permitTypes";
 import { plantClock } from "../plantClock";
-import { areaIdForName, type AreaCatalog } from "../services/areas";
+import { areaIdForName, areaSelection, type AreaCatalog } from "../services/areas";
+import { catalogLabel } from "../services/catalogLabels";
 import { useAreaCatalog } from "../services/useAreaCatalog";
 import { useDevice } from "../services/device";
 import { localDraftLabel, submitLocalPermit } from "../services/generalWorkDraft";
@@ -16,9 +17,11 @@ import {
   HAZARDS,
   STEPS,
   authorizationRoles,
+  canSubmitForReview,
   detailFields,
   issueBlockers,
   preparationGaps,
+  preparationSections,
   kindTitle,
   toggleItem,
 } from "../workflow";
@@ -154,7 +157,7 @@ export function NewPermit() {
           {form.step === 3 && <DetailStep form={form} setField={setField} />}
           {form.step === 4 && <ReviewStep form={form} />}
           {form.step === 5 && (
-            <AuthorizationStep form={form} signError={signError} setSignError={setSignError} blockers={blockers} />
+            <AuthorizationStep form={form} link={link.link} signError={signError} setSignError={setSignError} blockers={blockers} />
           )}
         </div>
         <aside className="workflow-context">
@@ -208,28 +211,33 @@ export function NewPermit() {
                 });
             }}
           >
-            Save Draft
+            {form.id ? "Save Changes" : "Save Draft"}
           </button>
           {form.step < 5 ? (
             <button type="button" className="btn btn-next" onClick={() => patch({ step: form.step + 1 })}>
               Continue
             </button>
-          ) : (
+          ) : form.lifecycleStatus === "PENDING_REVIEW" ? null : (
             <button
               type="button"
               className="btn btn-next"
-              disabled={!form.id || preparationGaps(form).length > 0 || form.lifecycleStatus === "PENDING_REVIEW"}
+              disabled={!canSubmitForReview(form) || saving}
               onClick={() => {
-                if (!form.id) {
-                  setSaveError("Save the draft on this device before submitting it for review.");
-                  return;
-                }
-                void submitLocalPermit(form.id, identity.user?.id)
+                if (savingRef.current || !canSubmitForReview(form)) return;
+                savingRef.current = true;
+                setSaving(true);
+                setSaveError("");
+                void saveDraft()
+                  .then((saved) => submitLocalPermit(saved.id, identity.user?.id))
                   .then((saved) => {
                     updateForm(() => saved);
                     setSaveError("");
                   })
-                  .catch(() => setSaveError("This draft could not be submitted. It is still saved on this device."));
+                  .catch(() => setSaveError("This draft could not be submitted. It is still saved on this device."))
+                  .finally(() => {
+                    savingRef.current = false;
+                    setSaving(false);
+                  });
               }}
             >
               Submit for Review
@@ -281,10 +289,7 @@ function ScopeStep({
           placeholder="Select area"
           disabled={catalog.status !== "ready"}
           options={areas.map((area) => ({ id: area.id, label: area.name }))}
-          onChange={(id) => {
-            const area = areas.find((item) => item.id === id);
-            patch({ areaId: area?.id ?? "", area: area?.name ?? "" });
-          }}
+          onChange={(id) => patch(areaSelection(areas, id))}
         />
         <AreaNote form={form} catalog={catalog} />
         <label className="form-field">
@@ -487,7 +492,7 @@ function ChoiceStep({
             onClick={() => onToggle(option)}
           >
             <span className="toggle-mark" aria-hidden="true" />
-            <span className="toggle-label">{option}</span>
+            <span className="toggle-label">{catalogLabel(option)}</span>
             <span className="toggle-state">{selected.includes(option) ? "SELECTED" : "OPEN"}</span>
           </button>
         ))}
@@ -536,7 +541,7 @@ function ReviewStep({ form }: { form: PermitDraft }) {
         ) : (
           <ul className="taglist hazard">
             {form.hazards.map((item) => (
-              <li key={item}>{item === "other" && form.fields.otherHazard ? form.fields.otherHazard : item}</li>
+              <li key={item}>{item === "other" && form.fields.otherHazard ? form.fields.otherHazard : catalogLabel(item)}</li>
             ))}
           </ul>
         )}
@@ -548,7 +553,7 @@ function ReviewStep({ form }: { form: PermitDraft }) {
           <ul className="taglist">
             {form.controls.map((item) => (
               <li key={item}>
-                {item === "other controls" && form.fields.otherControl ? form.fields.otherControl : item}
+                {item === "other controls" && form.fields.otherControl ? form.fields.otherControl : catalogLabel(item)}
               </li>
             ))}
           </ul>
@@ -571,11 +576,13 @@ function ReviewStep({ form }: { form: PermitDraft }) {
 
 function AuthorizationStep({
   form,
+  link,
   signError,
   setSignError,
   blockers,
 }: {
   form: PermitDraft;
+  link: string;
   signError: string;
   setSignError: (roleId: string) => void;
   blockers: string[];
@@ -654,10 +661,34 @@ function AuthorizationStep({
         })}
       </div>
       <div className="blocker">
-        <div className="kicker">REVIEW</div>
-        <p>{preparationGaps(form).length === 0 ? "Preparation is complete." : "Preparation is not complete."}</p>
+        <div className="kicker">PERMIT READINESS</div>
+        {preparationSections(form).map((section) => (
+          <p key={section.label}>{section.label} {section.complete ? "COMPLETE" : "INCOMPLETE"}</p>
+        ))}
+        {form.lifecycleStatus === "PENDING_REVIEW" ? (
+          <p>Pending review. Saved locally. This permit is not authorized for work.</p>
+        ) : preparationGaps(form).length > 0 ? (
+          <>
+            <p>Cannot submit for review</p>
+            <p>Complete the following:</p>
+            <ul>
+              {preparationGaps(form).map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+          </>
+        ) : (
+          <>
+            <p>Plant Link {link === "ready" ? "is ready" : "is offline"}.</p>
+            <p>
+              {link === "ready"
+                ? "Submitting now saves the review request on this device and synchronizes it while Plant Link is ready."
+                : "Submitting now will save the review request locally. Permit Control will synchronize it automatically when the plant connection returns."}
+            </p>
+            <p>Submit for Review does not authorize work.</p>
+          </>
+        )}
         <p>Names recorded here are on this device. They are not authenticated signatures.</p>
-        <p>Submit for Review is allowed after the draft is saved and preparation is complete. Authorize, Accept, and Activate stay unavailable until an authenticated person holds that role.</p>
         {blockers.length > 0 ? (
           <ul>
             {blockers.map((item) => (

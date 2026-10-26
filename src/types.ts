@@ -149,6 +149,7 @@ export interface PermitDraft {
   permitNumber: string | null;
   outboxStatus: string;
   lifecycleStatus?: string;
+  currentRevision?: number;
 }
 
 export interface PermitTemplate {

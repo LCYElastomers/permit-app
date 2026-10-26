@@ -3,7 +3,7 @@ import { checkingPlantLink, syncMayStart, type PlantLink, type PlantLinkSnapshot
 import { presentAreaCatalog, type AreaCatalog, type AreaRecord } from "./areas";
 import { refreshAreaCatalog } from "./areaRefresh";
 import { listCachedAreas, notePlantContact, noteSyncCycle, onLocalStoreChanged, readLocalStatus, type LocalView } from "./localStore";
-import { pushGeneralWorkCreates, pushPermitSubmissions, type PushStep } from "./permitPush";
+import { pushGeneralWorkCreates, pushPermitRevisions, pushPermitSubmissions, type PushStep } from "./permitPush";
 import { startPlantLinkMonitor } from "./plantLink";
 import { SyncCoordinator } from "./syncCoordinator";
 import { syncNowNotice, type SyncProgress } from "./syncStatus";
@@ -112,6 +112,17 @@ export function DeviceProvider({ children }: { children: ReactNode }) {
       const submitted = await pushPermitSubmissions({ link: () => linkRef.current, signal, onProgress: report });
       if (stopped) return;
       if (await settle(submitted)) {
+        if (!stopped) setSyncProgress(null);
+        return;
+      }
+      if (stopped || signal.aborted || !syncMayStart(linkRef.current)) {
+        await noteSyncCycle("stopped").catch(() => undefined);
+        if (!stopped) setSyncProgress(null);
+        return;
+      }
+      const revised = await pushPermitRevisions({ link: () => linkRef.current, signal, onProgress: report });
+      if (stopped) return;
+      if (await settle(revised)) {
         if (!stopped) setSyncProgress(null);
         return;
       }

@@ -1,3 +1,4 @@
+import { catalogLabel } from "./services/catalogLabels";
 import type { Permit, PermitDraft, PermitKind } from "./types";
 
 export interface DetailField {
@@ -250,7 +251,7 @@ export function typeRecommendations(draft: PermitDraft): TypeRecommendation[] {
   }
   for (const hazard of draft.hazards) {
     const kind = HAZARD_TYPE[hazard];
-    if (kind) add(kind, `Hazard: ${hazard}`);
+    if (kind) add(kind, `Hazard: ${catalogLabel(hazard)}`);
   }
   if (draft.controls.includes("LOTO")) {
     add("opening-blinding", "Control: LOTO");

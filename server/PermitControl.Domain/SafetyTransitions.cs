@@ -110,6 +110,7 @@ public sealed class PermitSyncState
         PermitEventType.ACTIVATED => PermitStatus.ACTIVE,
         PermitEventType.SUSPENDED => PermitStatus.SUSPENDED,
         PermitEventType.REAUTHORIZED => current == PermitStatus.SUSPENDED ? PermitStatus.AUTHORIZED : current,
+        PermitEventType.PERMIT_RETURNED_FOR_CORRECTION => PermitStatus.PENDING_REVIEW,
         PermitEventType.CLOSED => PermitStatus.CLOSED,
         _ => current,
     };

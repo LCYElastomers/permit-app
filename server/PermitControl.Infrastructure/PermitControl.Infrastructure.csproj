@@ -17,6 +17,7 @@
   <ItemGroup>
     <EmbeddedResource Include="Fonts\IBMPlexSans-Regular.ttf" />
     <EmbeddedResource Include="Fonts\IBMPlexSans-Bold.ttf" />
+    <EmbeddedResource Include="Branding\lcy-logo-white.png" />
   </ItemGroup>
 
   <PropertyGroup>

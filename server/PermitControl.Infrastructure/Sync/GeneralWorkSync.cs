@@ -18,6 +18,11 @@ public sealed class GeneralWorkSync(PermitDbContext database) : IGeneralWorkSync
             return await PushSubmissionAsync(push, cancellationToken);
         }
 
+        if (string.Equals(push.EventType, nameof(PermitEventType.PERMIT_REVISED), StringComparison.Ordinal))
+        {
+            return await PushRevisionAsync(push, cancellationToken);
+        }
+
         var error = GeneralWorkAcceptance.Validate(push);
         if (error is not null) return GeneralWorkResult.Invalid(error);
 
@@ -121,6 +126,88 @@ public sealed class GeneralWorkSync(PermitDbContext database) : IGeneralWorkSync
             await database.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             return GeneralWorkResult.AcceptedSubmission(domainEvent.Id, permit.Id, permit.PermitNumber);
+        }
+        catch (Exception exception) when (IsUniqueViolation(exception))
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            database.ChangeTracker.Clear();
+            var receipt = await database.SyncEvents.AsNoTracking().FirstOrDefaultAsync(item => item.Id == push.EventId, cancellationToken);
+            if (receipt?.PermitId == push.PermitId)
+            {
+                var number = await database.Permits.AsNoTracking()
+                    .Where(item => item.Id == push.PermitId)
+                    .Select(item => item.PermitNumber)
+                    .FirstOrDefaultAsync(cancellationToken);
+                if (!string.IsNullOrWhiteSpace(number))
+                {
+                    return GeneralWorkResult.Duplicate(push.EventId, push.PermitId, number);
+                }
+            }
+
+            throw new DatabaseUnavailableException();
+        }
+        catch (Exception exception) when (IsDatabaseFailure(exception))
+        {
+            throw new DatabaseUnavailableException();
+        }
+    }
+
+    private async Task<GeneralWorkResult> PushRevisionAsync(GeneralWorkPush push, CancellationToken cancellationToken)
+    {
+        var error = GeneralWorkAcceptance.ValidateRevision(push);
+        if (error is not null) return GeneralWorkResult.Invalid(error);
+
+        await using var transaction = await database.Database.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            var receipt = await database.SyncEvents.FirstOrDefaultAsync(item => item.Id == push.EventId, cancellationToken);
+            if (receipt is not null)
+            {
+                if (receipt.PermitId != push.PermitId) return GeneralWorkResult.Conflict("event-permit-mismatch");
+                var existingNumber = await database.Permits
+                    .Where(item => item.Id == push.PermitId)
+                    .Select(item => item.PermitNumber)
+                    .FirstAsync(cancellationToken);
+                return GeneralWorkResult.Duplicate(push.EventId, push.PermitId, existingNumber);
+            }
+
+            var permit = await database.Permits.FirstOrDefaultAsync(item => item.Id == push.PermitId, cancellationToken);
+            if (permit is null) return GeneralWorkResult.Conflict("permit-not-ready");
+            if (permit.Status is not (PermitStatus.DRAFT or PermitStatus.PENDING_REVIEW))
+            {
+                return GeneralWorkResult.Conflict("lifecycle-conflict");
+            }
+
+            var recordedAt = DateTimeOffset.UtcNow;
+            var plan = GeneralWorkAcceptance.BuildRevision(permit, push, recordedAt);
+            var hazards = await database.PermitHazards.Where(item => item.PermitId == permit.Id).ToListAsync(cancellationToken);
+            var controls = await database.PermitControls.Where(item => item.PermitId == permit.Id).ToListAsync(cancellationToken);
+            var ppe = await database.PermitPpe.Where(item => item.PermitId == permit.Id).ToListAsync(cancellationToken);
+            var facts = await database.PermitModuleFacts.Where(item => item.PermitId == permit.Id).ToListAsync(cancellationToken);
+            database.PermitHazards.RemoveRange(hazards);
+            database.PermitControls.RemoveRange(controls);
+            database.PermitPpe.RemoveRange(ppe);
+            foreach (var fact in plan.ModuleFacts)
+            {
+                var current = facts.FirstOrDefault(item => item.Name == fact.Name && item.ModuleKind == fact.ModuleKind);
+                if (current is null) database.Add(fact);
+                else current.Value = fact.Value;
+            }
+            database.Add(plan.Event);
+            database.Add(plan.Receipt);
+            database.AddRange(plan.Hazards);
+            database.AddRange(plan.Controls);
+            database.AddRange(plan.Ppe);
+            await database.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return new GeneralWorkResult
+            {
+                Kind = GeneralWorkResultKind.Accepted,
+                PermitNumber = permit.PermitNumber,
+                PermitId = permit.Id,
+                EventId = plan.Event.Id,
+                Revision = permit.CurrentRevision,
+            };
         }
         catch (Exception exception) when (IsUniqueViolation(exception))
         {

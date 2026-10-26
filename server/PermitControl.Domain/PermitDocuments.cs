@@ -370,7 +370,7 @@ public static class GeneralWorkDocuments
             Status = treatment.Status,
             Authority = treatment.Authority,
             Tone = tone,
-            RunningState = $"{treatment.Status} - {treatment.Authority}",
+            RunningState = treatment.Status == "ACTIVE" ? treatment.Status : $"{treatment.Status} - {treatment.Authority}",
             Location =
             [
                 Field("Area", Present(source.AreaName ?? facts.AreaName)),
@@ -499,9 +499,9 @@ public static class GeneralWorkDocuments
     {
         var people = new List<DocumentPerson>
         {
-            PersonCard("REQUESTED BY", Approval(source.Approvals, "SUBMITTED"), Participant(source.Participants, "Requester"), "Submitted"),
-            PersonCard("PERMIT AUTHORIZER", Approval(source.Approvals, "AUTHORIZED"), null, "Authorized"),
-            PersonCard("CRAFT / PERMIT RECEIVER", Approval(source.Approvals, "ACCEPTED"), Participant(source.Participants, "Craft / Permit Receiver"), "Accepted"),
+            PersonCard("REQUESTED BY", Approval(source.Approvals, "SUBMITTED"), Participant(source.Participants, "Requester"), "Submitted", source.Permit.CurrentRevision),
+            PersonCard("AUTHORIZED BY", Approval(source.Approvals, "AUTHORIZED"), null, "Authorized", source.Permit.CurrentRevision),
+            PersonCard("PERMIT RECEIVER", Approval(source.Approvals, "ACCEPTED"), Participant(source.Participants, "Craft / Permit Receiver"), "Accepted", source.Permit.CurrentRevision),
         };
         AddSpecialist(people, source, "FIRE WATCH", "fireWatch", PermitModuleKind.FIRE_WATCH, source.Permit.PermitType == PermitType.HOT_WORK);
         AddSpecialist(people, source, "CONFINED SPACE ATTENDANT", "attendant", PermitModuleKind.CONFINED_SPACE, source.Permit.PermitType == PermitType.CONFINED_SPACE);
@@ -520,14 +520,21 @@ public static class GeneralWorkDocuments
             : new DocumentPerson { Role = role, Lines = [value] });
     }
 
-    private static DocumentPerson PersonCard(string role, PermitApproval? approval, string? participant, string timeLabel)
+    private static DocumentPerson PersonCard(string role, PermitApproval? approval, string? participant, string timeLabel, int currentRevision)
     {
         if (approval is not null)
         {
             var lines = new List<string> { approval.DisplayNameSnapshot!.Trim() };
             if (!string.IsNullOrWhiteSpace(approval.PermitUserCodeSnapshot)) lines.Add(approval.PermitUserCodeSnapshot.Trim());
             if (!string.IsNullOrWhiteSpace(approval.JobTitleSnapshot)) lines.Add(approval.JobTitleSnapshot.Trim());
-            lines.Add($"{timeLabel}: {Stamp(approval.DecidedAt)}");
+            if (!string.IsNullOrWhiteSpace(approval.ActingRole)) lines.Add(ActingAuthority(approval.ActingRole));
+            var recorded = $"{timeLabel}: {Stamp(approval.DecidedAt)}";
+            if (approval.PermitRevision > 0 && approval.PermitRevision != currentRevision)
+            {
+                recorded = $"{recorded} · Rev {approval.PermitRevision:00}";
+            }
+
+            lines.Add(recorded);
             return new DocumentPerson { Role = role, Lines = lines };
         }
 
@@ -638,8 +645,11 @@ public static class GeneralWorkDocuments
     private static string? Participant(IReadOnlyList<PermitParticipant> participants, string role) =>
         participants.FirstOrDefault(item => item.RoleName == role)?.DisplayName;
 
+    private static string ActingAuthority(string role) =>
+        role.Trim().Replace('_', ' ');
+
     private static IReadOnlyList<string> Clean(IEnumerable<string> items) =>
-        items.Select(item => item.Trim()).Where(item => item.Length > 0).Distinct(StringComparer.Ordinal).ToArray();
+        items.Select(CatalogPresentation.Label).Where(item => item.Length > 0).Distinct(StringComparer.Ordinal).ToArray();
 
     private static string Present(string? value)
     {

@@ -227,6 +227,14 @@ export async function submitPlantPermit(token: string, id: string) {
   });
 }
 
+export async function returnPlantPermitForCorrection(token: string, id: string, revision: number) {
+  await apiRequest<unknown>(`/api/v1/permits/${id}/return-for-correction`, {
+    method: "POST",
+    headers: authHeaders(token),
+    body: JSON.stringify({ revision, deviceId: null }),
+  });
+}
+
 export async function actOnPlantPermit(token: string, id: string, action: "authorize" | "accept" | "activate", pin: string, revision: number, actingRole?: string) {
   await apiRequest<unknown>(`/api/v1/permits/${id}/${action}`, {
     method: "POST",

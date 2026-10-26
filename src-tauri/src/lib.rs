@@ -142,6 +142,32 @@ fn list_pushable_permit_submissions(
 }
 
 #[tauri::command]
+fn queue_permit_revision(
+    store: tauri::State<AppStore>,
+    draft: store::GeneralWorkDraftInput,
+) -> Result<store::DraftRecord, String> {
+    with_store(&store, |database| database.queue_permit_revision(draft))
+}
+
+#[tauri::command]
+fn list_pushable_permit_revisions(store: tauri::State<AppStore>) -> Result<Vec<store::PushablePermitCreate>, String> {
+    with_store(&store, |database| database.list_pushable_permit_revisions())
+}
+
+#[tauri::command]
+fn acknowledge_permit_revised(
+    store: tauri::State<AppStore>,
+    outbox_id: String,
+    event_id: String,
+    permit_id: String,
+    permit_number: String,
+) -> Result<store::DraftRecord, String> {
+    with_store(&store, |database| {
+        database.acknowledge_permit_revised(&outbox_id, &event_id, &permit_id, &permit_number)
+    })
+}
+
+#[tauri::command]
 fn acknowledge_permit_submitted(
     store: tauri::State<AppStore>,
     outbox_id: String,
@@ -260,8 +286,11 @@ pub fn run() {
             save_general_work_draft,
             list_pushable_permit_creates,
             list_pushable_permit_submissions,
+            queue_permit_revision,
+            list_pushable_permit_revisions,
             acknowledge_permit_created,
             acknowledge_permit_submitted,
+            acknowledge_permit_revised,
             mark_outbox_attention,
             note_push_deferred,
             open_permit_pdf

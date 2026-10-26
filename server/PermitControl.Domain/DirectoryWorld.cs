@@ -22,6 +22,8 @@ public sealed class DirectoryWorld
     public List<PermitApproval> Approvals { get; } = [];
     public List<PermitEvent> Events { get; } = [];
     public List<PermitHazard> Hazards { get; } = [];
+    public List<PermitPpe> Ppe { get; } = [];
+    public List<PermitRevision> Revisions { get; } = [];
     public List<PermitModule> Modules { get; } = [];
     public bool AllowSelfAuthorization { get; set; }
     public int LastUserCode { get; set; } = 8;
@@ -102,7 +104,10 @@ public sealed class DirectoryWorld
         Apply(LifecycleCommands.Submit(Permit(permitId), User(actorId), RolesOf(actorId), Hazards.Count(item => item.PermitId == permitId), now, deviceId));
 
     public string? Authorize(Guid permitId, Guid actorId, string pin, int revision, DateTimeOffset now, Guid? deviceId = null) =>
-        Apply(LifecycleCommands.Authorize(Permit(permitId), User(actorId), Credential(actorId), RolesOf(actorId), Approvals.Where(item => item.PermitId == permitId).ToList(), Hazards.Count(item => item.PermitId == permitId), AllowSelfAuthorization, pin, revision, now, hasher, deviceId));
+        Apply(LifecycleCommands.Authorize(Permit(permitId), User(actorId), Credential(actorId), RolesOf(actorId), Approvals.Where(item => item.PermitId == permitId).ToList(), Hazards.Count(item => item.PermitId == permitId), Ppe.Count(item => item.PermitId == permitId), AllowSelfAuthorization, pin, revision, now, hasher, deviceId));
+
+    public string? ReturnForCorrection(Guid permitId, Guid actorId, int revision, DateTimeOffset now, Guid? deviceId = null) =>
+        Apply(LifecycleCommands.ReturnForCorrection(Permit(permitId), User(actorId), RolesOf(actorId), revision, now, deviceId));
 
     public string? Accept(Guid permitId, Guid actorId, string pin, int revision, DateTimeOffset now, Guid? deviceId = null) =>
         Apply(LifecycleCommands.Accept(Permit(permitId), User(actorId), Credential(actorId), RolesOf(actorId), pin, revision, now, hasher, deviceId));
@@ -120,6 +125,8 @@ public sealed class DirectoryWorld
             Approvals.Where(item => item.PermitId == permitId).ToList(),
             Modules.Where(item => item.PermitId == permitId).Select(item => item.Kind).ToArray(),
             qualified,
+            Hazards.Count(item => item.PermitId == permitId),
+            Ppe.Count(item => item.PermitId == permitId),
             pin,
             revision,
             actingRole,
@@ -258,6 +265,7 @@ public sealed class DirectoryWorld
         };
         Permits.Add(permit);
         Hazards.Add(new PermitHazard { Id = Guid.NewGuid(), PermitId = permit.Id, Label = "Line break" });
+        Ppe.Add(new PermitPpe { Id = Guid.NewGuid(), PermitId = permit.Id, Label = "Hard hat" });
         foreach (var module in modules) Modules.Add(new PermitModule { Id = Guid.NewGuid(), PermitId = permit.Id, Kind = module, Required = true });
         return permit;
     }
@@ -293,6 +301,7 @@ public sealed class DirectoryWorld
 
         if (result.Approval is not null) Approvals.Add(result.Approval);
         if (result.Event is not null) Events.Add(result.Event);
+        if (result.Revision is not null) Revisions.Add(result.Revision);
         return result.Error;
     }
 

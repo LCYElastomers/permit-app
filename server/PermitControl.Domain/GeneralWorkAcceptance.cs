@@ -99,6 +99,17 @@ public sealed class GeneralWorkResult
     };
 }
 
+public sealed class RevisionPlan
+{
+    public required Permit Permit { get; init; }
+    public required PermitEvent Event { get; init; }
+    public required SyncEvent Receipt { get; init; }
+    public required IReadOnlyList<PermitHazard> Hazards { get; init; }
+    public required IReadOnlyList<PermitControlRecord> Controls { get; init; }
+    public required IReadOnlyList<PermitPpe> Ppe { get; init; }
+    public required IReadOnlyList<PermitModuleFact> ModuleFacts { get; init; }
+}
+
 public sealed class GeneralWorkPlan
 {
     public required Permit Permit { get; init; }
@@ -399,6 +410,70 @@ public static class GeneralWorkAcceptance
         return (domainEvent, receipt);
     }
 
+    public static string? ValidateRevision(GeneralWorkPush push)
+    {
+        if (push.EventId == Guid.Empty) return "event-id-required";
+        if (push.PermitId == Guid.Empty) return "permit-id-required";
+        if (push.Revision < 1) return "revision-invalid";
+        if (!string.Equals(push.EventType, nameof(PermitEventType.PERMIT_REVISED), StringComparison.Ordinal))
+        {
+            return "event-not-supported";
+        }
+
+        if (push.OccurredAt == default) return "occurred-at-required";
+        if (push.Body is null) return "permit-required";
+        if (Length(push.Body.WorkOrder) > 40) return "work-order-too-long";
+        if (Length(push.Body.JobDescription) > 2000) return "job-description-too-long";
+        if (Labels(push.Body.Hazards).Any(label => label.Length > 160)
+            || Labels(push.Body.Controls).Any(label => label.Length > 160)
+            || Labels(push.Body.Ppe).Any(label => label.Length > 160))
+        {
+            return "label-too-long";
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Replaces preparation on the same permit. The number, id, status, and revision stay.
+    /// </summary>
+    public static RevisionPlan BuildRevision(Permit permit, GeneralWorkPush push, DateTimeOffset recordedAt)
+    {
+        var body = push.Body ?? throw new InvalidOperationException("permit body is required");
+        if (body.JobDescription is not null) permit.JobDescription = body.JobDescription.Trim();
+        if (body.WorkOrder is not null) permit.WorkOrder = body.WorkOrder.Trim();
+        permit.UpdatedAt = recordedAt;
+        return new RevisionPlan
+        {
+            Permit = permit,
+            Event = new PermitEvent
+            {
+                Id = push.EventId,
+                PermitId = permit.Id,
+                PermitRevision = permit.CurrentRevision,
+                EventType = PermitEventType.PERMIT_REVISED,
+                OccurredAt = push.OccurredAt,
+                RecordedAt = recordedAt,
+                UserId = push.UserId,
+                DeviceId = push.DeviceId,
+                Payload = Facts(body),
+                SyncSource = SyncSource.CLIENT,
+            },
+            Receipt = new SyncEvent
+            {
+                Id = push.EventId,
+                DeviceId = push.DeviceId,
+                PermitId = permit.Id,
+                EventType = PermitEventType.PERMIT_REVISED,
+                ReceivedAt = recordedAt,
+            },
+            Hazards = Labels(body.Hazards).Select(label => new PermitHazard { Id = Guid.NewGuid(), PermitId = permit.Id, Label = label }).ToArray(),
+            Controls = Labels(body.Controls).Select(label => new PermitControlRecord { Id = Guid.NewGuid(), PermitId = permit.Id, Label = label }).ToArray(),
+            Ppe = Labels(body.Ppe).Select(label => new PermitPpe { Id = Guid.NewGuid(), PermitId = permit.Id, Label = label }).ToArray(),
+            ModuleFacts = ModuleFacts(permit.Id, body),
+        };
+    }
+
     private static string? Facts(GeneralWorkBody body)
     {
         var exclusions = body.Exclusions?
@@ -643,5 +718,50 @@ public sealed class GeneralWorkSession
         events.Add(domainEvent);
         receipts.Add(receipt);
         return GeneralWorkResult.AcceptedSubmission(domainEvent.Id, permit.Id, permit.PermitNumber);
+    }
+
+    public GeneralWorkResult Revise(GeneralWorkPush push, DateTimeOffset recordedAt)
+    {
+        var existing = receipts.FirstOrDefault(item => item.Id == push.EventId);
+        if (existing is not null)
+        {
+            if (existing.PermitId != push.PermitId) return GeneralWorkResult.Conflict("event-permit-mismatch");
+            var stored = permits.First(item => item.Id == push.PermitId);
+            return GeneralWorkResult.Duplicate(push.EventId, push.PermitId, stored.PermitNumber);
+        }
+
+        var error = GeneralWorkAcceptance.ValidateRevision(push);
+        if (error is not null) return GeneralWorkResult.Invalid(error);
+        var permit = permits.FirstOrDefault(item => item.Id == push.PermitId);
+        if (permit is null) return GeneralWorkResult.Conflict("permit-not-ready");
+        if (permit.Status is not (PermitStatus.DRAFT or PermitStatus.PENDING_REVIEW))
+        {
+            return GeneralWorkResult.Conflict("lifecycle-conflict");
+        }
+
+        var plan = GeneralWorkAcceptance.BuildRevision(permit, push, recordedAt);
+        events.Add(plan.Event);
+        receipts.Add(plan.Receipt);
+        return new GeneralWorkResult
+        {
+            Kind = GeneralWorkResultKind.Accepted,
+            PermitNumber = permit.PermitNumber,
+            PermitId = permit.Id,
+            EventId = plan.Event.Id,
+            Revision = permit.CurrentRevision,
+            Plan = new GeneralWorkPlan
+            {
+                Permit = permit,
+                Revision = revisions.First(item => item.PermitId == permit.Id),
+                Event = plan.Event,
+                Receipt = plan.Receipt,
+                Participants = [],
+                Hazards = plan.Hazards,
+                Controls = plan.Controls,
+                Ppe = plan.Ppe,
+                Modules = [],
+                ModuleFacts = plan.ModuleFacts,
+            },
+        };
     }
 }
