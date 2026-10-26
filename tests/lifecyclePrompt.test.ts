@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { lifecyclePrompt, plantStatusCopy, requiredModules, safeDiagnostic } from "../src/services/lifecyclePrompt";
+import { blockingItemCopy, lifecyclePrompt, plantStatusCopy, preparationSection, requiredModules, safeDiagnostic } from "../src/services/lifecyclePrompt";
 
 const base = {
   jobDescription: "Inspect pump",
@@ -70,6 +70,9 @@ describe("pending review lifecycle", () => {
     expect(prompt.gaps).toEqual(["PPE"]);
     expect(prompt.correction).toBe("edit");
     expect(prompt.focus).toBe("ppe");
+    expect(prompt.focusStep).toBe(3);
+    expect(preparationSection("PPE")).toBe(3);
+    expect(blockingItemCopy("PPE")).toContain("PPE selection must be completed");
     expect(prompt.readiness.find((item) => item.label === "PPE")?.state).toBe("INCOMPLETE");
     expect(prompt.workAuthorized).toBe(false);
   });
@@ -103,7 +106,10 @@ describe("pending review lifecycle", () => {
     expect(prompt.action).toBeNull();
     expect(prompt.correction).toBe("return");
     expect(prompt.blocked).toContain("PPE");
+    expect(prompt.focusStep).toBe(3);
     expect(prompt.workAuthorized).toBe(false);
+    expect(prompt.title).toBe("AUTHORIZED");
+    expect(prompt.nextTitle).toBe("NOT READY FOR ACTIVATION");
   });
 
   it("withholds casual editing from active, suspended, and closed permits", () => {

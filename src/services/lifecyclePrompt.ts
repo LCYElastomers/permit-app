@@ -16,6 +16,7 @@ export interface LifecyclePrompt {
   readiness: ReadinessItem[];
   correction: "edit" | "return" | "reauthorize" | "none";
   focus: "ppe" | null;
+  focusStep: number;
   gaps: string[];
 }
 
@@ -87,7 +88,8 @@ export function lifecyclePrompt(input: {
     { label: "Craft receiver", state: receiver ? "COMPLETE" : "PENDING" },
   ];
   const preparationBlocked = gaps.length > 0;
-  const focus = gaps.includes("PPE") ? "ppe" : null;
+  const focus = gaps.includes("PPE") ? "ppe" as const : null;
+  const focusStep = preparationSection(gaps[0]);
   const correction: LifecyclePrompt["correction"] =
     input.status === "SUSPENDED" ? "reauthorize"
     : !canCorrect ? "none"
@@ -156,7 +158,23 @@ export function lifecyclePrompt(input: {
     nextDetail = "Reinstate this permit through reauthorization before work resumes.";
   }
 
-  return { ...status, nextTitle, nextDetail, action, actingRole, requiredAuthority, blocked, readiness, correction, focus, gaps };
+  return { ...status, nextTitle, nextDetail, action, actingRole, requiredAuthority, blocked, readiness, correction, focus, focusStep, gaps };
+}
+
+export function preparationSection(gap: string | undefined): number {
+  if (gap === "Hazards") return 1;
+  if (gap === "Controls") return 2;
+  if (gap === "PPE") return 3;
+  return 0;
+}
+
+export function blockingItemCopy(gap: string): string {
+  if (gap === "PPE") return "PPE selection must be completed before this Permit can proceed.";
+  if (gap === "Scope") return "Work scope must be completed before this Permit can proceed.";
+  if (gap === "Work order") return "A work order must be recorded before this Permit can proceed.";
+  if (gap === "Hazards") return "Hazards must be identified before this Permit can proceed.";
+  if (gap === "Controls") return "Controls must be recorded before this Permit can proceed.";
+  return `${gap} must be completed before this Permit can proceed.`;
 }
 
 function preparationGapLabels(input: { scope: boolean; order: boolean; hazards: boolean; ppeReady: boolean }) {

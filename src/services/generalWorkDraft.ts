@@ -101,28 +101,42 @@ export type DraftWriter = (request: GeneralWorkSaveRequest) => Promise<StoredDra
 
 const EMPTY_EVENT = "00000000-0000-4000-8000-000000000000";
 
+function text(value: string | null | undefined): string {
+  return (value ?? "").trim();
+}
+
 export function generalWorkSaveRequest(
   draft: PermitDraft,
   ids: { id: string; eventId: string; outboxId: string },
 ): GeneralWorkSaveRequest {
-  const creating = !draft.id;
   return {
     id: ids.id,
-    eventId: creating ? ids.eventId : EMPTY_EVENT,
-    outboxId: creating ? ids.outboxId : EMPTY_EVENT,
-    areaId: draft.areaId.trim() ? draft.areaId.trim() : null,
-    areaName: draft.area,
-    equipmentTag: draft.place,
-    workOrder: draft.workOrder,
-    jobDescription: draft.description,
+    eventId: ids.eventId,
+    outboxId: ids.outboxId,
+    areaId: text(draft.areaId) ? text(draft.areaId) : null,
+    areaName: draft.area ?? "",
+    equipmentTag: draft.place ?? "",
+    workOrder: draft.workOrder ?? "",
+    jobDescription: draft.description ?? "",
     companyType: draft.companyType,
-    companyName: draft.company,
-    requester: draft.requester,
-    craft: draft.craft,
+    companyName: draft.company ?? "",
+    requester: draft.requester ?? "",
+    craft: draft.craft ?? "",
     permitType: serverPermitType(draft.kind),
-    plannedStart: draft.plannedStart.trim() ? draft.plannedStart : null,
-    expiresAt: draft.plannedEnd.trim() ? draft.plannedEnd : null,
+    plannedStart: text(draft.plannedStart) ? text(draft.plannedStart) : null,
+    expiresAt: text(draft.plannedEnd) ? text(draft.plannedEnd) : null,
     workingState: preservedWorkingState(draft),
+  };
+}
+
+export function correctionSaveRequest(
+  draft: PermitDraft,
+  ids: { eventId: string; outboxId: string },
+): GeneralWorkSaveRequest & { permitNumber: string | null; currentRevision: number } {
+  return {
+    ...generalWorkSaveRequest(draft, { id: draft.id, eventId: ids.eventId, outboxId: ids.outboxId }),
+    permitNumber: draft.permitNumber,
+    currentRevision: draft.currentRevision && draft.currentRevision > 0 ? draft.currentRevision : 1,
   };
 }
 
@@ -323,17 +337,12 @@ async function saveThroughTauri(request: GeneralWorkSaveRequest): Promise<Stored
 }
 
 export async function persistPermitCorrection(draft: PermitDraft): Promise<PermitDraft> {
-  const request = generalWorkSaveRequest(draft, {
-    id: draft.id,
+  const request = correctionSaveRequest(draft, {
     eventId: crypto.randomUUID(),
     outboxId: crypto.randomUUID(),
   });
   const stored = await invokeCommand<StoredDraft>("queue_permit_revision", {
-    draft: {
-      ...request,
-      permitNumber: draft.permitNumber,
-      currentRevision: draft.currentRevision && draft.currentRevision > 0 ? draft.currentRevision : 1,
-    },
+    draft: request,
   });
   notifyLocalStoreChanged("draft-saved");
   return permitDraftFromRecord(stored);

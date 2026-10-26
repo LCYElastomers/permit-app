@@ -381,7 +381,13 @@ export function PermitProvider({ children }: { children: ReactNode }) {
     if (!permit.serverPermitId || (status !== "DRAFT" && status !== "PENDING_REVIEW")) return;
     const local = drafts.find((draft) => draft.id === permit.serverPermitId || (permit.id !== "" && draft.permitNumber === permit.id));
     if (local) {
-      setForm({ ...structuredClone(local), step });
+      setForm({
+        ...structuredClone(local),
+        step,
+        lifecycleStatus: status,
+        permitNumber: permit.id || local.permitNumber,
+        currentRevision: permit.plantRecord?.revision ?? local.currentRevision ?? 1,
+      });
       setScreen("new");
       setOrigin("pending");
       return;

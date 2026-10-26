@@ -88,7 +88,10 @@ export function generalWorkPushBody(item: PushablePermitCreate, eventType = "PER
   for (const key of ["excludeOpening", "excludeContainment", "excludeEntry", "excludeIsolation", "excludeHotWork"]) {
     if (fields[key]) exclusions[key] = fields[key];
   }
-  const ppe = fields.ppe?.trim() ? [fields.ppe.trim()] : [];
+  const ppe = [fields.ppe, fields.electricalPpe].flatMap((item) => {
+    const label = item?.trim();
+    return label ? [label] : [];
+  });
   return {
     events: [
       {

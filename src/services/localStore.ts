@@ -32,6 +32,8 @@ const LOCAL_FAILURES: Record<string, string> = {
   "working-state-version-unsupported": "This permit uses a newer saved format. The original record was not changed.",
   "permit-validation-failed": "This permit is not ready to submit.",
   "local-transaction-failed": "Permit Control could not save this change on the device.",
+  "permit-revision-invalid": "This permit revision could not be saved on the device.",
+  "serialization-failed": "Permit Control could not store this permit's details.",
   "tauri-command-failed": "Permit Control could not complete this local command.",
 };
 
@@ -60,7 +62,45 @@ export function localFailureMessage(error: unknown): string {
   if (code === "working-state-version-unsupported" || code === "working-state-invalid") {
     return "DRAFT NOT SAVED. Your current form entries remain available. The original saved permit was not changed.";
   }
+  if (code === "permit-revision-invalid") {
+    return "DRAFT NOT SAVED. Your current form entries remain available. This permit revision could not be saved on the device.";
+  }
+  if (code === "serialization-failed") {
+    return "DRAFT NOT SAVED. Your current form entries remain available. Permit Control could not store this permit's details.";
+  }
   return "DRAFT NOT SAVED. Your current form entries remain available. Permit Control could not save this change on the device.";
+}
+
+export function logLocalSaveFailure(
+  operation: string,
+  draft: {
+    id?: string;
+    kind?: string;
+    lifecycleStatus?: string | null;
+    currentRevision?: number | null;
+    step?: number;
+    sourceWorkingState?: { version?: unknown } | null;
+  },
+  error: unknown,
+): void {
+  const code = error instanceof LocalStoreFailure ? error.code : "tauri-command-failed";
+  const version = draft.sourceWorkingState && typeof draft.sourceWorkingState.version !== "undefined"
+    ? String(draft.sourceWorkingState.version)
+    : "2";
+  const detail = error instanceof Error ? error.message : "";
+  const safeDetail = /\b(select|insert|update|delete)\b/i.test(detail) ? "omitted" : detail.slice(0, 160);
+  console.error("local persistence failure", {
+    operation,
+    permitId: draft.id ?? "",
+    permitType: draft.kind ?? "",
+    status: draft.lifecycleStatus ?? "",
+    revision: draft.currentRevision ?? "",
+    workingStateVersion: version,
+    workflowStep: draft.step ?? "",
+    category: code,
+    code,
+    detail: safeDetail,
+  });
 }
 
 export class AreaCatalogRejected extends Error {

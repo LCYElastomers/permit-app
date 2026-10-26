@@ -10,7 +10,7 @@ import { localDraftLabel, submitLocalPermit } from "../services/generalWorkDraft
 import { useIdentity } from "../services/identity";
 import { describePermitSave } from "../services/syncStatus";
 import { draftDocumentTarget, documentActionPlacement } from "../services/permitDocumentActions";
-import { localFailureMessage } from "../services/localStore";
+import { localFailureMessage, logLocalSaveFailure } from "../services/localStore";
 import { usePermits } from "../state/PermitStore";
 import type { PermitDraft, PermitKind } from "../types";
 import {
@@ -207,7 +207,7 @@ export function NewPermit() {
               setSaveError("");
               void saveDraft()
                 .catch((error: unknown) => {
-                  console.error("local persistence", { operation: "save_draft", category: error instanceof Error ? error.name : "unknown" });
+                  logLocalSaveFailure("save_draft", form, error);
                   setSaveError(localFailureMessage(error));
                 })
                 .finally(() => {
@@ -244,7 +244,7 @@ export function NewPermit() {
                     setSaveError("");
                   })
                   .catch((error: unknown) => {
-                    console.error("local persistence", { operation: "submit_for_review", category: error instanceof Error ? error.name : "unknown" });
+                    logLocalSaveFailure("submit_for_review", form, error);
                     setSaveError(localFailureMessage(error));
                   })
                   .finally(() => {

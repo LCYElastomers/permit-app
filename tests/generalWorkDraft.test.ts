@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { PlantLink } from "../src/lib/connectivity";
 import {
+  correctionSaveRequest,
   generalWorkSaveRequest,
   permitDraftFromRecord,
   persistGeneralWorkDraft,
@@ -94,7 +95,7 @@ describe("general work local save", () => {
     vi.unstubAllGlobals();
   });
 
-  it("keeps the permit id on a later save and does not mint another event id", () => {
+  it("keeps caller event ids so a numbered permit revision can be saved", () => {
     const existing = { ...draft(), id: permitId };
     const request = generalWorkSaveRequest(existing, {
       id: permitId,
@@ -102,8 +103,48 @@ describe("general work local save", () => {
       outboxId: "88888888-8888-4888-8888-888888888888",
     });
     expect(request.id).toBe(permitId);
-    expect(request.eventId).toBe("00000000-0000-4000-8000-000000000000");
-    expect(request.outboxId).toBe("00000000-0000-4000-8000-000000000000");
+    expect(request.eventId).toBe("99999999-9999-4999-8999-999999999999");
+    expect(request.outboxId).toBe("88888888-8888-4888-8888-888888888888");
+    expect(request.eventId).not.toBe(request.outboxId);
+  });
+
+  it("does not mint a revision event when a plain draft is saved again", async () => {
+    const existing = { ...draft(), id: permitId };
+    let seenEvent = "";
+    let seenOutbox = "";
+    await persistGeneralWorkDraft(existing, async (request) => {
+      seenEvent = request.eventId;
+      seenOutbox = request.outboxId;
+      return stored(request);
+    });
+    expect(seenEvent).toBe("00000000-0000-4000-8000-000000000000");
+    expect(seenOutbox).toBe("00000000-0000-4000-8000-000000000000");
+  });
+
+  it("keeps distinct event ids and PPE when a numbered correction is saved", () => {
+    const request = correctionSaveRequest(
+      {
+        ...draft(),
+        id: permitId,
+        permitNumber: "PTW-2026-00003",
+        lifecycleStatus: "PENDING_REVIEW",
+        currentRevision: 2,
+        kind: "confined-space",
+        fields: { ppe: "Hard hat" },
+      },
+      {
+        eventId: "99999999-9999-4999-8999-999999999999",
+        outboxId: "88888888-8888-4888-8888-888888888888",
+      },
+    );
+    expect(request.id).toBe(permitId);
+    expect(request.permitNumber).toBe("PTW-2026-00003");
+    expect(request.currentRevision).toBe(2);
+    expect(request.eventId).not.toBe(request.outboxId);
+    expect(request.eventId).not.toBe("00000000-0000-4000-8000-000000000000");
+    expect(request.workingState.moduleState.fields.ppe).toBe("Hard hat");
+    expect(request.workingState.permitType).toBe("CONFINED_SPACE");
+    expect(request.workingState.workflowStep).toBe(3);
   });
 
   it("saves and restores every permit classification without plant link", async () => {
@@ -185,6 +226,9 @@ describe("general work local save", () => {
     expect(restored.hazards).toEqual([]);
     expect(localFailureMessage(new LocalStoreFailure("working-state-version-unsupported"))).toContain("DRAFT NOT SAVED");
     expect(localFailureMessage(new LocalStoreFailure("local-storage-write-failed"))).not.toContain("Local data is unavailable");
+    expect(localFailureMessage(new LocalStoreFailure("local-transaction-failed"))).toContain("DRAFT NOT SAVED");
+    expect(localFailureMessage(new LocalStoreFailure("permit-revision-invalid"))).toContain("DRAFT NOT SAVED");
+    expect(localFailureMessage(new LocalStoreFailure("serialization-failed"))).not.toContain("Local data is unavailable");
     expect(localFailureMessage(new LocalStoreFailure())).toContain("Local data is unavailable");
   });
 });

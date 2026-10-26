@@ -24,6 +24,8 @@ pub enum StoreError {
     TransactionFailed,
     InvalidCatalog,
     InvalidChange,
+    PermitRevisionInvalid,
+    SerializationFailed,
     InvalidPhase,
 }
 
@@ -35,6 +37,8 @@ impl StoreError {
             StoreError::WorkingStateInvalid => "working-state-invalid",
             StoreError::WorkingStateUnsupported => "working-state-version-unsupported",
             StoreError::TransactionFailed | StoreError::InvalidChange => "local-transaction-failed",
+            StoreError::PermitRevisionInvalid => "permit-revision-invalid",
+            StoreError::SerializationFailed => "serialization-failed",
             StoreError::InvalidCatalog => "invalid-area-catalog",
             StoreError::InvalidPhase => "invalid-sync-phase",
         }
@@ -234,6 +238,10 @@ impl LocalDatabase {
         current_version(&self.conn).map_err(fail)
     }
 
+    fn schema_label(&self) -> String {
+        self.schema_version().map(|version| version.to_string()).unwrap_or_else(|_| "unknown".to_string())
+    }
+
     pub fn status(&self) -> Result<LocalStatus, StoreError> {
         let pending_count = self.pending_count()?;
         let schema_version = current_version(&self.conn).map_err(unavailable)?;
@@ -413,12 +421,23 @@ impl LocalDatabase {
     /// The first save writes the permit, PERMIT_CREATED, and a PENDING outbox row in one transaction.
     /// A later save updates the permit row only. Nothing here contacts the network or acknowledges the outbox.
     pub fn save_general_work_draft(&mut self, draft: GeneralWorkDraftInput) -> Result<DraftRecord, StoreError> {
-        let prepared = prepare_general_work(draft)?;
+        let trace = draft_trace(&draft);
+        let schema = self.schema_label();
+        let prepared = prepare_general_work(draft).map_err(|error| {
+            log_draft_failure(&schema, "save_general_work_draft", &trace, "unknown", &error, "prepare");
+            error
+        })?;
         let exists = self.permit_exists(&prepared.id)?;
         if exists {
-            self.update_general_work(&prepared)?;
+            self.update_general_work(&prepared).map_err(|error| {
+                log_draft_failure(&schema, "save_general_work_draft", &trace, "unknown", &error, "update");
+                error
+            })?;
         } else {
-            self.create_general_work(&prepared)?;
+            self.create_general_work(&prepared).map_err(|error| {
+                log_draft_failure(&schema, "save_general_work_draft", &trace, "DRAFT", &error, "create");
+                error
+            })?;
         }
         self.read_draft(&prepared.id)
     }
@@ -577,6 +596,13 @@ impl LocalDatabase {
             )
             .map_err(fail)?;
         if changed != 1 {
+            let status: Option<String> = self
+                .conn
+                .query_row("SELECT status FROM local_permits WHERE id = ?1", params![draft.id], |row| row.get(0))
+                .ok();
+            if status.is_some_and(|value| value != "DRAFT" && value != "PENDING_REVIEW") {
+                return Err(StoreError::PermitRevisionInvalid);
+            }
             return Err(StoreError::InvalidChange);
         }
         Ok(())
@@ -586,6 +612,8 @@ impl LocalDatabase {
     /// A pending create already carries the current draft, so a second event is not added.
     /// An authorized, active, or closed permit is refused here.
     pub fn queue_permit_revision(&mut self, draft: GeneralWorkDraftInput) -> Result<DraftRecord, StoreError> {
+        let trace = draft_trace(&draft);
+        let schema = self.schema_label();
         let incoming_number = draft
             .permit_number
             .as_deref()
@@ -594,15 +622,21 @@ impl LocalDatabase {
             .map(str::to_string);
         if let Some(number) = &incoming_number {
             if !permit_number_ok(number) {
-                return Err(StoreError::InvalidChange);
+                log_draft_failure(&schema, "queue_permit_revision", &trace, "unknown", &StoreError::PermitRevisionInvalid, "permit-number");
+                return Err(StoreError::PermitRevisionInvalid);
             }
         }
         if draft.current_revision < 1 {
-            return Err(StoreError::InvalidChange);
+            log_draft_failure(&schema, "queue_permit_revision", &trace, "unknown", &StoreError::PermitRevisionInvalid, "revision");
+            return Err(StoreError::PermitRevisionInvalid);
         }
         let revision = draft.current_revision;
-        let prepared = prepare_general_work(draft)?;
+        let prepared = prepare_general_work(draft).map_err(|error| {
+            log_draft_failure(&schema, "queue_permit_revision", &trace, "unknown", &error, "prepare");
+            error
+        })?;
         if !is_uuid(&prepared.event_id) || !is_uuid(&prepared.outbox_id) || prepared.event_id == prepared.outbox_id {
+            log_draft_failure(&schema, "queue_permit_revision", &trace, "unknown", &StoreError::InvalidChange, "event-and-outbox-id");
             return Err(StoreError::InvalidChange);
         }
         let now = utc_now();
@@ -614,23 +648,29 @@ impl LocalDatabase {
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
             .ok();
-        let stored_revision = if let Some((status, stored_number, stored_revision)) = existing {
+        let stored_revision = if let Some((status, stored_number, row_revision)) = existing {
             if status != "DRAFT" && status != "PENDING_REVIEW" {
-                return Err(StoreError::InvalidChange);
+                log_draft_failure(&schema, "queue_permit_revision", &trace, &status, &StoreError::PermitRevisionInvalid, "status");
+                return Err(StoreError::PermitRevisionInvalid);
             }
-            stored_working_state_writable(&tx, &prepared.id)?;
+            stored_working_state_writable(&tx, &prepared.id).map_err(|error| {
+                log_draft_failure(&schema, "queue_permit_revision", &trace, &status, &error, "working-state");
+                error
+            })?;
             if let (Some(stored), Some(incoming)) = (stored_number.as_deref(), incoming_number.as_deref()) {
                 if stored != incoming {
-                    return Err(StoreError::InvalidChange);
+                    log_draft_failure(&schema, "queue_permit_revision", &trace, &status, &StoreError::PermitRevisionInvalid, "permit-number");
+                    return Err(StoreError::PermitRevisionInvalid);
                 }
             }
+            let persisted_revision = revision.max(row_revision);
             let changed = tx
                 .execute(
                     "UPDATE local_permits
                      SET area_id = ?1, area_name = ?2, equipment_tag = ?3, work_order = ?4,
                          job_description = ?5, company_type = ?6, company_name = ?7, requester = ?8,
                          craft = ?9, planned_start = ?10, expires_at = ?11, working_state = ?12,
-                         updated_at = ?13, sync_state = 'PENDING'
+                         updated_at = ?13, sync_state = 'PENDING', current_revision = ?15
                      WHERE id = ?14 AND status IN ('DRAFT', 'PENDING_REVIEW')",
                     params![
                         prepared.area_id,
@@ -647,15 +687,18 @@ impl LocalDatabase {
                         prepared.working_state,
                         now,
                         prepared.id,
+                        persisted_revision,
                     ],
                 )
                 .map_err(fail)?;
             if changed != 1 {
+                log_draft_failure(&schema, "queue_permit_revision", &trace, &status, &StoreError::InvalidChange, "update");
                 return Err(StoreError::InvalidChange);
             }
-            stored_revision
+            persisted_revision
         } else {
             let Some(number) = incoming_number else {
+                log_draft_failure(&schema, "queue_permit_revision", &trace, "missing", &StoreError::InvalidChange, "permit-number");
                 return Err(StoreError::InvalidChange);
             };
             tx.execute(
@@ -1300,6 +1343,50 @@ struct PreparedDraft {
     permit_type: String,
 }
 
+struct DraftTrace {
+    id: String,
+    permit_type: String,
+    revision: i64,
+    version: String,
+    step: String,
+}
+
+fn draft_trace(draft: &GeneralWorkDraftInput) -> DraftTrace {
+    let version = draft
+        .working_state
+        .get("version")
+        .and_then(serde_json::Value::as_i64)
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "missing".to_string());
+    let step = draft
+        .working_state
+        .get("workflowStep")
+        .or_else(|| draft.working_state.get("step"))
+        .and_then(serde_json::Value::as_i64)
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "missing".to_string());
+    DraftTrace {
+        id: draft.id.clone(),
+        permit_type: draft.permit_type.clone(),
+        revision: draft.current_revision,
+        version,
+        step,
+    }
+}
+
+fn log_draft_failure(schema: &str, operation: &str, trace: &DraftTrace, status: &str, error: &StoreError, reason: &str) {
+    log::error!(
+        "local persistence failure operation={operation} permit_id={} permit_type={} status={status} revision={} working_state_version={} workflow_step={} schema_version={schema} category={} code={} reason={reason}",
+        trace.id,
+        trace.permit_type,
+        trace.revision,
+        trace.version,
+        trace.step,
+        error.code(),
+        error.code()
+    );
+}
+
 fn prepare_general_work(draft: GeneralWorkDraftInput) -> Result<PreparedDraft, StoreError> {
     if !is_uuid(&draft.id) {
         return Err(StoreError::InvalidChange);
@@ -1447,8 +1534,8 @@ fn canonical_working_state(value: &serde_json::Value, permit_type: &str) -> Resu
         return Err(StoreError::WorkingStateUnsupported);
     };
     let stored = serde_json::to_string(value).map_err(|error| {
-        log::error!("working state could not be stored category=working-state-invalid detail={error}");
-        StoreError::WorkingStateInvalid
+        log::error!("working state could not be stored category=serialization-failed detail={error}");
+        StoreError::SerializationFailed
     })?;
     Ok((stored, permit_type))
 }
@@ -2518,12 +2605,15 @@ mod tests {
             .conn
             .execute("UPDATE local_permits SET status = 'ACTIVE' WHERE id = ?1", params![saved.id])
             .unwrap();
-        assert!(database.queue_permit_revision(created.clone()).is_err());
+        assert_eq!(
+            database.queue_permit_revision(created.clone()).unwrap_err().code(),
+            "permit-revision-invalid"
+        );
         database
             .conn
             .execute("UPDATE local_permits SET status = 'CLOSED' WHERE id = ?1", params![saved.id])
             .unwrap();
-        assert!(database.queue_permit_revision(created).is_err());
+        assert_eq!(database.queue_permit_revision(created).unwrap_err().code(), "permit-revision-invalid");
 
         let mut plant = sample_draft("222222222222");
         plant.permit_number = Some("PTW-2026-00022".to_string());
@@ -2536,6 +2626,98 @@ mod tests {
         assert_eq!(staged.current_revision, 2);
         assert_eq!(database.list_pushable_permit_creates().unwrap().len(), 0);
         assert_eq!(database.list_pushable_permit_revisions().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn duplicate_revision_event_ids_leave_the_saved_permit_unchanged() {
+        let (_dir, mut database) = temp_store();
+        let mut created = sample_draft("111111111111");
+        let saved = database.save_general_work_draft(created.clone()).unwrap();
+        database
+            .acknowledge_permit_created(
+                "66666666-6666-4666-8666-111111111111",
+                "55555555-5555-4555-8555-111111111111",
+                &saved.id,
+                "PTW-2026-00021",
+            )
+            .unwrap();
+        database
+            .submit_for_review(
+                &saved.id,
+                "77777777-7777-4777-8777-111111111111",
+                "88888888-8888-4888-8888-111111111111",
+                None,
+            )
+            .unwrap();
+        created.permit_number = Some("PTW-2026-00021".to_string());
+        created.job_description = "Should not persist".to_string();
+        created.event_id = "00000000-0000-4000-8000-000000000000".to_string();
+        created.outbox_id = "00000000-0000-4000-8000-000000000000".to_string();
+        let error = database.queue_permit_revision(created).unwrap_err();
+        assert_eq!(error.code(), "local-transaction-failed");
+        assert_ne!(error.code(), "local-storage-unavailable");
+        let kept = database.read_draft(&saved.id).unwrap();
+        assert_eq!(kept.job_description, "Gauge glass inspection");
+        assert_eq!(kept.status, "PENDING_REVIEW");
+        assert_eq!(kept.permit_number.as_deref(), Some("PTW-2026-00021"));
+        assert_eq!(database.status().unwrap().schema_version, 3);
+    }
+
+    #[test]
+    fn correction_save_keeps_identity_revision_and_ppe_across_reopen() {
+        let (dir, mut database) = temp_store();
+        let mut created = sample_draft("333333333333");
+        let saved = database.save_general_work_draft(created.clone()).unwrap();
+        database
+            .acknowledge_permit_created(
+                "66666666-6666-4666-8666-333333333333",
+                "55555555-5555-4555-8555-333333333333",
+                &saved.id,
+                "PTW-2026-00003",
+            )
+            .unwrap();
+        database
+            .submit_for_review(
+                &saved.id,
+                "77777777-7777-4777-8777-333333333333",
+                "88888888-8888-4888-8888-333333333333",
+                None,
+            )
+            .unwrap();
+        created.permit_number = Some("PTW-2026-00003".to_string());
+        created.current_revision = 2;
+        created.event_id = "55555555-5555-4555-8555-999999999999".to_string();
+        created.outbox_id = "66666666-6666-4666-8666-999999999999".to_string();
+        created.working_state = serde_json::json!({
+            "version": 2,
+            "permitType": "GENERAL_WORK",
+            "workflowStep": 3,
+            "moduleState": {
+                "hazards": ["engulfment"],
+                "controls": ["attendant"],
+                "fields": { "ppe": "Hard hat", "atmospheric": "Yes" },
+                "names": { "entrant": "Alex Morgan" },
+                "signatures": {}
+            },
+            "kept": true
+        });
+        let revised = database.queue_permit_revision(created).unwrap();
+        assert_eq!(revised.id, saved.id);
+        assert_eq!(revised.permit_number.as_deref(), Some("PTW-2026-00003"));
+        assert_eq!(revised.current_revision, 2);
+        assert_eq!(revised.status, "PENDING_REVIEW");
+        assert_eq!(revised.permit_type, "GENERAL_WORK");
+        drop(database);
+        let database = LocalDatabase::open(dir.path().join(DATABASE_FILE_NAME)).unwrap();
+        let reopened = database.read_draft(&saved.id).unwrap();
+        assert_eq!(reopened.id, saved.id);
+        assert_eq!(reopened.permit_number.as_deref(), Some("PTW-2026-00003"));
+        assert_eq!(reopened.current_revision, 2);
+        assert_eq!(reopened.status, "PENDING_REVIEW");
+        assert_eq!(reopened.working_state["moduleState"]["fields"]["ppe"], "Hard hat");
+        assert_eq!(reopened.working_state["kept"], true);
+        assert_eq!(database.status().unwrap().schema_version, 3);
+        assert_ne!(StoreError::WorkingStateInvalid.code(), "local-storage-unavailable");
     }
 
     #[test]

@@ -1,7 +1,8 @@
 import { useState } from "react";
+import { AdminEditorModal } from "./admin";
 import { useDevice } from "../services/device";
 import { useIdentity } from "../services/identity";
-import { lifecyclePrompt } from "../services/lifecyclePrompt";
+import { blockingItemCopy, lifecyclePrompt } from "../services/lifecyclePrompt";
 import { actOnPlantPermit, canPerform, getPlantPermit, notifyPlantPermitsChanged, permitFromPlant, pinMessage, returnPlantPermitForCorrection } from "../services/plantDirectory";
 import { serverPermitType } from "../services/generalWorkDraft";
 import { usePermits } from "../state/PermitStore";
@@ -37,6 +38,10 @@ export function AuthorizationPanel({ permit, onUpdated }: { permit: Permit; onUp
     permitType: serverPermitType(permit.kind),
   });
   const edit = (step = 0) => openCorrection(permit, step);
+  const closeReturn = () => {
+    setReturning(false);
+    setMessage("");
+  };
   const returnForCorrection = async () => {
     if (!identity.token || !permit.serverPermitId) {
       setMessage("Plant Link has not established a Permit Control session.");
@@ -53,7 +58,7 @@ export function AuthorizationPanel({ permit, onUpdated }: { permit: Permit; onUp
       onUpdated(updated);
       notifyPlantPermitsChanged();
       setReturning(false);
-      openCorrection(updated, shown.focus === "ppe" ? 3 : 0);
+      openCorrection(updated, shown.focusStep);
     } catch (error) {
       setMessage(pinMessage(error));
     }
@@ -76,66 +81,91 @@ export function AuthorizationPanel({ permit, onUpdated }: { permit: Permit; onUp
   };
 
   return (
-    <section className="blocker">
-      <div className="kicker">{shown.title}</div>
-      <p>{shown.detail}</p>
-      <p>{permit.id} · {kindTitle(permit.kind)} · Rev {permit.revision}</p>
-      <p>{permit.area || "No area"} · {permit.equipment || "No equipment"} · {permit.workOrder || "No work order"}</p>
-      <div className="kicker">NEXT ACTION</div>
-      <p>{shown.nextTitle}</p>
-      <p>{shown.nextDetail}</p>
-      {shown.blocked ? <p>{shown.blocked}</p> : null}
-      {shown.action && !confirming ? <button type="button" className="btn" onClick={() => setConfirming(true)}>{shown.nextTitle}</button> : null}
+    <>
+      <section className="detail-readiness">
+        <div className="kicker">{shown.nextTitle}</div>
+        <p>{shown.nextDetail}</p>
+        {shown.gaps.length > 0 ? (
+          <>
+            <div className="kicker">Blocking items</div>
+            <ul>
+              {shown.gaps.map((gap) => (
+                <li key={gap}>
+                  <strong>{gap}</strong>
+                  <div>{blockingItemCopy(gap)}</div>
+                </li>
+              ))}
+            </ul>
+          </>
+        ) : null}
+        {shown.blocked && shown.gaps.length === 0 ? <p>{shown.blocked}</p> : null}
+        {shown.action ? (
+          <button type="button" className="btn" onClick={() => { setMessage(""); setConfirming(true); }}>{shown.nextTitle}</button>
+        ) : null}
+        {shown.correction === "edit" ? (
+          <button type="button" className="btn" onClick={() => edit(shown.focusStep)}>Edit permit</button>
+        ) : null}
+        {shown.correction === "return" ? (
+          <button type="button" className="btn" id="return-for-correction" onClick={() => { setMessage(""); setReturning(true); }}>
+            Return for correction
+          </button>
+        ) : null}
+        {record.approvals.length > 0 ? (
+          <>
+            <div className="kicker">Authorization history</div>
+            {record.approvals.map((item) => (
+              <p key={`${item.actingRole}-${item.at}`}>{item.actingRole.replaceAll("_", " ")} · {item.displayName} · {item.permitUserCode} · {item.at ?? ""}</p>
+            ))}
+          </>
+        ) : null}
+        {message && !returning && !confirming ? <p className="form-error">{message}</p> : null}
+      </section>
       {confirming && shown.action ? (
-        <div className="confirm">
-          <div className="kicker">{shown.nextTitle}</div>
-          <p>{permit.id} · {kindTitle(permit.kind)} · {permit.area || "No area"}</p>
-          <p>Acting as {identity.user?.displayName} · {identity.user?.permitUserCode} · {shown.actingRole?.replaceAll("_", " ")}</p>
+        <AdminEditorModal
+          title={shown.nextTitle}
+          code={permit.id}
+          subtitle={`${kindTitle(permit.kind)} · REV ${permit.revision}`}
+          primaryLabel={shown.nextTitle}
+          onClose={() => { setConfirming(false); setMessage(""); }}
+          onSave={() => void run()}
+          error={message || undefined}
+        >
+          <p className="correction-copy">{permit.area || "No area"} · {identity.user?.displayName} · {identity.user?.permitUserCode} · {shown.actingRole?.replaceAll("_", " ")}</p>
           <label className="confirm-field">
             <span>PIN</span>
             <input inputMode="numeric" autoComplete="off" maxLength={6} value={pin} onChange={(event) => setPin(event.target.value)} />
           </label>
-          <div className="confirm-actions">
-            <button type="button" className="btn btn-ghost" onClick={() => setConfirming(false)}>Cancel</button>
-            <button type="button" className="btn" onClick={() => void run()}>{shown.nextTitle}</button>
-          </div>
-        </div>
-      ) : null}
-      {shown.gaps.length > 0 ? (
-        <>
-          <div className="kicker">BLOCKING ITEM</div>
-          {shown.gaps.map((gap) => (
-            <p key={gap}>{gap === "PPE" ? "PPE selection must be completed before this Permit may be authorized." : `${gap} must be completed before this permit may advance.`}</p>
-          ))}
-        </>
-      ) : null}
-      {shown.correction === "edit" ? (
-        <div className="confirm-actions">
-          <button type="button" className="btn" onClick={() => edit(shown.focus === "ppe" ? 3 : 0)}>Edit permit</button>
-          {shown.focus === "ppe" ? <button type="button" className="btn btn-ghost" onClick={() => edit(3)}>Edit PPE</button> : null}
-        </div>
-      ) : null}
-      {shown.correction === "return" && !returning ? (
-        <button type="button" className="btn" onClick={() => setReturning(true)}>Return for correction</button>
+        </AdminEditorModal>
       ) : null}
       {returning ? (
-        <div className="confirm">
-          <div className="kicker">EDIT AUTHORIZED PERMIT</div>
-          <p>This Permit has already been authorized.</p>
-          <p>Changing Permit conditions will create a new revision and invalidate the current authorization.</p>
-          <p>The updated Permit must be reviewed and authorized again before work may be activated.</p>
-          <div className="confirm-actions">
-            <button type="button" className="btn btn-ghost" onClick={() => setReturning(false)}>Cancel</button>
-            <button type="button" className="btn" onClick={() => void returnForCorrection()}>Edit permit</button>
-          </div>
-        </div>
+        <AdminEditorModal
+          title="Return permit for correction"
+          code={permit.id}
+          subtitle={`${kindTitle(permit.kind)} · REV ${permit.revision}`}
+          primaryLabel="Return for correction"
+          restoreId="return-for-correction"
+          onClose={closeReturn}
+          onSave={() => void returnForCorrection()}
+          error={message || undefined}
+        >
+          <p className="correction-copy">This Permit has already been authorized.</p>
+          <p className="correction-copy">Changing Permit conditions will create a new revision and invalidate the current authorization.</p>
+          <p className="correction-copy">The updated Permit must be reviewed and authorized again before work may be activated.</p>
+          {shown.gaps.length > 0 ? (
+            <>
+              <div className="kicker">Current blocking items</div>
+              <ul>
+                {shown.gaps.map((gap) => (
+                  <li key={gap}>
+                    <strong>{gap}</strong>
+                    <div>{blockingItemCopy(gap)}</div>
+                  </li>
+                ))}
+              </ul>
+            </>
+          ) : null}
+        </AdminEditorModal>
       ) : null}
-      <div className="kicker">PERMIT READINESS</div>
-      {shown.readiness.map((item) => <p key={item.label}>{item.label} · {item.state}</p>)}
-      {record.approvals.map((item) => (
-        <p key={`${item.actingRole}-${item.at}`}>{item.actingRole.replaceAll("_", " ")} · {item.displayName} · {item.permitUserCode} · {item.at ?? ""}</p>
-      ))}
-      {message ? <p className="form-error">{message}</p> : null}
-    </section>
+    </>
   );
 }
