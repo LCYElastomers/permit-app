@@ -15,8 +15,9 @@ export interface SyncPresentation {
   notice: string | null;
 }
 
-export const OFFLINE_SYNC_NOTICE =
-  "Plant Link is offline. Your changes are saved locally and will synchronize automatically when the plant connection returns.";
+export const OFFLINE_SYNC_NOTICE = "Plant Link is offline.";
+
+export const STORED_ON_DEVICE_NOTICE = "Your changes are safely stored on this device.";
 
 export const DELAYED_SYNC_NOTICE =
   "Your work is saved locally. Permit Control will retry when the plant connection becomes available.";
@@ -42,6 +43,15 @@ export function describeSync(input: {
   if (input.storage !== "available") {
     return { plant, primary: "LOCAL DATA", secondary: "CHECKING", detail: "", notice: null };
   }
+  if (input.link === "checking") {
+    return {
+      plant,
+      primary: input.pending > 0 ? pendingLabel : "LOCAL DATA",
+      secondary: input.pending > 0 ? "" : "AVAILABLE",
+      detail: "",
+      notice: null,
+    };
+  }
   if (input.syncState === "SYNCING") {
     const fraction = input.progress ? `${input.progress.index} OF ${input.progress.total}` : pendingLabel;
     return { plant, primary: "SYNCING", secondary: fraction, detail: "", notice: null };
@@ -59,9 +69,15 @@ export function describeSync(input: {
     };
   }
   if (input.link === "ready" && input.pending === 0) {
-    return { plant, primary: "SYNCHRONIZED", secondary: "PENDING", detail: "0", notice: null };
+    return { plant, primary: "SYNCHRONIZED", secondary: "0 CHANGES PENDING", detail: "", notice: null };
   }
-  return { plant, primary: "LOCAL DATA", secondary: "AVAILABLE", detail: pendingLabel, notice: null };
+  return {
+    plant,
+    primary: "LOCAL DATA",
+    secondary: "AVAILABLE",
+    detail: pendingLabel,
+    notice: input.link === "unreachable" && input.pending > 0 ? STORED_ON_DEVICE_NOTICE : null,
+  };
 }
 
 export function describePermitSave(

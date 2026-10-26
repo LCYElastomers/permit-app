@@ -49,7 +49,7 @@ export function syncMayStart(link: PlantLink): boolean {
 export function plantLinkLabel(link: PlantLink): string {
   switch (link) {
     case "checking":
-      return "CHECKING";
+      return "CHECKING...";
     case "unreachable":
       return "OFFLINE";
     case "api-online":

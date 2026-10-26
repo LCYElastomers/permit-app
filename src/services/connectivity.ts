@@ -4,12 +4,19 @@ import type { ProbeCall } from "../lib/connectivity";
 import { interpretConnectivity, processIsAvailable, type PlantLinkSnapshot } from "../lib/connectivity";
 
 export async function readProbe(path: string, signal: AbortSignal): Promise<ProbeCall> {
+  const kind = path.endsWith("/ready") ? "readiness result" : "health result";
   try {
-    const body = await apiRequest<unknown>(path, { signal });
+    const body = await apiRequest<unknown>(path, { signal, cache: "no-store" });
+    console.info("plant link", kind, "ok");
     return { outcome: "ok", body };
   } catch (error) {
-    if (signal.aborted) return { outcome: "cancelled" };
-    return probeCall(error);
+    if (signal.aborted) {
+      console.info("plant link", kind, "cancelled");
+      return { outcome: "cancelled" };
+    }
+    const result = probeCall(error);
+    console.info("plant link", kind, result.outcome === "http" ? `http ${result.status}` : result.outcome);
+    return result;
   }
 }
 

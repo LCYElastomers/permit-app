@@ -384,7 +384,7 @@ function UserEditor({
       ) : null}
       {draft.id ? (
         <AdminField label="Administrator PIN" width="small" help="Used to confirm role changes, enabled state, and security actions. The PIN is not stored in this editor.">
-          <input inputMode="numeric" autoComplete="off" value={pin} onChange={(event) => setPin(event.target.value)} />
+          <input type="text" inputMode="numeric" autoComplete="off" value={pin} onChange={(event) => setPin(event.target.value)} />
         </AdminField>
       ) : null}
     </AdminEditorModal>

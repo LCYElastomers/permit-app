@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DELAYED_SYNC_NOTICE, describePermitSave, describeSync, OFFLINE_SYNC_NOTICE, syncNowNotice } from "../src/services/syncStatus";
+import { DELAYED_SYNC_NOTICE, describePermitSave, describeSync, OFFLINE_SYNC_NOTICE, STORED_ON_DEVICE_NOTICE, syncNowNotice } from "../src/services/syncStatus";
 import { nextPlantRows, plantListsMayRefresh, PLANT_LIST_REFRESH_MS, stationSamplePermits } from "../src/services/plantLists";
 
 describe("sync status", () => {
@@ -11,7 +11,14 @@ describe("sync status", () => {
       primary: "LOCAL DATA",
       secondary: "AVAILABLE",
       detail: "1 CHANGE PENDING",
-      notice: null,
+      notice: STORED_ON_DEVICE_NOTICE,
+    });
+  });
+
+  it("shows a checking probe without hiding pending work", () => {
+    expect(describeSync({ link: "checking", storage: "available", pending: 2, syncState: "PENDING", progress: null })).toMatchObject({
+      plant: "CHECKING...",
+      primary: "2 CHANGES PENDING",
     });
   });
 
@@ -19,11 +26,13 @@ describe("sync status", () => {
     expect(
       describeSync({ link: "ready", storage: "available", pending: 1, syncState: "SYNCING", progress: { index: 1, total: 1 } }),
     ).toMatchObject({ plant: "CONNECTED", primary: "SYNCING", secondary: "1 OF 1" });
+    expect(
+      describeSync({ link: "ready", storage: "available", pending: 2, syncState: "SYNCING", progress: { index: 1, total: 2 } }),
+    ).toMatchObject({ primary: "SYNCING", secondary: "1 OF 2" });
     expect(describeSync({ link: "ready", storage: "available", pending: 0, syncState: "IDLE", progress: null })).toMatchObject({
       plant: "CONNECTED",
       primary: "SYNCHRONIZED",
-      secondary: "PENDING",
-      detail: "0",
+      secondary: "0 CHANGES PENDING",
     });
   });
 
@@ -34,6 +43,7 @@ describe("sync status", () => {
     expect(view.notice).toBe(DELAYED_SYNC_NOTICE);
     expect(view.notice).not.toContain("http");
     expect(syncNowNotice({ started: false, reason: "plant-link" })).toBe(OFFLINE_SYNC_NOTICE);
+    expect(OFFLINE_SYNC_NOTICE).toBe("Plant Link is offline.");
     expect(syncNowNotice({ started: false, reason: "busy" })).toBeNull();
     expect(syncNowNotice({ started: true })).toBeNull();
   });

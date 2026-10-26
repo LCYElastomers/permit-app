@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState, type ButtonHTMLAttributes, type ReactNode } from "react";
+import { isTextEntry, shouldRestoreModalFocus } from "../services/touchInput";
 import { createPortal } from "react-dom";
 import type { FieldWidth } from "../services/adminPresentation";
 
@@ -232,7 +233,10 @@ export function AdminEditorModal({
       const named = document.body.dataset.adminRestore;
       delete document.body.dataset.adminRestore;
       const restore = named ? document.getElementById(named) : restoreRef.current ? document.getElementById(restoreRef.current) : null;
-      (restore ?? previously)?.focus();
+      const target = restore ?? previously;
+      const coarse = window.matchMedia("(any-pointer: coarse)").matches;
+      if (target && shouldRestoreModalFocus({ coarse, targetIsText: isTextEntry(target) })) target.focus();
+      else if (document.activeElement instanceof HTMLElement && isTextEntry(document.activeElement)) document.activeElement.blur();
     };
   }, []);
 

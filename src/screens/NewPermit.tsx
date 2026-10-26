@@ -307,11 +307,11 @@ function ScopeStep({
         <AreaNote form={form} catalog={catalog} />
         <label className="form-field">
           <span>Equipment / tag</span>
-          <input className="mono-input" value={form.place} onChange={(event) => patch({ place: event.target.value })} />
+          <input type="text" className="mono-input" value={form.place} onChange={(event) => patch({ place: event.target.value })} />
         </label>
         <label className="form-field">
           <span>Work order</span>
-          <input className="mono-input" value={form.workOrder} onChange={(event) => patch({ workOrder: event.target.value })} />
+          <input type="text" className="mono-input" value={form.workOrder} onChange={(event) => patch({ workOrder: event.target.value })} />
         </label>
         <label className="form-field span-2">
           <span>Describe the work</span>
@@ -357,11 +357,11 @@ function ScopeStep({
         )}
         <label className="form-field">
           <span>Requester</span>
-          <input value={form.requester} onChange={(event) => patch({ requester: event.target.value })} />
+          <input type="text" value={form.requester} onChange={(event) => patch({ requester: event.target.value })} />
         </label>
         <label className="form-field">
           <span>Craft / permit receiver</span>
-          <input value={form.craft} onChange={(event) => patch({ craft: event.target.value })} />
+          <input type="text" value={form.craft} onChange={(event) => patch({ craft: event.target.value })} />
         </label>
         <div className="form-pair">
           <label className="form-field">
@@ -463,7 +463,7 @@ function DetailStep({
             {item.wide ? (
               <textarea value={form.fields[item.key] ?? ""} onChange={(event) => setField(item.key, event.target.value)} />
             ) : (
-              <input value={form.fields[item.key] ?? ""} onChange={(event) => setField(item.key, event.target.value)} />
+              <input type="text" value={form.fields[item.key] ?? ""} onChange={(event) => setField(item.key, event.target.value)} />
             )}
           </label>
         ))}
@@ -513,7 +513,7 @@ function ChoiceStep({
       {selected.includes(otherKey) ? (
         <label className="form-field other-field">
           <span>{otherLabel}</span>
-          <input value={otherValue} onChange={(event) => onOther(event.target.value)} />
+          <input type="text" value={otherValue} onChange={(event) => onOther(event.target.value)} />
         </label>
       ) : null}
     </Section>
@@ -637,6 +637,7 @@ function AuthorizationStep({
                   <label className="form-field">
                     <span>Name</span>
                     <input
+                    type="text"
                     value={form.names[role.id] ?? ""}
                     onChange={(event) => {
                       const value = event.target.value;

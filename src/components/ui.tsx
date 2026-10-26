@@ -97,7 +97,7 @@ export function TouchSelect({
 
   useEffect(() => {
     if (!open) return;
-    searchRef.current?.focus();
+    if (!coarse) searchRef.current?.focus();
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       event.preventDefault();
@@ -106,7 +106,7 @@ export function TouchSelect({
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [open]);
+  }, [coarse, open]);
 
   const needle = query.trim().toLowerCase();
   const shown = options.filter((option) => option.label.toLowerCase().includes(needle));
@@ -132,7 +132,7 @@ export function TouchSelect({
           <div className="picker-bar">
             <label className="form-field">
               <span>Search</span>
-              <input ref={searchRef} value={query} onChange={(event) => setQuery(event.target.value)} />
+              <input ref={searchRef} type="text" value={query} onChange={(event) => setQuery(event.target.value)} />
             </label>
             <button
               type="button"

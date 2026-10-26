@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { resolveComposition, type Composition } from "../lib/composition";
+import { fieldNeedsReveal, installTouchInput, isTextEntry } from "../services/touchInput";
 
 const CompositionContext = createContext<Composition>("desktop");
 
@@ -41,24 +42,41 @@ export function CompositionProvider({ children }: { children: ReactNode }) {
     const coarse = window.matchMedia("(pointer: coarse)");
     coarse.addEventListener("change", update);
     const viewport = window.visualViewport;
-    viewport?.addEventListener("resize", applyVisibleHeight);
-    viewport?.addEventListener("scroll", applyVisibleHeight);
 
+    const reveal = (target: HTMLElement) => {
+      if (!isTextEntry(target)) return;
+      const viewport = window.visualViewport;
+      const rect = target.getBoundingClientRect();
+      const top = viewport?.offsetTop ?? 0;
+      const height = viewport?.height ?? window.innerHeight;
+      if (!fieldNeedsReveal({ top: rect.top, bottom: rect.bottom, visibleTop: top + 8, visibleBottom: top + height - 120 })) return;
+      target.scrollIntoView({ block: "nearest", inline: "nearest" });
+    };
     const onFocus = (event: FocusEvent) => {
       const target = event.target;
       if (!(target instanceof HTMLElement)) return;
-      if (!target.matches("input, textarea, select")) return;
-      window.setTimeout(() => target.scrollIntoView({ block: "center", inline: "nearest" }), 160);
+      window.setTimeout(() => {
+        if (target.isConnected) reveal(target);
+      }, 160);
+    };
+    const onViewport = () => {
+      applyVisibleHeight();
+      const active = document.activeElement;
+      if (active instanceof HTMLElement) reveal(active);
     };
     document.addEventListener("focusin", onFocus);
+    viewport?.addEventListener("resize", onViewport);
+    viewport?.addEventListener("scroll", applyVisibleHeight);
+    const removeTouch = installTouchInput();
 
     return () => {
       window.removeEventListener("resize", update);
       window.screen?.orientation?.removeEventListener("change", update);
       coarse.removeEventListener("change", update);
-      viewport?.removeEventListener("resize", applyVisibleHeight);
+      viewport?.removeEventListener("resize", onViewport);
       viewport?.removeEventListener("scroll", applyVisibleHeight);
       document.removeEventListener("focusin", onFocus);
+      removeTouch();
     };
   }, []);
 

@@ -173,7 +173,7 @@ function PinField({ label, value, onChange }: { label: string; value: string; on
   return (
     <label className="confirm-field">
       <span>{label}</span>
-      <input inputMode="numeric" autoComplete="off" maxLength={6} value={value} onChange={(event) => onChange(event.target.value)} />
+      <input type="text" inputMode="numeric" autoComplete="off" maxLength={6} value={value} onChange={(event) => onChange(event.target.value)} />
     </label>
   );
 }

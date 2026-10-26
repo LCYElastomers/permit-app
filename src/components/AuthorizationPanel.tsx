@@ -133,7 +133,7 @@ export function AuthorizationPanel({ permit, onUpdated }: { permit: Permit; onUp
           <p className="correction-copy">{permit.area || "No area"} · {identity.user?.displayName} · {identity.user?.permitUserCode} · {shown.actingRole?.replaceAll("_", " ")}</p>
           <label className="confirm-field">
             <span>PIN</span>
-            <input inputMode="numeric" autoComplete="off" maxLength={6} value={pin} onChange={(event) => setPin(event.target.value)} />
+            <input type="text" inputMode="numeric" autoComplete="off" maxLength={6} value={pin} onChange={(event) => setPin(event.target.value)} />
           </label>
         </AdminEditorModal>
       ) : null}

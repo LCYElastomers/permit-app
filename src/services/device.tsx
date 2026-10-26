@@ -15,6 +15,7 @@ interface DeviceState {
   syncNotice: string | null;
   syncProgress: SyncProgress | null;
   requestSyncNow: () => void;
+  requestConnect: () => void;
 }
 
 const DeviceContext = createContext<DeviceState | null>(null);
@@ -27,6 +28,7 @@ export function DeviceProvider({ children }: { children: ReactNode }) {
   const [syncProgress, setSyncProgress] = useState<SyncProgress | null>(null);
   const linkRef = useRef<PlantLink>(checkingPlantLink.link);
   const coordinatorRef = useRef<SyncCoordinator | null>(null);
+  const monitorRef = useRef<ReturnType<typeof startPlantLinkMonitor> | null>(null);
 
   const requestSyncNow = useCallback(() => {
     const coordinator = coordinatorRef.current;
@@ -37,10 +39,18 @@ export function DeviceProvider({ children }: { children: ReactNode }) {
     setSyncNotice(syncNowNotice(coordinator.requestSyncNow()));
   }, []);
 
+  const requestConnect = useCallback(() => {
+    setSyncNotice(null);
+    monitorRef.current?.connectNow();
+  }, []);
+
   useEffect(() => {
     let stopped = false;
-    const report = (index: number, total: number) => {
-      if (!stopped) setSyncProgress({ index, total });
+    let cursor = 0;
+    let planned = 0;
+    const report = () => {
+      cursor += 1;
+      if (!stopped) setSyncProgress({ index: cursor, total: Math.max(planned, cursor) });
     };
     const showStored = async () => {
       const status = await readLocalStatus().catch(() => null);
@@ -72,6 +82,8 @@ export function DeviceProvider({ children }: { children: ReactNode }) {
       if (stopped || signal.aborted || !syncMayStart(linkRef.current)) return;
       try {
         const started = await noteSyncCycle("start");
+        planned = started.pendingCount;
+        cursor = 0;
         if (!stopped) setLocal({ status: "available", ...started });
       } catch {
         if (!stopped) setLocal({ status: "failed" });
@@ -143,11 +155,15 @@ export function DeviceProvider({ children }: { children: ReactNode }) {
     });
     coordinatorRef.current = coordinator;
 
-    const stopMonitor = startPlantLinkMonitor((snapshot) => {
+    const monitor = startPlantLinkMonitor((snapshot) => {
       if (stopped) return;
+      const previous = linkRef.current;
       linkRef.current = snapshot.link;
       setLink(snapshot);
-      if (syncMayStart(snapshot.link)) setSyncNotice(null);
+      if (syncMayStart(snapshot.link) || snapshot.link === "checking") setSyncNotice(null);
+      if (snapshot.link === "ready" && !syncMayStart(previous)) {
+        console.info("plant link", "coordinator wake", { from: previous, to: snapshot.link });
+      }
       coordinator.onPlantLink(snapshot.link);
       if (snapshot.link === "ready" || snapshot.link === "api-online") {
         void notePlantContact()
@@ -160,6 +176,17 @@ export function DeviceProvider({ children }: { children: ReactNode }) {
           .catch(() => undefined);
       }
     });
+    monitorRef.current = monitor;
+    const onForeground = () => {
+      if (document.visibilityState === "hidden") return;
+      monitor.noteForeground();
+    };
+    const onNetwork = () => {
+      monitor.noteNetwork();
+    };
+    window.addEventListener("focus", onForeground);
+    document.addEventListener("visibilitychange", onForeground);
+    window.addEventListener("online", onNetwork);
 
     void (async () => {
       try {
@@ -194,8 +221,12 @@ export function DeviceProvider({ children }: { children: ReactNode }) {
     return () => {
       stopped = true;
       coordinatorRef.current = null;
+      monitorRef.current = null;
       coordinator.stop();
-      stopMonitor();
+      monitor.stop();
+      window.removeEventListener("focus", onForeground);
+      document.removeEventListener("visibilitychange", onForeground);
+      window.removeEventListener("online", onNetwork);
       stopStoreWatch();
     };
   }, []);
@@ -206,8 +237,8 @@ export function DeviceProvider({ children }: { children: ReactNode }) {
       cachedAreas,
       local.status === "available" ? local.referenceAreasSyncedAt : null,
     );
-    return { link, local, areas, syncNotice, syncProgress, requestSyncNow };
-  }, [cachedAreas, link, local, requestSyncNow, syncNotice, syncProgress]);
+    return { link, local, areas, syncNotice, syncProgress, requestSyncNow, requestConnect };
+  }, [cachedAreas, link, local, requestConnect, requestSyncNow, syncNotice, syncProgress]);
 
   return <DeviceContext.Provider value={value}>{children}</DeviceContext.Provider>;
 }

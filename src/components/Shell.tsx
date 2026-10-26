@@ -262,7 +262,7 @@ export function Shell() {
 }
 
 function NetworkStatus({ link, local }: { link: PlantLinkSnapshot; local: LocalView }) {
-  const { requestSyncNow, syncNotice, syncProgress } = useDevice();
+  const { requestSyncNow, requestConnect, syncNotice, syncProgress } = useDevice();
   const view = describeSync({
     link: link.link,
     storage: local.status,
@@ -299,9 +299,21 @@ function NetworkStatus({ link, local }: { link: PlantLinkSnapshot; local: LocalV
       </div>
       {view.notice ? <p className="sync-notice">{view.notice}</p> : null}
       {syncNotice ? <p className="sync-notice">{syncNotice}</p> : null}
-      <button type="button" className="sync-now" onClick={requestSyncNow}>
-        SYNC NOW
-      </button>
+      {link.link === "unreachable" || link.link === "api-online" ? (
+        <button type="button" className="sync-now" onClick={requestConnect}>
+          CONNECT TO PLANT
+        </button>
+      ) : null}
+      {link.link === "ready" ? (
+        <>
+          <button type="button" className="sync-now" onClick={requestSyncNow}>
+            SYNC NOW
+          </button>
+          <button type="button" className="sync-now" onClick={requestConnect}>
+            CHECK PLANT LINK
+          </button>
+        </>
+      ) : null}
     </div>
   );
 }

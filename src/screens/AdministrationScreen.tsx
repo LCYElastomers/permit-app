@@ -751,7 +751,7 @@ function FieldEditor({ token, permitType, sectionId, published, fields, initialI
           </select>
         </AdminField>
         <AdminField label="Display order" width="small" help="Position inside this section.">
-          <input inputMode="numeric" value={String(position)} onChange={(event) => setPosition(Number(event.target.value) || 0)} />
+          <input type="text" inputMode="numeric" value={String(position)} onChange={(event) => setPosition(Number(event.target.value) || 0)} />
         </AdminField>
         <AdminField label="Enabled" width="small"><input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} /></AdminField>
       </AdminFieldGroup>
@@ -825,7 +825,7 @@ function PublishReview({ token, bundle, permitTitle, onClose, onSaved }: { token
       </ul>
       <p className="admin-inline-note">Historical permits will remain on their existing versions.</p>
       <AdminField label="PIN" width="small" help="The administrator PIN confirms this publication.">
-        <input inputMode="numeric" autoComplete="off" value={pin} onChange={(event) => setPin(event.target.value)} />
+        <input type="text" inputMode="numeric" autoComplete="off" value={pin} onChange={(event) => setPin(event.target.value)} />
       </AdminField>
     </AdminEditorModal>
   );
@@ -971,7 +971,7 @@ function RuleEditor({
         <p>{conditionCode || "FIELD"} is {displayValue(conditionValue)} → {actionPhrase(action, target, bundle.fields)} ({target || "TARGET"})</p>
       </details>
       <AdminField label="PIN" width="small" help="Saving a rule confirms with the administrator PIN and adds it to the working version.">
-        <input inputMode="numeric" autoComplete="off" value={pin} onChange={(event) => setPin(event.target.value)} />
+        <input type="text" inputMode="numeric" autoComplete="off" value={pin} onChange={(event) => setPin(event.target.value)} />
       </AdminField>
     </AdminEditorModal>
   );

@@ -164,6 +164,7 @@ export function PermitDetail() {
           <label className="confirm-field">
             <span>Reason</span>
             <input
+              type="text"
               value={reason}
               onChange={(event) => {
                 setReason(event.target.value);
