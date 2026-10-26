@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using PdfSharp.Pdf.IO;
+using PermitControl.Application;
 using PermitControl.Domain;
 using PermitControl.Infrastructure.Documents;
 
@@ -332,7 +333,8 @@ public class PermitPdfTests
         Assert.Contains("REV 03", document.Banner);
         Assert.Contains("PENDING", document.Sections.Single(section => section.Title == "PEOPLE & AUTHORIZATION").Lines);
         Assert.Contains("No hazards recorded.", document.Sections.Single(section => section.Title == "HAZARDS").Lines);
-        Assert.Contains("Not recorded", document.Sections.Single(section => section.Title == "WORK SCOPE").Lines);
+        Assert.Contains("Work scope not recorded.", document.Sections.Single(section => section.Title == "WORK SCOPE").Lines);
+        Assert.Contains("NOT ASSIGNED", document.Sections.Single(section => section.Title == "PEOPLE & AUTHORIZATION").Lines);
         Assert.DoesNotContain(document.Sections.SelectMany(section => section.Lines), line => line.Contains('—'));
         Assert.False(document.Contains("WORK AUTHORIZED"));
         Assert.DoesNotContain(document.Sections, section => section.Title == "GENERAL WORK CONDITIONS");
@@ -416,6 +418,38 @@ public class PermitPdfTests
     }
 
     [Fact]
+    public void Packaged_logo_loads_from_the_application_and_a_missing_asset_is_diagnosed()
+    {
+        var assembly = typeof(PdfSharpPermitRenderer).Assembly;
+        using (var packaged = assembly.GetManifestResourceStream(PermitBrandAssets.ResourceName))
+        {
+            Assert.NotNull(packaged);
+            var header = new byte[8];
+            Assert.Equal(8, packaged.Read(header, 0, 8));
+            Assert.Equal(new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A }, header);
+        }
+
+        var besideAssembly = Path.Combine(Path.GetDirectoryName(assembly.Location)!, "Branding", "lcy-logo-white.png");
+        var buildOutput = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "PermitControl.Infrastructure", "bin", "Debug", "net9.0", "Branding", "lcy-logo-white.png"));
+        Assert.True(File.Exists(besideAssembly) || File.Exists(buildOutput), $"{besideAssembly} or {buildOutput}");
+        var missing = Assert.Throws<FileStorageException>(() => PermitBrandAssets.Open(null, Path.Combine(Path.GetTempPath(), "permit-control-missing-logo.png")));
+        Assert.Contains("pdf-logo-missing", missing.Code);
+        Assert.Contains("packaged LCY logo", missing.Message);
+
+        var bytes = new PdfSharpPermitRenderer().Render(GeneralWorkDocuments.Compose(Sample(), Guid.NewGuid(), GeneratedAt));
+        var text = Encoding.Latin1.GetString(bytes);
+        Assert.StartsWith("%PDF-", text);
+        Assert.Contains("/Image", text);
+        Assert.Contains("PERMIT CONTROL", text);
+        Assert.Contains("Controlled Electronic Record", text);
+        using var stream = new MemoryStream(bytes);
+        var pdf = PdfReader.Open(stream, PdfDocumentOpenMode.Import);
+        Assert.Equal(612, pdf.Pages[0].Width.Point);
+        Assert.Equal(792, pdf.Pages[0].Height.Point);
+        Assert.Equal("application/pdf", PermitPdfExporting.Prepare(Sample(), PermitExportType.PRINT, Guid.NewGuid(), GeneratedAt, _ => bytes).Export!.MimeType);
+    }
+
+    [Fact]
     public void Visual_fixtures_are_written_for_inspection()
     {
         var renderer = new PdfSharpPermitRenderer();
@@ -433,34 +467,78 @@ public class PermitPdfTests
             },
         });
         var active = Sample(PermitStatus.ACTIVE);
+        active.Permit.JobDescription = "Replace the local pressure gauge on the cooling-water discharge and verify the joint after the line is returned to service.";
+        active.Permit.ActivatedAt = GeneratedAt;
         active.Approvals =
         [
-            Approval("AUTHORIZED", "PERMIT_AUTHORIZER", "Bobby Fitzgerald", "PCU-0001", "IT Manager", GeneratedAt),
-            Approval("ACCEPTED", "CRAFT_RECEIVER", "Jordan Lee", "PCU-0010", "Craft", GeneratedAt),
+            Approval("SUBMITTED", "REQUESTER", "Alex Morgan", "PCU-0009", "Mechanic", GeneratedAt.AddHours(-2)),
+            Approval("AUTHORIZED", "PERMIT_AUTHORIZER", "Bobby Fitzgerald", "PCU-0001", "IT Manager", GeneratedAt.AddHours(-1)),
+            Approval("ACCEPTED", "CRAFT_RECEIVER", "Jordan Lee", "PCU-0010", "Craft", GeneratedAt.AddMinutes(-30)),
         ];
-        active.Hazards = Marks("Stored energy", "Hot surfaces", "Chemical exposure");
-        active.Controls = Controls("Barricade", "Gas monitor");
-        active.Ppe = Clothing("Hard hat", "Safety glasses", "Gloves", "FR clothing");
+        active.Hazards = Marks("atmospheric", "stored energy", "chemical exposure", "fire/hot work");
+        active.Controls = Controls("barricades", "LOTO", "fire watch", "JSA");
+        active.Ppe = Clothing("Hard hat", "Safety glasses", "FR clothing", "Gloves");
         WritePreview(directory, "general-work-active.pdf", renderer, active);
-        WritePreview(directory, "general-work-suspended.pdf", renderer, Sample(PermitStatus.SUSPENDED, suspensionReason: "Line opened before the monitor cleared", suspendedAt: GeneratedAt));
-        WritePreview(directory, "general-work-multipage.pdf", renderer, Sample(PermitStatus.DRAFT, Enumerable.Range(1, 80).Select(index => new PermitHazard { Label = $"Hazard line {index:00} for page break" }).ToArray()));
-        WritePreview(directory, "general-work-safety-lists.pdf", renderer, active);
         var hot = Sample(PermitStatus.ACTIVE);
         hot.Permit.PermitType = PermitType.HOT_WORK;
         hot.Permit.PermitNumber = "PTW-2026-00027";
         hot.Permit.CurrentRevision = 2;
         hot.Permit.JobDescription = "Weld support bracket at pump discharge piping and verify equipment alignment following completion.";
-        hot.Hazards = Marks("fire/hot work", "stored energy", "atmospheric");
-        hot.Controls = Controls("fire watch", "barricades", "LOTO");
+        hot.Permit.ActivatedAt = GeneratedAt;
+        hot.Approvals = active.Approvals;
+        hot.Hazards = Marks("fire/hot work", "stored energy", "atmospheric", "H2S");
+        hot.Controls = Controls("fire watch", "barricades", "LOTO", "PPE");
         hot.Ppe = Clothing("Hard hat", "Safety glasses", "FR clothing", "Gloves");
         hot.ModuleFacts =
         [
             new PermitModuleFact { ModuleKind = PermitModuleKind.HOT_WORK, Name = "combustibleClearance", Value = "35 ft" },
+            new PermitModuleFact { ModuleKind = PermitModuleKind.HOT_WORK, Name = "ignitionControls", Value = "Welding and grinding" },
+            new PermitModuleFact { ModuleKind = PermitModuleKind.HOT_WORK, Name = "extinguishing", Value = "20 lb extinguisher at the work face" },
             new PermitModuleFact { ModuleKind = PermitModuleKind.FIRE_WATCH, Name = "fireWatch", Value = "Alex Morgan" },
+            new PermitModuleFact { ModuleKind = PermitModuleKind.FIRE_WATCH, Name = "postFireWatch", Value = "60 minutes" },
+            new PermitModuleFact { ModuleKind = PermitModuleKind.ATMOSPHERIC_MONITORING, Name = "initialTest", Value = "LEL 0 percent, O2 20.9 percent" },
+            new PermitModuleFact { ModuleKind = PermitModuleKind.ATMOSPHERIC_MONITORING, Name = "gasTester", Value = "Jordan Lee" },
         ];
         WritePreview(directory, "hot-work-active.pdf", renderer, hot);
-        Assert.True(File.Exists(Path.Combine(directory, "general-work-active.pdf")));
-        Assert.True(File.Exists(Path.Combine(directory, "hot-work-active.pdf")));
+        var suspended = Sample(PermitStatus.SUSPENDED, suspensionReason: "Line opened before the monitor cleared", suspendedAt: GeneratedAt);
+        suspended.Approvals = [Approval("AUTHORIZED", "PERMIT_AUTHORIZER", "Bobby Fitzgerald", "PCU-0001", "IT Manager", GeneratedAt)];
+        WritePreview(directory, "general-work-suspended.pdf", renderer, suspended);
+        var longPermit = Sample(PermitStatus.ACTIVE, Enumerable.Range(1, 40).Select(index => new PermitHazard { Label = $"Hazard line {index:00} for page break" }).ToArray());
+        longPermit.Permit.PermitType = PermitType.CONFINED_SPACE;
+        longPermit.Permit.PermitNumber = "PTW-2026-00044";
+        longPermit.Permit.CurrentRevision = 3;
+        longPermit.Permit.JobDescription = "Enter the cooling-water vessel to inspect the internal coating and remove loose scale before the vessel is returned to service.";
+        longPermit.Controls = Enumerable.Range(1, 24).Select(index => new PermitControlRecord { Label = $"Control line {index:00} for the specialty permit" }).ToArray();
+        longPermit.Ppe = Enumerable.Range(1, 12).Select(index => new PermitPpe { Label = $"PPE item {index:00}" }).ToArray();
+        longPermit.ModuleFacts =
+        [
+            new PermitModuleFact { ModuleKind = PermitModuleKind.CONFINED_SPACE, Name = "vesselId", Value = "V-210 cooling-water drum" },
+            new PermitModuleFact { ModuleKind = PermitModuleKind.CONFINED_SPACE, Name = "attendant", Value = "Alex Morgan" },
+            new PermitModuleFact { ModuleKind = PermitModuleKind.CONFINED_SPACE, Name = "entrant", Value = "Jordan Lee" },
+            new PermitModuleFact { ModuleKind = PermitModuleKind.ATMOSPHERIC_MONITORING, Name = "initialTest", Value = "O2 20.9 percent, LEL 0 percent, H2S 0 ppm" },
+            new PermitModuleFact { ModuleKind = PermitModuleKind.RESCUE, Name = "rescue", Value = "Rescue team staged at the north access" },
+        ];
+        WritePreview(directory, "specialty-multipage.pdf", renderer, longPermit);
+        var lists = Sample(PermitStatus.ACTIVE);
+        lists.Hazards = Marks("atmospheric", "stored energy", "chemical exposure", "fire/hot work", "fall", "engulfment", "underground utilities", "electrical", "H2S", "LEL", "O2", "traffic");
+        lists.Controls = Controls("LOTO", "JSA", "SOP", "barricades", "ventilation", "monitoring", "fire watch", "rescue", "PPE");
+        lists.Ppe = Clothing("Hard hat", "Safety glasses", "FR clothing", "Gloves", "Hearing protection", "Harness", "Face shield", "Chemical gloves");
+        WritePreview(directory, "safety-lists.pdf", renderer, lists);
+        WritePreview(directory, "pending-authorization.pdf", renderer, Sample(PermitStatus.PENDING_REVIEW));
+        foreach (var name in new[] { "general-work-draft-sparse.pdf", "general-work-active.pdf", "hot-work-active.pdf", "general-work-suspended.pdf", "specialty-multipage.pdf", "safety-lists.pdf", "pending-authorization.pdf" })
+        {
+            var path = Path.Combine(directory, name);
+            Assert.True(File.Exists(path), path);
+            using var stream = new MemoryStream(File.ReadAllBytes(path));
+            var pdf = PdfReader.Open(stream, PdfDocumentOpenMode.Import);
+            Assert.Equal(612, pdf.Pages[0].Width.Point);
+            Assert.Equal(792, pdf.Pages[0].Height.Point);
+        }
+
+        using var specialty = new MemoryStream(File.ReadAllBytes(Path.Combine(directory, "specialty-multipage.pdf")));
+        var specialtyPdf = PdfReader.Open(specialty, PdfDocumentOpenMode.Import);
+        Assert.True(specialtyPdf.PageCount >= 2);
+        Assert.Contains("Page 2 of", PageText(specialtyPdf.Pages[1]));
     }
 
     private static void WritePreview(string directory, string name, PdfSharpPermitRenderer renderer, AuthoritativeGeneralWork source)

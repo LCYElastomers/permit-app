@@ -18,6 +18,7 @@
     <EmbeddedResource Include="Fonts\IBMPlexSans-Regular.ttf" />
     <EmbeddedResource Include="Fonts\IBMPlexSans-Bold.ttf" />
     <EmbeddedResource Include="Branding\lcy-logo-white.png" />
+    <Content Include="Branding\lcy-logo-white.png" Link="Branding\lcy-logo-white.png" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
   <PropertyGroup>
