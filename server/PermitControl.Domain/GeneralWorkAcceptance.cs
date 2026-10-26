@@ -88,6 +88,15 @@ public sealed class GeneralWorkResult
 
     public static GeneralWorkResult Invalid(string error) => new() { Kind = GeneralWorkResultKind.Invalid, Error = error };
     public static GeneralWorkResult Conflict(string error) => new() { Kind = GeneralWorkResultKind.Conflict, Error = error };
+
+    public static GeneralWorkResult AcceptedSubmission(Guid eventId, Guid permitId, string permitNumber) => new()
+    {
+        Kind = GeneralWorkResultKind.Accepted,
+        PermitNumber = permitNumber,
+        PermitId = permitId,
+        EventId = eventId,
+        Revision = 1,
+    };
 }
 
 public sealed class GeneralWorkPlan
@@ -344,6 +353,52 @@ public static class GeneralWorkAcceptance
         return facts;
     }
 
+    public static string? ValidateSubmission(GeneralWorkPush push)
+    {
+        if (push.EventId == Guid.Empty) return "event-id-required";
+        if (push.PermitId == Guid.Empty) return "permit-id-required";
+        if (push.Revision != 1) return "revision-invalid";
+        if (!string.Equals(push.EventType, nameof(PermitEventType.PERMIT_SUBMITTED), StringComparison.Ordinal))
+        {
+            return "event-not-supported";
+        }
+
+        if (push.OccurredAt == default) return "occurred-at-required";
+        return null;
+    }
+
+    /// <summary>
+    /// Moves a synchronized draft to pending review. OccurredAt stays the client time.
+    /// RecordedAt and the receipt ReceivedAt are the server clock.
+    /// </summary>
+    public static (PermitEvent Event, SyncEvent Receipt) BuildSubmission(Permit permit, GeneralWorkPush push, DateTimeOffset recordedAt)
+    {
+        permit.Status = PermitStatus.PENDING_REVIEW;
+        permit.UpdatedAt = recordedAt;
+        var domainEvent = new PermitEvent
+        {
+            Id = push.EventId,
+            PermitId = permit.Id,
+            PermitRevision = push.Revision,
+            EventType = PermitEventType.PERMIT_SUBMITTED,
+            OccurredAt = push.OccurredAt,
+            RecordedAt = recordedAt,
+            UserId = push.UserId,
+            DeviceId = push.DeviceId,
+            Payload = null,
+            SyncSource = SyncSource.CLIENT,
+        };
+        var receipt = new SyncEvent
+        {
+            Id = push.EventId,
+            DeviceId = push.DeviceId,
+            PermitId = permit.Id,
+            EventType = PermitEventType.PERMIT_SUBMITTED,
+            ReceivedAt = recordedAt,
+        };
+        return (domainEvent, receipt);
+    }
+
     private static string? Facts(GeneralWorkBody body)
     {
         var exclusions = body.Exclusions?
@@ -563,5 +618,30 @@ public sealed class GeneralWorkSession
             receipts.RemoveAll(item => item.Id == push.EventId);
             throw;
         }
+    }
+
+    public GeneralWorkResult Submit(GeneralWorkPush push, DateTimeOffset recordedAt)
+    {
+        var existing = receipts.FirstOrDefault(item => item.Id == push.EventId);
+        if (existing is not null)
+        {
+            if (existing.PermitId != push.PermitId) return GeneralWorkResult.Conflict("event-permit-mismatch");
+            var stored = permits.First(item => item.Id == push.PermitId);
+            return GeneralWorkResult.Duplicate(push.EventId, push.PermitId, stored.PermitNumber);
+        }
+
+        var error = GeneralWorkAcceptance.ValidateSubmission(push);
+        if (error is not null) return GeneralWorkResult.Invalid(error);
+        var permit = permits.FirstOrDefault(item => item.Id == push.PermitId);
+        if (permit is null) return GeneralWorkResult.Conflict("permit-not-ready");
+        if (permit.Status is not (PermitStatus.DRAFT or PermitStatus.PENDING_REVIEW))
+        {
+            return GeneralWorkResult.Conflict("lifecycle-conflict");
+        }
+
+        var (domainEvent, receipt) = GeneralWorkAcceptance.BuildSubmission(permit, push, recordedAt);
+        events.Add(domainEvent);
+        receipts.Add(receipt);
+        return GeneralWorkResult.AcceptedSubmission(domainEvent.Id, permit.Id, permit.PermitNumber);
     }
 }

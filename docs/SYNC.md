@@ -110,7 +110,7 @@ Mock permit screens still use their existing in-memory sample data. That sample 
 
 ## Push
 
-`POST /api/v1/sync/push` accepts one General Work `PERMIT_CREATED` event. The client sends it only while Plant Link is `READY`, after the local save has committed. Save Draft does not wait for this call.
+`POST /api/v1/sync/push` accepts one `PERMIT_CREATED` event for any supported permit type, or one `PERMIT_SUBMITTED` event for a permit that already exists. The client sends either event only while Plant Link is `READY`, after the local save has committed. Save Draft and Submit for Review do not wait for this call. A submit that arrives before its create is `409` `permit-not-ready` and stays pending. The same event id returns `duplicate` with the original permit number. `occurredAt` is the device time. The server records `recordedAt` and `receivedAt` separately. There is no new sync route.
 
 ```json
 {

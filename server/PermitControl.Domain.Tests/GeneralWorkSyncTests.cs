@@ -148,6 +148,87 @@ public sealed class GeneralWorkSyncTests
         Assert.Contains("RETURNING \"LastValue\"", PermitNumberSql.Allocate, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void SubmissionBecomesPendingReviewAndKeepsTheClientClock()
+    {
+        var session = new GeneralWorkSession();
+        var created = session.Accept(Sample(), Recorded);
+        var occurred = Recorded.AddMinutes(-2);
+        var user = Guid.Parse("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+        var device = Guid.Parse("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
+        var submit = Submission(occurred, user, device);
+        var result = session.Submit(submit, Recorded.AddMinutes(3));
+
+        Assert.Equal(GeneralWorkResultKind.Accepted, result.Kind);
+        Assert.Equal(created.PermitNumber, result.PermitNumber);
+        Assert.Equal(PermitStatus.PENDING_REVIEW, session.Permits.Single().Status);
+        var domainEvent = Assert.Single(session.Events, item => item.EventType == PermitEventType.PERMIT_SUBMITTED);
+        Assert.Equal(occurred, domainEvent.OccurredAt);
+        Assert.Equal(Recorded.AddMinutes(3), domainEvent.RecordedAt);
+        Assert.Equal(user, domainEvent.UserId);
+        Assert.Equal(device, domainEvent.DeviceId);
+        Assert.Equal(Recorded.AddMinutes(3), session.Receipts.Single(item => item.EventType == PermitEventType.PERMIT_SUBMITTED).ReceivedAt);
+        Assert.Single(session.Permits);
+
+        var retry = session.Submit(submit, Recorded.AddMinutes(10));
+        Assert.Equal(GeneralWorkResultKind.Duplicate, retry.Kind);
+        Assert.Equal(created.PermitNumber, retry.PermitNumber);
+        Assert.Single(session.Permits);
+        Assert.Equal(2, session.Receipts.Count);
+        Assert.Equal(2, session.Events.Count);
+    }
+
+    [Fact]
+    public void SubmissionBeforeThePermitExistsDoesNotCreateOne()
+    {
+        var session = new GeneralWorkSession();
+        var result = session.Submit(Submission(Recorded, null, null), Recorded);
+
+        Assert.Equal(GeneralWorkResultKind.Conflict, result.Kind);
+        Assert.Equal("permit-not-ready", result.Error);
+        Assert.Empty(session.Permits);
+        Assert.Empty(session.Receipts);
+    }
+
+    [Fact]
+    public void SubmissionDoesNotRewindALaterStatus()
+    {
+        var session = new GeneralWorkSession();
+        session.Accept(Sample(), Recorded);
+        session.Permits.Single().Status = PermitStatus.AUTHORIZED;
+        var result = session.Submit(Submission(Recorded, null, null), Recorded.AddMinutes(1));
+
+        Assert.Equal(GeneralWorkResultKind.Conflict, result.Kind);
+        Assert.Equal("lifecycle-conflict", result.Error);
+        Assert.Equal(PermitStatus.AUTHORIZED, session.Permits.Single().Status);
+        Assert.DoesNotContain(session.Events, item => item.EventType == PermitEventType.PERMIT_SUBMITTED);
+    }
+
+    [Fact]
+    public void AnotherWorkstationCanSeeTheSubmittedPermitByStatus()
+    {
+        var session = new GeneralWorkSession();
+        session.Accept(Sample(), Recorded);
+        var result = session.Submit(Submission(Recorded.AddMinutes(-1), null, null), Recorded);
+        var visible = session.Permits.Where(item => item.Status == PermitStatus.PENDING_REVIEW).ToList();
+
+        Assert.Equal(GeneralWorkResultKind.Accepted, result.Kind);
+        Assert.Single(visible);
+        Assert.Equal(result.PermitNumber, visible[0].PermitNumber);
+        Assert.Equal(PermitStatus.PENDING_REVIEW, visible[0].Status);
+    }
+
+    private static GeneralWorkPush Submission(DateTimeOffset occurredAt, Guid? userId, Guid? deviceId) => new()
+    {
+        EventId = Guid.Parse("99999999-9999-4999-8999-999999999999"),
+        PermitId = PermitId,
+        Revision = 1,
+        EventType = nameof(PermitEventType.PERMIT_SUBMITTED),
+        OccurredAt = occurredAt,
+        UserId = userId,
+        DeviceId = deviceId,
+    };
+
     private static GeneralWorkPush Sample() => new()
     {
         EventId = EventId,

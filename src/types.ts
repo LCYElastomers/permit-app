@@ -27,6 +27,7 @@ export type Screen =
   | "contractors"
   | "equipment"
   | "users"
+  | "administration"
   | "detail";
 
 export type ListScreen = Exclude<Screen, "detail">;
@@ -117,6 +118,8 @@ export interface Permit {
     status: string;
     revision: number;
     missing: string[];
+    createdBy?: string | null;
+    allowSelfAuthorization?: boolean;
     approvals: { actingRole: string; displayName: string; permitUserCode: string; jobTitle: string | null; at: string | null }[];
   };
 }

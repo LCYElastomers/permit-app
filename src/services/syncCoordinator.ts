@@ -7,9 +7,9 @@ export type SyncRequest =
   | { started: false; reason: "plant-link" | "busy" | "store" };
 
 /**
- * Future synchronization runs only after Plant Link is READY.
- * The monitor and this coordinator stay separate. This pass refreshes the area catalog
- * and does not push permits. A lost Plant Link aborts the current cycle and does not retry on a timer.
+ * Synchronization runs only after Plant Link is READY.
+ * The health monitor and this coordinator stay separate. A lost Plant Link aborts the
+ * current cycle. This coordinator does not poll and does not retry on a timer.
  */
 export class SyncCoordinator {
   private link: PlantLink = "checking";
@@ -45,7 +45,9 @@ export class SyncCoordinator {
   }
 
   requestSyncNow(): SyncRequest {
+    if (!this.storeReady) return { started: false, reason: "store" };
     if (!syncMayStart(this.link)) return { started: false, reason: "plant-link" };
+    if (this.running) return { started: false, reason: "busy" };
     return this.start();
   }
 

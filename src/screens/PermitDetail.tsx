@@ -9,6 +9,7 @@ import { useComposition } from "../components/Composition";
 import { detailDocumentTarget, documentActionPlacement } from "../services/permitDocumentActions";
 import { Field, Section, StateMark } from "../components/ui";
 import { AuthorizationPanel } from "../components/AuthorizationPanel";
+import { plantStatusCopy } from "../services/lifecyclePrompt";
 
 export function PermitDetail() {
   const {
@@ -65,7 +66,7 @@ export function PermitDetail() {
           <div className="status-row">
             {permit.plantRecord ? (
               <span className={`state ${permit.plantRecord.status === "ACTIVE" ? "state-ok" : "state-warn"}`}>
-                {permit.plantRecord.status === "ACTIVE" ? "ACTIVE · WORK AUTHORIZED" : `${permit.plantRecord.status} · NOT ACTIVE FOR WORK`}
+                {plantStatusCopy(permit.plantRecord.status).title} · {plantStatusCopy(permit.plantRecord.status).detail}
               </span>
             ) : hold ? (
               <div className={`stop-mark${hold === "expired" ? " is-expired" : ""}`}>

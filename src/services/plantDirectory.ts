@@ -51,6 +51,9 @@ export interface PlantPermit {
   jobDescription: string;
   workOrder: string;
   areaName: string | null;
+  equipmentTag?: string | null;
+  createdBy?: string | null;
+  allowSelfAuthorization?: boolean;
   hazards: string[];
   controls: string[];
   ppe: string[];
@@ -263,9 +266,27 @@ export function pinMessage(error: unknown): string {
       return "The permit is missing required preparation.";
     case "lifecycle-conflict":
       return "This permit is not in the right status for that action.";
+    case "area-history-preserved":
+      return "This area is already used by a permit. Its name stays with that history. You can disable it.";
+    case "equipment-history-preserved":
+    case "contractor-history-preserved":
+      return "This catalog item is already used by a permit. Disable it instead of renaming the historical identity.";
+    case "executable-content-rejected":
+      return "That value cannot be stored. Administration accepts labels and controlled choices only.";
+    case "form-version-locked":
+      return "That field belongs to a published form version. Save it as the next version.";
     default:
       return "Permit Control could not complete that action.";
   }
+}
+
+export function notifyPlantPermitsChanged() {
+  window.dispatchEvent(new Event("plant-permits-changed"));
+}
+
+export function onPlantPermitsChanged(listener: () => void): () => void {
+  window.addEventListener("plant-permits-changed", listener);
+  return () => window.removeEventListener("plant-permits-changed", listener);
 }
 
 export function canPerform(user: PlantUser | null, role: string): boolean {
@@ -285,7 +306,7 @@ export function permitFromPlant(record: PlantPermit): Permit {
     serverPermitId: record.id,
     revision: String(record.revision).padStart(2, "0"),
     area: record.areaName ?? "",
-    equipment: "",
+    equipment: record.equipmentTag ?? "",
     location: "",
     work: record.jobDescription,
     jobDescription: record.jobDescription,
@@ -319,6 +340,8 @@ export function permitFromPlant(record: PlantPermit): Permit {
       status: record.status,
       revision: record.revision,
       missing: record.missing,
+      createdBy: record.createdBy ?? null,
+      allowSelfAuthorization: record.allowSelfAuthorization ?? false,
       approvals: record.approvals,
     },
   };

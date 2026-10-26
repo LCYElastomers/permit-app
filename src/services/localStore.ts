@@ -61,6 +61,18 @@ export async function listCachedAreas(): Promise<AreaRecord[]> {
   return rows.map((row) => ({ id: row.id, name: row.name }));
 }
 
+export interface CatalogCacheRow {
+  id: string;
+  code: string;
+  name: string;
+  enabled: boolean;
+  payload: string;
+}
+
+export async function replaceReferenceCatalog(catalog: string, rows: CatalogCacheRow[]): Promise<void> {
+  await invokeCommand("replace_reference_catalog", { catalog, rows });
+}
+
 export async function replaceReferenceAreas(areas: AreaRecord[]): Promise<void> {
   await invokeCommand("replace_reference_areas", {
     areas: areas.map((area) => ({ id: area.id, name: area.name, serverUpdatedAt: null })),

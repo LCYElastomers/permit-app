@@ -1,33 +1,19 @@
-import { useEffect, useState } from "react";
 import { usePlantClock } from "../plantClock";
 import { usePermits } from "../state/PermitStore";
 import type { Permit } from "../types";
 import { permitType } from "../permitTypes";
 import { expiryLabel, expiryState, kindShort, kindTitle } from "../workflow";
 import { Kv, ScreenHead } from "../components/ui";
-import { listPlantPermits, permitFromPlant } from "../services/plantDirectory";
+import { PlantRefresh, stationSamplePermits, useAuthoritativePermits } from "../services/plantLists";
 
 export function ActivePermits() {
   const { permits, drafts, openPermit, openStoredPermit, openPlantPermit, go, showActive, listArea, activeView } = usePermits();
-  const [plant, setPlant] = useState<Permit[]>([]);
-  useEffect(() => {
-    let stopped = false;
-    void listPlantPermits("ACTIVE")
-      .then((rows) => {
-        if (!stopped) setPlant(rows.map(permitFromPlant));
-      })
-      .catch(() => {
-        if (!stopped) setPlant([]);
-      });
-    return () => {
-      stopped = true;
-    };
-  }, []);
-  const real = drafts.filter((draft) => draft.lifecycleStatus === "ACTIVE");
+  const { plant, refresh, ready } = useAuthoritativePermits(["ACTIVE"]);
+  const plantNumbers = new Set(plant.map((permit) => permit.id));
+  const real = drafts.filter((draft) => draft.lifecycleStatus === "ACTIVE" && !(draft.permitNumber && plantNumbers.has(draft.permitNumber)));
   const clock = usePlantClock();
 
-  const active = permits
-    .filter((permit) => permit.status === "active" && permit.sample !== false)
+  const active = stationSamplePermits(permits, "active")
     .filter((permit) => (listArea ? permit.area === listArea : true))
     .slice()
     .sort((a, b) => b.started.localeCompare(a.started));
@@ -46,6 +32,7 @@ export function ActivePermits() {
           title="Active Permits"
           meta={listArea ? `${listArea.toUpperCase()} · ${shown.length} SHOWN` : `SHIFT B · ${shown.length} SHOWN`}
         />
+        <PlantRefresh ready={ready} onRefresh={() => void refresh()} />
         {listArea ? (
           <div className="list-filter">
             <span>
@@ -99,9 +86,10 @@ export function ActivePermits() {
           <div className="row-work">{draft.description || "Job description not entered"}</div>
         </button>
       ))}
-      {shown.length === 0 ? (
+      {plant.length === 0 && real.length === 0 && shown.length === 0 ? (
         <p className="empty">No active permits in this view.</p>
-      ) : (
+      ) : null}
+      {shown.length === 0 ? null : (
         shown.map((permit) => (
           <PermitRow
             key={permit.id}

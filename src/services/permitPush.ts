@@ -2,6 +2,7 @@ import { ApiError, ApiTransportError, permitApiBaseUrl } from "../lib/api/client
 import { API_TIMEOUT_MS } from "../lib/api/config";
 import { syncMayStart, type PlantLink } from "../lib/connectivity";
 import { restoredModuleState, type GeneralWorkWorkingState, type PermitWorkingState } from "./generalWorkDraft";
+import { notifyPlantPermitsChanged } from "./plantDirectory";
 import { invokeCommand, notifyLocalStoreChanged } from "./localStore";
 
 export interface PushableDraft {
@@ -29,7 +30,19 @@ export interface PushablePermitCreate {
   draft: PushableDraft;
 }
 
+export interface PushablePermitSubmission {
+  outboxId: string;
+  eventId: string;
+  permitId: string;
+  occurredAt: string;
+  permitRevision: number;
+  userId: string | null;
+  deviceId: string | null;
+}
+
 export type PushStep = "idle" | "synced" | "deferred" | "attention" | "stopped" | "storage-failed";
+
+const RETRYABLE_REJECTION = new Set(["permit-not-ready"]);
 
 const PERMIT_NUMBER = /^PTW-\d{4}-\d{5,}$/;
 const ERROR_CODE = /^[a-z0-9-]{1,40}$/;
@@ -140,6 +153,22 @@ export function rejectionCode(body: unknown): string {
   return typeof value === "string" && ERROR_CODE.test(value) ? value : "rejected";
 }
 
+export function permitSubmissionBody(item: PushablePermitSubmission) {
+  return {
+    events: [
+      {
+        id: item.eventId,
+        permitId: item.permitId,
+        permitRevision: item.permitRevision,
+        eventType: "PERMIT_SUBMITTED",
+        occurredAt: item.occurredAt,
+        userId: item.userId,
+        deviceId: item.deviceId,
+      },
+    ],
+  };
+}
+
 export async function pushGeneralWorkCreates(input: {
   link: () => PlantLink;
   signal: AbortSignal;
@@ -148,6 +177,7 @@ export async function pushGeneralWorkCreates(input: {
   acknowledge?: (item: PushablePermitCreate, permitNumber: string) => Promise<void>;
   attention?: (outboxId: string, code: string) => Promise<void>;
   defer?: (outboxId: string) => Promise<void>;
+  onProgress?: (index: number, total: number) => void;
 }): Promise<PushStep> {
   if (!syncMayStart(input.link()) || input.signal.aborted) return "stopped";
   const list = input.list ?? listPushablePermitCreates;
@@ -164,7 +194,8 @@ export async function pushGeneralWorkCreates(input: {
   if (items.length === 0) return "idle";
   let synced = false;
   let needsAttention = false;
-  for (const item of items) {
+  for (const [index, item] of items.entries()) {
+    input.onProgress?.(index + 1, items.length);
     if (!syncMayStart(input.link()) || input.signal.aborted) return synced ? "synced" : "stopped";
     let response: { status: number; body: unknown };
     try {
@@ -219,12 +250,107 @@ export async function pushGeneralWorkCreates(input: {
   return "idle";
 }
 
+export async function pushPermitSubmissions(input: {
+  link: () => PlantLink;
+  signal: AbortSignal;
+  list?: () => Promise<PushablePermitSubmission[]>;
+  send?: (body: unknown, signal: AbortSignal) => Promise<{ status: number; body: unknown }>;
+  acknowledge?: (item: PushablePermitSubmission, permitNumber: string) => Promise<void>;
+  attention?: (outboxId: string, code: string) => Promise<void>;
+  defer?: (outboxId: string) => Promise<void>;
+  onProgress?: (index: number, total: number) => void;
+}): Promise<PushStep> {
+  if (!syncMayStart(input.link()) || input.signal.aborted) return "stopped";
+  const list = input.list ?? listPushablePermitSubmissions;
+  const send = input.send ?? postPermitPush;
+  const acknowledge = input.acknowledge ?? acknowledgePermitSubmitted;
+  const attention = input.attention ?? markOutboxAttention;
+  const defer = input.defer ?? notePushDeferred;
+  let items: PushablePermitSubmission[];
+  try {
+    items = await list();
+  } catch {
+    return "storage-failed";
+  }
+  if (items.length === 0) return "idle";
+  let synced = false;
+  let needsAttention = false;
+  for (const [index, item] of items.entries()) {
+    input.onProgress?.(index + 1, items.length);
+    if (!syncMayStart(input.link()) || input.signal.aborted) return synced ? "synced" : "stopped";
+    let response: { status: number; body: unknown };
+    try {
+      response = await send(permitSubmissionBody(item), input.signal);
+    } catch (error) {
+      if (input.signal.aborted || !syncMayStart(input.link())) return synced ? "synced" : "stopped";
+      if (isTransient(error)) {
+        try {
+          await defer(item.outboxId);
+        } catch {
+          return "storage-failed";
+        }
+        return "deferred";
+      }
+      return "storage-failed";
+    }
+    if (!syncMayStart(input.link()) || input.signal.aborted) return synced ? "synced" : "stopped";
+    const code = rejectionCode(response.body);
+    if ((response.status === 400 || response.status === 409) && RETRYABLE_REJECTION.has(code)) {
+      try {
+        await defer(item.outboxId);
+      } catch {
+        return "storage-failed";
+      }
+      return "deferred";
+    }
+    if (response.status === 400 || response.status === 409) {
+      try {
+        await attention(item.outboxId, code);
+      } catch {
+        return "storage-failed";
+      }
+      needsAttention = true;
+      continue;
+    }
+    if (response.status === 502 || response.status === 503 || response.status === 504) {
+      try {
+        await defer(item.outboxId);
+      } catch {
+        return "storage-failed";
+      }
+      return "deferred";
+    }
+    const ack = response.status === 200 ? readAcknowledgement(response.body, { eventId: item.eventId, permitId: item.permitId }) : null;
+    if (!ack) {
+      try {
+        await defer(item.outboxId);
+      } catch {
+        return "storage-failed";
+      }
+      return "deferred";
+    }
+    try {
+      await acknowledge(item, ack.permitNumber);
+      synced = true;
+    } catch {
+      return "storage-failed";
+    }
+  }
+  if (synced) return "synced";
+  if (needsAttention) return "attention";
+  return "idle";
+}
+
 function isTransient(error: unknown): boolean {
   return error instanceof ApiTransportError || (error instanceof ApiError && [502, 503, 504].includes(error.status));
 }
 
 async function listPushablePermitCreates(): Promise<PushablePermitCreate[]> {
   return invokeCommand<PushablePermitCreate[]>("list_pushable_permit_creates");
+}
+
+async function listPushablePermitSubmissions(): Promise<PushablePermitSubmission[]> {
+  return invokeCommand<PushablePermitSubmission[]>("list_pushable_permit_submissions");
 }
 
 async function postPermitPush(body: unknown, signal: AbortSignal): Promise<{ status: number; body: unknown }> {
@@ -260,6 +386,18 @@ async function acknowledgePermitCreated(item: PushablePermitCreate, permitNumber
     permitNumber,
   });
   notifyLocalStoreChanged();
+  notifyPlantPermitsChanged();
+}
+
+async function acknowledgePermitSubmitted(item: PushablePermitSubmission, permitNumber: string): Promise<void> {
+  await invokeCommand("acknowledge_permit_submitted", {
+    outboxId: item.outboxId,
+    eventId: item.eventId,
+    permitId: item.permitId,
+    permitNumber,
+  });
+  notifyLocalStoreChanged();
+  notifyPlantPermitsChanged();
 }
 
 async function markOutboxAttention(outboxId: string, errorCode: string): Promise<void> {

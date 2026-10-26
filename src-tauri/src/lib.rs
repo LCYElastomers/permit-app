@@ -86,6 +86,16 @@ fn replace_reference_areas(store: tauri::State<AppStore>, areas: Vec<store::Area
 }
 
 #[tauri::command]
+fn list_reference_catalog(store: tauri::State<AppStore>, catalog: String) -> Result<Vec<store::CatalogRow>, String> {
+    with_store(&store, |database| database.list_catalog(&catalog))
+}
+
+#[tauri::command]
+fn replace_reference_catalog(store: tauri::State<AppStore>, catalog: String, rows: Vec<store::CatalogInput>) -> Result<(), String> {
+    with_store(&store, |database| database.replace_catalog(&catalog, &rows))
+}
+
+#[tauri::command]
 fn note_sync_cycle(store: tauri::State<AppStore>, phase: String) -> Result<store::LocalStatus, String> {
     with_store(&store, |database| database.note_sync_cycle(&phase))
 }
@@ -100,8 +110,10 @@ fn submit_permit_for_review(
     store: tauri::State<AppStore>,
     permit_id: String,
     event_id: String,
+    outbox_id: String,
+    user_id: Option<String>,
 ) -> Result<store::DraftRecord, String> {
-    with_store(&store, |database| database.submit_for_review(&permit_id, &event_id))
+    with_store(&store, |database| database.submit_for_review(&permit_id, &event_id, &outbox_id, user_id.as_deref()))
 }
 
 #[tauri::command]
@@ -120,6 +132,26 @@ fn save_general_work_draft(
 #[tauri::command]
 fn list_pushable_permit_creates(store: tauri::State<AppStore>) -> Result<Vec<store::PushablePermitCreate>, String> {
     with_store(&store, |database| database.list_pushable_permit_creates())
+}
+
+#[tauri::command]
+fn list_pushable_permit_submissions(
+    store: tauri::State<AppStore>,
+) -> Result<Vec<store::PushablePermitSubmission>, String> {
+    with_store(&store, |database| database.list_pushable_permit_submissions())
+}
+
+#[tauri::command]
+fn acknowledge_permit_submitted(
+    store: tauri::State<AppStore>,
+    outbox_id: String,
+    event_id: String,
+    permit_id: String,
+    permit_number: String,
+) -> Result<store::DraftRecord, String> {
+    with_store(&store, |database| {
+        database.acknowledge_permit_submitted(&outbox_id, &event_id, &permit_id, &permit_number)
+    })
 }
 
 #[tauri::command]
@@ -219,13 +251,17 @@ pub fn run() {
             local_status,
             list_reference_areas,
             replace_reference_areas,
+            list_reference_catalog,
+            replace_reference_catalog,
             note_sync_cycle,
             note_plant_contact,
             list_local_drafts,
             submit_permit_for_review,
             save_general_work_draft,
             list_pushable_permit_creates,
+            list_pushable_permit_submissions,
             acknowledge_permit_created,
+            acknowledge_permit_submitted,
             mark_outbox_attention,
             note_push_deferred,
             open_permit_pdf

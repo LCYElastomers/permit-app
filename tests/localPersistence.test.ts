@@ -1,8 +1,8 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
-import { syncMayStart, type PlantLink } from "../src/lib/connectivity";
+import { describe, expect, it, vi } from "vitest";
+import { interpretConnectivity, syncMayStart, type PlantLink } from "../src/lib/connectivity";
 import { parseAreaList, presentAreaCatalog, type AreaRecord } from "../src/services/areas";
 import { refreshAreaCatalog } from "../src/services/areaRefresh";
 import { AreaCatalogRejected, LocalStoreFailure } from "../src/services/localStore";
@@ -27,6 +27,8 @@ describe("sync eligibility", () => {
       "src/services/areaRefresh.ts",
       "src/services/device.tsx",
       "src/services/localStore.ts",
+      "src/services/permitPush.ts",
+      "src/services/syncStatus.ts",
     ];
     const root = join(dirname(fileURLToPath(import.meta.url)), "..");
     const text = sources.map((path) => readFileSync(join(root, path), "utf8")).join("\n");
@@ -34,6 +36,9 @@ describe("sync eligibility", () => {
     expect(text).not.toContain("navigator");
     expect(syncMayStart("unreachable")).toBe(false);
     expect(syncMayStart("ready")).toBe(true);
+    const offline = interpretConnectivity({ outcome: "offline" }, { outcome: "ok", body: { status: "ready" } });
+    expect(offline.link).toBe("unreachable");
+    expect(syncMayStart(offline.link)).toBe(false);
   });
 });
 
@@ -175,6 +180,7 @@ describe("sync coordinator", () => {
 
   it("runs one cycle when plant link becomes ready and does not overlap", async () => {
     let calls = 0;
+    let finished = 0;
     let release = () => {};
     const gate = new Promise<void>((resolve) => {
       release = resolve;
@@ -182,6 +188,7 @@ describe("sync coordinator", () => {
     const coordinator = new SyncCoordinator(async () => {
       calls += 1;
       await gate;
+      finished += 1;
     });
     coordinator.onStoreReady();
     coordinator.onPlantLink("ready");
@@ -190,10 +197,10 @@ describe("sync coordinator", () => {
     expect(coordinator.requestSyncNow()).toEqual({ started: false, reason: "busy" });
     expect(calls).toBe(1);
     release();
-    await gate;
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(calls).toBe(2);
+    await vi.waitFor(() => expect(finished).toBe(1));
+    expect(calls).toBe(1);
+    expect(coordinator.onOutboxCreated()).toEqual({ started: true });
+    await vi.waitFor(() => expect(finished).toBe(2));
   });
 
   it("aborts the current cycle when plant link is lost", async () => {

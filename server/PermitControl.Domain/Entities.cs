@@ -38,6 +38,8 @@ public sealed class Area
 {
     public Guid Id { get; set; }
     public string Name { get; set; } = "";
+    public bool Enabled { get; set; } = true;
+    public DateTimeOffset? UpdatedAt { get; set; }
 }
 
 public sealed class Equipment
@@ -46,6 +48,10 @@ public sealed class Equipment
     public Guid AreaId { get; set; }
     public string Tag { get; set; } = "";
     public string Name { get; set; } = "";
+    public string? EquipmentType { get; set; }
+    public bool Enabled { get; set; } = true;
+    public DateTimeOffset CreatedAt { get; set; }
+    public DateTimeOffset? UpdatedAt { get; set; }
     public Area? Area { get; set; }
 }
 
@@ -53,6 +59,10 @@ public sealed class Contractor
 {
     public Guid Id { get; set; }
     public string Name { get; set; } = "";
+    public string? ShortName { get; set; }
+    public bool Enabled { get; set; } = true;
+    public DateTimeOffset CreatedAt { get; set; }
+    public DateTimeOffset? UpdatedAt { get; set; }
 }
 
 public sealed class Permit
@@ -75,6 +85,7 @@ public sealed class Permit
     public DateTimeOffset? ActivatedAt { get; set; }
     public DateTimeOffset? ClosedAt { get; set; }
     public int CurrentRevision { get; set; }
+    public int? FormConfigurationVersion { get; set; }
 
     public Area? Area { get; set; }
     public Equipment? Equipment { get; set; }

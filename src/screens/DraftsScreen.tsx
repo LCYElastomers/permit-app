@@ -1,18 +1,32 @@
 import { localDraftLabel, localSavedLabel } from "../services/generalWorkDraft";
+import { PlantRefresh, useAuthoritativePermits } from "../services/plantLists";
 import { usePermits } from "../state/PermitStore";
 import { kindTitle } from "../workflow";
 import { ScreenHead } from "../components/ui";
 
 export function DraftsScreen() {
-  const { drafts, loadDraft } = usePermits();
-  const open = drafts.filter((draft) => (draft.lifecycleStatus ?? "DRAFT") === "DRAFT");
+  const { drafts, loadDraft, openPlantPermit } = usePermits();
+  const { plant, refresh, ready } = useAuthoritativePermits(["DRAFT"]);
+  const plantNumbers = new Set(plant.map((permit) => permit.id));
+  const open = drafts.filter((draft) => (draft.lifecycleStatus ?? "DRAFT") === "DRAFT" && !(draft.permitNumber && plantNumbers.has(draft.permitNumber)));
 
   return (
     <div className="screen">
-      <ScreenHead kicker="PERMITS" title="Drafts" meta={`${open.length} OPEN`} />
-      {open.length === 0 ? (
+      <ScreenHead kicker="PERMITS" title="Drafts" meta={`${plant.length} PLANT DRAFTS · ${open.length} ON THIS DEVICE`} />
+      <PlantRefresh ready={ready} onRefresh={() => void refresh()} />
+      {plant.map((permit) => (
+        <button key={permit.serverPermitId} type="button" className="permit-row" onClick={() => openPlantPermit(permit, "drafts")}>
+          <div className="row-top">
+            <span className="pid mono">{permit.id}</span>
+            <span className="kind">{kindTitle(permit.kind)}</span>
+            <span className="row-status"><span className="screen-meta">DRAFT · SYNCHRONIZED</span></span>
+          </div>
+          <div className="row-work">{permit.work}</div>
+        </button>
+      ))}
+      {open.length === 0 && plant.length === 0 ? (
         <p className="empty">No drafts saved on this device.</p>
-      ) : (
+      ) : open.length === 0 ? null : (
         <div className="drafts-board">
         {open.map((draft) => (
           <button key={draft.id} type="button" className="permit-row" onClick={() => loadDraft(draft.id)}>

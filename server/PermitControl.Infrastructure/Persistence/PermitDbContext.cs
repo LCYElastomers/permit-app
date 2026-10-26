@@ -39,6 +39,17 @@ public sealed class PermitDbContext(DbContextOptions<PermitDbContext> options) :
     public DbSet<PermitNumberCounter> PermitNumberCounters => Set<PermitNumberCounter>();
     public DbSet<PermitExport> PermitExports => Set<PermitExport>();
     public DbSet<PermitModuleFact> PermitModuleFacts => Set<PermitModuleFact>();
+    public DbSet<WorkType> WorkTypes => Set<WorkType>();
+    public DbSet<HazardDefinition> HazardDefinitions => Set<HazardDefinition>();
+    public DbSet<ControlDefinition> ControlDefinitions => Set<ControlDefinition>();
+    public DbSet<PpeDefinition> PpeDefinitions => Set<PpeDefinition>();
+    public DbSet<PermitTemplate> PermitTemplates => Set<PermitTemplate>();
+    public DbSet<PermitTemplateItem> PermitTemplateItems => Set<PermitTemplateItem>();
+    public DbSet<PermitFieldDefinition> PermitFieldDefinitions => Set<PermitFieldDefinition>();
+    public DbSet<PermitFieldChoice> PermitFieldChoices => Set<PermitFieldChoice>();
+    public DbSet<FormPublication> FormPublications => Set<FormPublication>();
+    public DbSet<PermitRule> PermitRules => Set<PermitRule>();
+    public DbSet<ConfigurationAudit> ConfigurationAudits => Set<ConfigurationAudit>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

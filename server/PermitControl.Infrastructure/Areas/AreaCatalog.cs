@@ -14,6 +14,7 @@ public sealed class AreaCatalog(PermitDbContext database) : IAreaCatalog
         {
             var rows = await database.Areas
                 .AsNoTracking()
+                .Where(area => area.Enabled)
                 .OrderBy(area => area.Name)
                 .ThenBy(area => area.Id)
                 .Select(area => new AreaResponse(area.Id, area.Name))

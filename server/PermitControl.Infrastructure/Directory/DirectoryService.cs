@@ -230,7 +230,7 @@ public sealed class DirectoryService(PermitDbContext database) : IPlantDirectory
 
     public async Task<IReadOnlyList<PermitLifecycleView>> ListPermitsAsync(string? status, CancellationToken cancellationToken)
     {
-        var query = database.Permits.AsNoTracking().Include(item => item.Area).AsQueryable();
+        var query = database.Permits.AsNoTracking().Include(item => item.Area).Include(item => item.Equipment).AsQueryable();
         if (!string.IsNullOrWhiteSpace(status) && Enum.TryParse<PermitStatus>(status, out var parsed)) query = query.Where(item => item.Status == parsed);
         var permits = await query.OrderByDescending(item => item.UpdatedAt).ToListAsync(cancellationToken);
         var views = new List<PermitLifecycleView>();
@@ -240,7 +240,7 @@ public sealed class DirectoryService(PermitDbContext database) : IPlantDirectory
 
     public async Task<PermitLifecycleView?> GetPermitAsync(Guid permitId, CancellationToken cancellationToken)
     {
-        var permit = await database.Permits.AsNoTracking().Include(item => item.Area).FirstOrDefaultAsync(item => item.Id == permitId, cancellationToken);
+        var permit = await database.Permits.AsNoTracking().Include(item => item.Area).Include(item => item.Equipment).FirstOrDefaultAsync(item => item.Id == permitId, cancellationToken);
         return permit is null ? null : await PermitViewAsync(permit, cancellationToken);
     }
 
@@ -416,7 +416,10 @@ public sealed class DirectoryService(PermitDbContext database) : IPlantDirectory
             ppe,
             modules,
             approvals.Select(item => new ApprovalView(item.ActingRole ?? item.RoleName, item.DisplayNameSnapshot ?? "", item.PermitUserCodeSnapshot ?? "", item.JobTitleSnapshot, item.DecidedAt)).ToArray(),
-            missing);
+            missing,
+            permit.Equipment?.Tag,
+            permit.CreatedBy,
+            await database.PermitPolicies.AsNoTracking().Where(item => item.Key == PermitPolicies.AllowSelfAuthorization).Select(item => item.Enabled).FirstOrDefaultAsync(cancellationToken));
     }
 
     private async Task<int> AllocateCodeAsync(CancellationToken cancellationToken)

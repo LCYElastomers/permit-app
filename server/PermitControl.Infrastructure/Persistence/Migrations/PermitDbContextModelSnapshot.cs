@@ -28,10 +28,18 @@ namespace PermitControl.Infrastructure.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<bool>("Enabled")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(120)
                         .HasColumnType("character varying(120)");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamptz");
 
                     b.HasKey("Id");
 
@@ -148,20 +156,120 @@ namespace PermitControl.Infrastructure.Persistence.Migrations
                     b.ToTable("attachments", (string)null);
                 });
 
+            modelBuilder.Entity("PermitControl.Domain.ConfigurationAudit", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<Guid?>("DeviceId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("EntityId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("EntityType")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<DateTimeOffset>("OccurredAt")
+                        .HasColumnType("timestamptz");
+
+                    b.Property<Guid>("PerformedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Summary")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OccurredAt");
+
+                    b.HasIndex("PerformedByUserId");
+
+                    b.ToTable("configuration_audits", (string)null);
+                });
+
             modelBuilder.Entity("PermitControl.Domain.Contractor", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamptz");
+
+                    b.Property<bool>("Enabled")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(160)
                         .HasColumnType("character varying(160)");
 
+                    b.Property<string>("ShortName")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamptz");
+
                     b.HasKey("Id");
 
                     b.ToTable("contractors", (string)null);
+                });
+
+            modelBuilder.Entity("PermitControl.Domain.ControlDefinition", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ApplicablePermitTypes")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamptz");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<int>("DisplayOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamptz");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Code")
+                        .IsUnique();
+
+                    b.ToTable("control_definitions", (string)null);
                 });
 
             modelBuilder.Entity("PermitControl.Domain.CredentialAudit", b =>
@@ -228,6 +336,18 @@ namespace PermitControl.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("AreaId")
                         .HasColumnType("uuid");
 
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamptz");
+
+                    b.Property<bool>("Enabled")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
+
+                    b.Property<string>("EquipmentType")
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(160)
@@ -238,6 +358,9 @@ namespace PermitControl.Infrastructure.Persistence.Migrations
                         .HasMaxLength(80)
                         .HasColumnType("character varying(80)");
 
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamptz");
+
                     b.HasKey("Id");
 
                     b.HasIndex("AreaId");
@@ -245,6 +368,75 @@ namespace PermitControl.Infrastructure.Persistence.Migrations
                     b.HasIndex("Tag");
 
                     b.ToTable("equipment", (string)null);
+                });
+
+            modelBuilder.Entity("PermitControl.Domain.FormPublication", b =>
+                {
+                    b.Property<int>("Id")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset?>("PublishedAt")
+                        .HasColumnType("timestamptz");
+
+                    b.Property<Guid?>("PublishedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("PublishedVersion")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("form_publications", (string)null);
+
+                    b.HasData(
+                        new
+                        {
+                            Id = 1,
+                            PublishedVersion = 0
+                        });
+                });
+
+            modelBuilder.Entity("PermitControl.Domain.HazardDefinition", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ApplicablePermitTypes")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamptz");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<int>("DisplayOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamptz");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Code")
+                        .IsUnique();
+
+                    b.ToTable("hazard_definitions", (string)null);
                 });
 
             modelBuilder.Entity("PermitControl.Domain.Isolation", b =>
@@ -318,6 +510,9 @@ namespace PermitControl.Infrastructure.Persistence.Migrations
 
                     b.Property<DateTimeOffset?>("ExpiresAt")
                         .HasColumnType("timestamptz");
+
+                    b.Property<int?>("FormConfigurationVersion")
+                        .HasColumnType("integer");
 
                     b.Property<string>("JobDescription")
                         .IsRequired()
@@ -629,6 +824,97 @@ namespace PermitControl.Infrastructure.Persistence.Migrations
                     b.ToTable("permit_extensions", (string)null);
                 });
 
+            modelBuilder.Entity("PermitControl.Domain.PermitFieldChoice", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
+                    b.Property<int>("DisplayOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<Guid>("FieldDefinitionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("FieldDefinitionId", "Code")
+                        .IsUnique();
+
+                    b.ToTable("permit_field_choices", (string)null);
+                });
+
+            modelBuilder.Entity("PermitControl.Domain.PermitFieldDefinition", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<int>("ConfigurationVersion")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("DisplayOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("FieldType")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("HelpText")
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
+                    b.Property<string>("ModuleKind")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("PermitType")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<bool>("Required")
+                        .HasColumnType("boolean");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PermitType", "Code", "ConfigurationVersion")
+                        .IsUnique();
+
+                    b.ToTable("permit_field_definitions", (string)null);
+                });
+
             modelBuilder.Entity("PermitControl.Domain.PermitHazard", b =>
                 {
                     b.Property<Guid>("Id")
@@ -841,6 +1127,43 @@ namespace PermitControl.Infrastructure.Persistence.Migrations
                     b.ToTable("permit_revisions", (string)null);
                 });
 
+            modelBuilder.Entity("PermitControl.Domain.PermitRule", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("ActionTarget")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("ConditionCode")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("ConditionValue")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<int>("ConfigurationVersion")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("boolean");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("permit_rules", (string)null);
+                });
+
             modelBuilder.Entity("PermitControl.Domain.PermitSuspension", b =>
                 {
                     b.Property<Guid>("Id")
@@ -869,6 +1192,124 @@ namespace PermitControl.Infrastructure.Persistence.Migrations
                     b.HasIndex("PermitId");
 
                     b.ToTable("permit_suspensions", (string)null);
+                });
+
+            modelBuilder.Entity("PermitControl.Domain.PermitTemplate", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamptz");
+
+                    b.Property<Guid?>("DefaultAreaId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("DefaultWorkTypeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
+                    b.Property<string>("PermitType")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamptz");
+
+                    b.Property<int>("Version")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DefaultAreaId");
+
+                    b.HasIndex("DefaultWorkTypeId");
+
+                    b.ToTable("permit_templates", (string)null);
+                });
+
+            modelBuilder.Entity("PermitControl.Domain.PermitTemplateItem", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
+                    b.Property<Guid>("TemplateId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TemplateId");
+
+                    b.ToTable("permit_template_items", (string)null);
+                });
+
+            modelBuilder.Entity("PermitControl.Domain.PpeDefinition", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamptz");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<int>("DisplayOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamptz");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Code")
+                        .IsUnique();
+
+                    b.ToTable("ppe_definitions", (string)null);
                 });
 
             modelBuilder.Entity("PermitControl.Domain.Role", b =>
@@ -1522,6 +1963,46 @@ namespace PermitControl.Infrastructure.Persistence.Migrations
                     b.ToTable("user_sessions", (string)null);
                 });
 
+            modelBuilder.Entity("PermitControl.Domain.WorkType", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamptz");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<int>("DisplayOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
+                    b.Property<DateTimeOffset?>("UpdatedAt")
+                        .HasColumnType("timestamptz");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Code")
+                        .IsUnique();
+
+                    b.ToTable("work_types", (string)null);
+                });
+
             modelBuilder.Entity("PermitControl.Domain.AtmosphericTest", b =>
                 {
                     b.HasOne("PermitControl.Domain.Permit", "Permit")
@@ -1542,6 +2023,15 @@ namespace PermitControl.Infrastructure.Persistence.Migrations
                         .IsRequired();
 
                     b.Navigation("Permit");
+                });
+
+            modelBuilder.Entity("PermitControl.Domain.ConfigurationAudit", b =>
+                {
+                    b.HasOne("PermitControl.Domain.User", null)
+                        .WithMany()
+                        .HasForeignKey("PerformedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("PermitControl.Domain.CredentialAudit", b =>
@@ -1677,6 +2167,17 @@ namespace PermitControl.Infrastructure.Persistence.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("PermitControl.Domain.PermitFieldChoice", b =>
+                {
+                    b.HasOne("PermitControl.Domain.PermitFieldDefinition", "Field")
+                        .WithMany()
+                        .HasForeignKey("FieldDefinitionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Field");
+                });
+
             modelBuilder.Entity("PermitControl.Domain.PermitHazard", b =>
                 {
                     b.HasOne("PermitControl.Domain.Permit", null)
@@ -1755,6 +2256,30 @@ namespace PermitControl.Infrastructure.Persistence.Migrations
                         .HasForeignKey("PermitId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("PermitControl.Domain.PermitTemplate", b =>
+                {
+                    b.HasOne("PermitControl.Domain.Area", null)
+                        .WithMany()
+                        .HasForeignKey("DefaultAreaId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("PermitControl.Domain.WorkType", null)
+                        .WithMany()
+                        .HasForeignKey("DefaultWorkTypeId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("PermitControl.Domain.PermitTemplateItem", b =>
+                {
+                    b.HasOne("PermitControl.Domain.PermitTemplate", "Template")
+                        .WithMany()
+                        .HasForeignKey("TemplateId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Template");
                 });
 
             modelBuilder.Entity("PermitControl.Domain.UserCredential", b =>

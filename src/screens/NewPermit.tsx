@@ -7,8 +7,7 @@ import { useAreaCatalog } from "../services/useAreaCatalog";
 import { useDevice } from "../services/device";
 import { localDraftLabel, submitLocalPermit } from "../services/generalWorkDraft";
 import { useIdentity } from "../services/identity";
-import { pinMessage, submitPlantPermit } from "../services/plantDirectory";
-import { syncMayStart } from "../lib/connectivity";
+import { describePermitSave } from "../services/syncStatus";
 import { draftDocumentTarget, documentActionPlacement } from "../services/permitDocumentActions";
 import { usePermits } from "../state/PermitStore";
 import type { PermitDraft, PermitKind } from "../types";
@@ -26,18 +25,7 @@ import {
 import { useComposition } from "../components/Composition";
 import { PermitDocumentActions } from "../components/PermitDocumentActions";
 import { Field, Section, TouchSelect } from "../components/ui";
-import type { PlantLink } from "../lib/connectivity";
-
 const COMPANIES = contractors.filter((item) => item.name !== "LCY").map((item) => item.name);
-
-function localSaveLine(form: PermitDraft, link: PlantLink): string {
-  if (!form.id) return "";
-  if (form.lifecycleStatus === "PENDING_REVIEW" && form.permitNumber) return "SUBMITTED FOR REVIEW";
-  if (form.permitNumber) return "SYNCHRONIZED";
-  if (form.outboxStatus === "ATTENTION") return "SAVED LOCALLY · NEEDS ATTENTION";
-  if (link === "unreachable") return "SAVED LOCALLY · PLANT LINK OFFLINE";
-  return "SAVED LOCALLY · PENDING SYNC";
-}
 
 export function NewPermit() {
   const { form, updateForm, saveDraft, resetForm } = usePermits();
@@ -51,7 +39,7 @@ export function NewPermit() {
   const [signError, setSignError] = useState("");
   const blockers = issueBlockers(form);
   const step = STEPS[form.step] ?? STEPS[0];
-  const saveLine = saveError || localSaveLine(form, link.link);
+  const saveLine = saveError || describePermitSave(form, link.link);
 
   const patch = (partial: Partial<PermitDraft>) => {
     updateForm((current) => ({ ...current, ...partial }));
@@ -236,17 +224,12 @@ export function NewPermit() {
                   setSaveError("Save the draft on this device before submitting it for review.");
                   return;
                 }
-                void submitLocalPermit(form.id)
-                  .then(async (saved) => {
+                void submitLocalPermit(form.id, identity.user?.id)
+                  .then((saved) => {
                     updateForm(() => saved);
-                    if (!saved.permitNumber || !syncMayStart(link.link) || !identity.token) {
-                      setSaveError("Submitted on this device. Plant Link must be ready before the plant record leaves draft.");
-                      return;
-                    }
-                    await submitPlantPermit(identity.token, saved.id);
                     setSaveError("");
                   })
-                  .catch((error) => setSaveError(pinMessage(error) || "This draft could not be submitted. It is still saved on this device."));
+                  .catch(() => setSaveError("This draft could not be submitted. It is still saved on this device."));
               }}
             >
               Submit for Review

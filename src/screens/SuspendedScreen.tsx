@@ -2,15 +2,29 @@ import { usePermits } from "../state/PermitStore";
 import { permitType } from "../permitTypes";
 import { kindShort, kindTitle } from "../workflow";
 import { Kv, ScreenHead } from "../components/ui";
+import { PlantRefresh, stationSamplePermits, useAuthoritativePermits } from "../services/plantLists";
 
 export function SuspendedScreen() {
-  const { permits, drafts, openPermit, openStoredPermit } = usePermits();
-  const real = drafts.filter((draft) => draft.lifecycleStatus === "SUSPENDED");
-  const held = permits.filter((permit) => permit.status === "suspended" && permit.sample !== false);
+  const { permits, drafts, openPermit, openStoredPermit, openPlantPermit } = usePermits();
+  const { plant, refresh, ready } = useAuthoritativePermits(["SUSPENDED"]);
+  const plantNumbers = new Set(plant.map((permit) => permit.id));
+  const real = drafts.filter((draft) => draft.lifecycleStatus === "SUSPENDED" && !(draft.permitNumber && plantNumbers.has(draft.permitNumber)));
+  const held = stationSamplePermits(permits, "suspended");
 
   return (
     <div className="screen">
-      <ScreenHead kicker="OPERATIONS" title="Suspended" meta={`${held.length} HELD`} />
+      <ScreenHead kicker="OPERATIONS" title="Suspended" meta={`${plant.length} PLANT RECORDS · ${held.length} STATION SAMPLES`} />
+      <PlantRefresh ready={ready} onRefresh={() => void refresh()} />
+      {plant.map((permit) => (
+        <button key={permit.serverPermitId} type="button" className="permit-row is-hold" onClick={() => openPlantPermit(permit, "suspended")}>
+          <div className="row-top">
+            <span className="pid mono">{permit.id}</span>
+            <span className="kind">{kindTitle(permit.kind)}</span>
+            <span className="row-status"><span className="screen-meta">SUSPENDED</span></span>
+          </div>
+          <div className="row-work">{permit.work}</div>
+        </button>
+      ))}
       {real.map((draft) => (
         <button key={draft.id} type="button" className="permit-row is-hold" onClick={() => openStoredPermit(draft.id, "suspended")}>
           <div className="row-top">
@@ -21,9 +35,10 @@ export function SuspendedScreen() {
           <div className="row-work">{draft.description || "Job description not entered"}</div>
         </button>
       ))}
-      {held.length === 0 ? (
+      {plant.length === 0 && real.length === 0 && held.length === 0 ? (
         <p className="empty">No permits are suspended.</p>
-      ) : (
+      ) : null}
+      {held.length === 0 ? null : (
         held.map((permit) => {
           const placeLabel = permitType(permit.kind).place === "location" ? "Location" : "Equipment";
           const place =

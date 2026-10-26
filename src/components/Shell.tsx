@@ -7,6 +7,7 @@ import type { ListScreen } from "../types";
 import { plantLinkLabel, plantLinkLamp, type PlantLinkSnapshot } from "../lib/connectivity";
 import { useDevice } from "../services/device";
 import type { LocalView } from "../services/localStore";
+import { describeSync } from "../services/syncStatus";
 import { plantSnapshot } from "../plantStatus";
 import { ActivePermits } from "../screens/ActivePermits";
 import { CommandCenter } from "../screens/CommandCenter";
@@ -20,6 +21,7 @@ import { PermitDetail } from "../screens/PermitDetail";
 import { SuspendedScreen } from "../screens/SuspendedScreen";
 import { TemplatesScreen } from "../screens/TemplatesScreen";
 import { UsersScreen } from "../screens/UsersScreen";
+import { AdministrationScreen } from "../screens/AdministrationScreen";
 import { SessionBanner } from "./SessionBanner";
 
 const NAV: { label: string; items: { id: ListScreen; label: string }[] }[] = [
@@ -43,6 +45,7 @@ const NAV: { label: string; items: { id: ListScreen; label: string }[] }[] = [
   {
     label: "ADMINISTRATION",
     items: [
+      { id: "administration", label: "Administration" },
       { id: "users", label: "Users" },
       { id: "templates", label: "Templates" },
       { id: "contractors", label: "Contractors" },
@@ -63,6 +66,7 @@ const MORE_ROUTES: { id: ListScreen; label: string }[] = [
   { id: "suspended", label: "Suspended" },
   { id: "drafts", label: "Drafts" },
   { id: "archive", label: "Archive" },
+  { id: "administration", label: "Administration" },
   { id: "users", label: "Users" },
   { id: "templates", label: "Templates" },
   { id: "contractors", label: "Contractors" },
@@ -117,7 +121,7 @@ export function Shell() {
     PERMIT_SCREENS.includes(screen as ListScreen) ||
     (screen === "detail" && PERMIT_SCREENS.includes(origin));
   const moreActive =
-    moreOpen || ["drafts", "archive", "templates", "contractors", "equipment", "users"].includes(screen);
+    moreOpen || ["drafts", "archive", "templates", "contractors", "equipment", "users", "administration"].includes(screen);
 
   return (
     <div className={`shell composition-${composition}`}>
@@ -209,6 +213,7 @@ export function Shell() {
           {screen === "contractors" && <ContractorsScreen />}
           {screen === "equipment" && <EquipmentScreen />}
           {screen === "users" && <UsersScreen />}
+          {screen === "administration" && <AdministrationScreen />}
           {screen === "detail" && <PermitDetail key={selectedId ?? "none"} />}
         </main>
         {composition !== "desktop" && moreOpen ? (
@@ -259,30 +264,34 @@ export function Shell() {
 }
 
 function NetworkStatus({ link, local }: { link: PlantLinkSnapshot; local: LocalView }) {
+  const { requestSyncNow, syncNotice, syncProgress } = useDevice();
+  const view = describeSync({
+    link: link.link,
+    storage: local.status,
+    pending: local.status === "available" ? local.pendingCount : 0,
+    syncState: local.status === "available" ? local.syncState : null,
+    progress: syncProgress,
+  });
   const storageFailed = local.status === "failed";
   return (
     <div className={storageFailed ? "network is-storage-failed" : "network"}>
       <div className="network-label">PLANT LINK</div>
       <div className="network-state">
         <span className={`lamp lamp-${plantLinkLamp(link.link)}`} />
-        {plantLinkLabel(link.link)}
+        {view.plant}
       </div>
       <div className="network-detail mono">
         <div>
-          <span>LOCAL DATA</span>
-          <strong className={storageFailed ? "storage-alert" : undefined}>{localDataLabel(local.status)}</strong>
+          <strong className={storageFailed ? "storage-alert" : undefined}>{view.primary}</strong>
         </div>
-        {local.status === "available" ? (
-          <div className="pending-line">
-            <strong>
-              {local.pendingCount} {local.pendingCount === 1 ? "CHANGE" : "CHANGES"} PENDING
-            </strong>
+        {view.secondary ? (
+          <div>
+            <strong>{view.secondary}</strong>
           </div>
         ) : null}
-        {local.status === "available" && local.syncState === "SYNCING" ? (
+        {view.detail ? (
           <div>
-            <span>SYNC</span>
-            <strong>SYNCING</strong>
+            <strong>{view.detail}</strong>
           </div>
         ) : null}
         <div>
@@ -290,19 +299,13 @@ function NetworkStatus({ link, local }: { link: PlantLinkSnapshot; local: LocalV
           <strong>{link.lastCheck ?? "—"}</strong>
         </div>
       </div>
+      {view.notice ? <p className="sync-notice">{view.notice}</p> : null}
+      {syncNotice ? <p className="sync-notice">{syncNotice}</p> : null}
+      <button type="button" className="sync-now" onClick={requestSyncNow}>
+        SYNC NOW
+      </button>
     </div>
   );
-}
-
-function localDataLabel(status: LocalView["status"]): string {
-  switch (status) {
-    case "checking":
-      return "CHECKING";
-    case "available":
-      return "AVAILABLE";
-    case "failed":
-      return "UNAVAILABLE";
-  }
 }
 
 function PlantStatus() {

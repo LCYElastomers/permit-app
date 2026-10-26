@@ -14,6 +14,7 @@ internal static class ModelConfiguration
         ConfigureModules(model);
         ConfigureHistory(model);
         ConfigureFiles(model);
+        ConfigureCatalog(model);
     }
 
     private static void ConfigureIdentity(ModelBuilder model)
@@ -147,6 +148,8 @@ internal static class ModelConfiguration
             entity.ToTable("areas");
             entity.HasKey(item => item.Id);
             entity.Property(item => item.Name).HasMaxLength(AreaRegistration.MaxNameLength).IsRequired();
+            entity.Property(item => item.Enabled).HasDefaultValue(true);
+            TimestampNullable(entity.Property(item => item.UpdatedAt));
             entity.HasIndex(item => item.Name).IsUnique();
         });
 
@@ -156,6 +159,10 @@ internal static class ModelConfiguration
             entity.HasKey(item => item.Id);
             entity.Property(item => item.Tag).HasMaxLength(80).IsRequired();
             entity.Property(item => item.Name).HasMaxLength(160).IsRequired();
+            entity.Property(item => item.EquipmentType).HasMaxLength(80);
+            entity.Property(item => item.Enabled).HasDefaultValue(true);
+            Timestamp(entity.Property(item => item.CreatedAt));
+            TimestampNullable(entity.Property(item => item.UpdatedAt));
             entity.HasIndex(item => item.Tag);
             entity.HasOne(item => item.Area).WithMany().HasForeignKey(item => item.AreaId).OnDelete(DeleteBehavior.Restrict);
         });
@@ -165,7 +172,103 @@ internal static class ModelConfiguration
             entity.ToTable("contractors");
             entity.HasKey(item => item.Id);
             entity.Property(item => item.Name).HasMaxLength(160).IsRequired();
+            entity.Property(item => item.ShortName).HasMaxLength(40);
+            entity.Property(item => item.Enabled).HasDefaultValue(true);
+            Timestamp(entity.Property(item => item.CreatedAt));
+            TimestampNullable(entity.Property(item => item.UpdatedAt));
         });
+    }
+
+    private static void ConfigureCatalog(ModelBuilder model)
+    {
+        model.Entity<WorkType>(entity => Coded(entity, "work_types"));
+        model.Entity<HazardDefinition>(entity => Coded(entity, "hazard_definitions"));
+        model.Entity<ControlDefinition>(entity => Coded(entity, "control_definitions"));
+        model.Entity<PpeDefinition>(entity => Coded(entity, "ppe_definitions"));
+        model.Entity<PermitTemplate>(entity =>
+        {
+            entity.ToTable("permit_templates");
+            entity.HasKey(item => item.Id);
+            entity.Property(item => item.Name).HasMaxLength(160).IsRequired();
+            entity.Property(item => item.Description).HasMaxLength(500);
+            entity.Property(item => item.PermitType).HasMaxLength(40).IsRequired();
+            Timestamp(entity.Property(item => item.CreatedAt));
+            TimestampNullable(entity.Property(item => item.UpdatedAt));
+            entity.HasOne<Area>().WithMany().HasForeignKey(item => item.DefaultAreaId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<WorkType>().WithMany().HasForeignKey(item => item.DefaultWorkTypeId).OnDelete(DeleteBehavior.Restrict);
+        });
+        model.Entity<PermitTemplateItem>(entity =>
+        {
+            entity.ToTable("permit_template_items");
+            entity.HasKey(item => item.Id);
+            entity.Property(item => item.Kind).HasMaxLength(20).IsRequired();
+            entity.Property(item => item.Code).HasMaxLength(40).IsRequired();
+            entity.Property(item => item.Label).HasMaxLength(160).IsRequired();
+            entity.HasOne(item => item.Template).WithMany().HasForeignKey(item => item.TemplateId).OnDelete(DeleteBehavior.Restrict);
+        });
+        model.Entity<PermitFieldDefinition>(entity =>
+        {
+            entity.ToTable("permit_field_definitions");
+            entity.HasKey(item => item.Id);
+            entity.Property(item => item.PermitType).HasMaxLength(40).IsRequired();
+            entity.Property(item => item.ModuleKind).HasMaxLength(40);
+            entity.Property(item => item.Code).HasMaxLength(40).IsRequired();
+            entity.Property(item => item.Label).HasMaxLength(160).IsRequired();
+            entity.Property(item => item.HelpText).HasMaxLength(400);
+            entity.Property(item => item.FieldType).HasMaxLength(32).IsRequired();
+            entity.HasIndex(item => new { item.PermitType, item.Code, item.ConfigurationVersion }).IsUnique();
+        });
+        model.Entity<PermitFieldChoice>(entity =>
+        {
+            entity.ToTable("permit_field_choices");
+            entity.HasKey(item => item.Id);
+            entity.Property(item => item.Code).HasMaxLength(40).IsRequired();
+            entity.Property(item => item.Label).HasMaxLength(160).IsRequired();
+            entity.Property(item => item.Description).HasMaxLength(400);
+            entity.HasIndex(item => new { item.FieldDefinitionId, item.Code }).IsUnique();
+            entity.HasOne(item => item.Field).WithMany().HasForeignKey(item => item.FieldDefinitionId).OnDelete(DeleteBehavior.Restrict);
+        });
+        model.Entity<FormPublication>(entity =>
+        {
+            entity.ToTable("form_publications");
+            entity.HasKey(item => item.Id);
+            entity.Property(item => item.Id).ValueGeneratedNever();
+            TimestampNullable(entity.Property(item => item.PublishedAt));
+            entity.HasData(new FormPublication { Id = 1, PublishedVersion = 0 });
+        });
+        model.Entity<PermitRule>(entity =>
+        {
+            entity.ToTable("permit_rules");
+            entity.HasKey(item => item.Id);
+            entity.Property(item => item.ConditionCode).HasMaxLength(40).IsRequired();
+            entity.Property(item => item.ConditionValue).HasMaxLength(80).IsRequired();
+            entity.Property(item => item.Action).HasMaxLength(40).IsRequired();
+            entity.Property(item => item.ActionTarget).HasMaxLength(40).IsRequired();
+        });
+        model.Entity<ConfigurationAudit>(entity =>
+        {
+            entity.ToTable("configuration_audits");
+            entity.HasKey(item => item.Id);
+            entity.Property(item => item.EntityType).HasMaxLength(40).IsRequired();
+            entity.Property(item => item.Action).HasMaxLength(40).IsRequired();
+            entity.Property(item => item.Summary).HasMaxLength(200).IsRequired();
+            Timestamp(entity.Property(item => item.OccurredAt));
+            entity.HasIndex(item => item.OccurredAt);
+            entity.HasOne<User>().WithMany().HasForeignKey(item => item.PerformedByUserId).OnDelete(DeleteBehavior.Restrict);
+        });
+        model.Entity<Permit>().Property(item => item.FormConfigurationVersion);
+    }
+
+    private static void Coded<T>(EntityTypeBuilder<T> entity, string table) where T : class
+    {
+        entity.ToTable(table);
+        entity.HasKey("Id");
+        entity.Property("Code").HasMaxLength(40).IsRequired();
+        entity.Property("Name").HasMaxLength(160).IsRequired();
+        entity.Property("Description").HasMaxLength(500);
+        entity.HasIndex("Code").IsUnique();
+        entity.Property<DateTimeOffset>("CreatedAt").HasColumnType("timestamptz");
+        entity.Property<DateTimeOffset?>("UpdatedAt").HasColumnType("timestamptz");
     }
 
     private static void ConfigurePermits(ModelBuilder model)
@@ -435,6 +538,9 @@ internal static class ModelConfiguration
         property.HasConversion<string>().HasMaxLength(40);
 
     private static void Timestamp(PropertyBuilder<DateTimeOffset> property) =>
+        property.HasColumnType("timestamptz");
+
+    private static void TimestampNullable(PropertyBuilder<DateTimeOffset?> property) =>
         property.HasColumnType("timestamptz");
 
     private static void Timestamp(PropertyBuilder<DateTimeOffset?> property) =>

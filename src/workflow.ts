@@ -100,6 +100,8 @@ export function screenLabel(screen: ListScreen): string {
       return "Equipment";
     case "users":
       return "Users";
+    case "administration":
+      return "Administration";
   }
 }
 

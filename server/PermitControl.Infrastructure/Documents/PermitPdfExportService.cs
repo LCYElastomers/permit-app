@@ -55,6 +55,12 @@ public sealed class PermitPdfExportService(PermitDbContext database, IPermitPdfR
             .Where(item => item.PermitId == permitId)
             .OrderByDescending(item => item.SuspendedAt)
             .FirstOrDefaultAsync(cancellationToken);
+        var suspendedBy = suspension is null
+            ? null
+            : await database.Users.AsNoTracking()
+                .Where(user => user.Id == suspension.SuspendedBy)
+                .Select(user => new { user.DisplayName, user.PermitUserCode })
+                .FirstOrDefaultAsync(cancellationToken);
         return new AuthoritativeGeneralWork
         {
             Permit = permit,
@@ -71,6 +77,8 @@ public sealed class PermitPdfExportService(PermitDbContext database, IPermitPdfR
             Approvals = await database.PermitApprovals.AsNoTracking().Where(item => item.PermitId == permitId).ToListAsync(cancellationToken),
             SuspensionReason = suspension?.Reason,
             SuspendedAt = suspension?.SuspendedAt,
+            SuspendedByName = suspendedBy?.DisplayName,
+            SuspendedByCode = suspendedBy?.PermitUserCode,
         };
     }
 }

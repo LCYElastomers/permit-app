@@ -5,6 +5,7 @@ import { ApiTransportError } from "../src/lib/api/errors";
 import { persistGeneralWorkDraft } from "../src/services/generalWorkDraft";
 import {
   pushGeneralWorkCreates,
+  pushPermitSubmissions,
   readAcknowledgement,
   type PushablePermitCreate,
 } from "../src/services/permitPush";
@@ -253,6 +254,117 @@ describe("permit synchronization", () => {
     expect(bodies[0]).not.toContain("workingState");
     expect(bodies[0]).not.toContain("signatures");
     expect(bodies[0]).not.toContain("\"step\"");
+  });
+});
+
+const submission = {
+  outboxId: "88888888-8888-4888-8888-111111111111",
+  eventId: "99999999-9999-4999-8999-999999999999",
+  permitId: item.draft.id,
+  occurredAt: "2026-10-22T17:05:00Z",
+  permitRevision: 1,
+  userId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  deviceId: null,
+};
+
+function submissionAck(result: "accepted" | "duplicate" = "accepted") {
+  return {
+    status: 200,
+    body: {
+      acknowledgements: [
+        {
+          eventId: submission.eventId,
+          permitId: submission.permitId,
+          permitNumber: "PTW-2026-00142",
+          permitRevision: 1,
+          result,
+        },
+      ],
+    },
+  };
+}
+
+describe("permit submission synchronization", () => {
+  it("does not call the plant while plant link is offline", async () => {
+    const sent: unknown[] = [];
+    const result = await pushPermitSubmissions({
+      link: () => "unreachable",
+      signal: new AbortController().signal,
+      list: async () => [submission],
+      send: async (body) => {
+        sent.push(body);
+        return submissionAck();
+      },
+    });
+    expect(result).toBe("stopped");
+    expect(sent).toEqual([]);
+  });
+
+  it("acknowledges an accepted or duplicate submission and leaves a missing permit pending", async () => {
+    const numbers: string[] = [];
+    const accepted = await pushPermitSubmissions({
+      link: () => "ready",
+      signal: new AbortController().signal,
+      list: async () => [submission],
+      send: async () => submissionAck("duplicate"),
+      acknowledge: async (_row, permitNumber) => {
+        numbers.push(permitNumber);
+      },
+    });
+    expect(accepted).toBe("synced");
+    expect(numbers).toEqual(["PTW-2026-00142"]);
+
+    const deferred: string[] = [];
+    const waiting = await pushPermitSubmissions({
+      link: () => "ready",
+      signal: new AbortController().signal,
+      list: async () => [submission],
+      send: async () => ({ status: 409, body: { error: "permit-not-ready" } }),
+      defer: async (outboxId) => {
+        deferred.push(outboxId);
+      },
+      acknowledge: async () => {
+        numbers.push("should-not");
+      },
+    });
+    expect(waiting).toBe("deferred");
+    expect(deferred).toEqual([submission.outboxId]);
+    expect(numbers).toEqual(["PTW-2026-00142"]);
+  });
+
+  it("keeps the submission pending when the link drops and marks a lifecycle conflict", async () => {
+    let link: PlantLink = "ready";
+    const acks: string[] = [];
+    const stopped = await pushPermitSubmissions({
+      link: () => link,
+      signal: new AbortController().signal,
+      list: async () => [submission],
+      send: async () => {
+        link = "unreachable";
+        throw new ApiTransportError("offline");
+      },
+      acknowledge: async () => {
+        acks.push("ack");
+      },
+      defer: async () => {
+        acks.push("defer");
+      },
+    });
+    expect(stopped).toBe("stopped");
+    expect(acks).toEqual([]);
+
+    const codes: string[] = [];
+    const attention = await pushPermitSubmissions({
+      link: () => "ready",
+      signal: new AbortController().signal,
+      list: async () => [submission],
+      send: async () => ({ status: 409, body: { error: "lifecycle-conflict" } }),
+      attention: async (_id, code) => {
+        codes.push(code);
+      },
+    });
+    expect(attention).toBe("attention");
+    expect(codes).toEqual(["lifecycle-conflict"]);
   });
 });
 

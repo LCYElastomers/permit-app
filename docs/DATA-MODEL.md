@@ -102,4 +102,8 @@ PIN values are not stored. The current and historical credentials use Isopoh.Cry
 
 ## Migration
 
-`PermitControl.Infrastructure` contains the EF Core migrations `InitialFoundation`, `GeneralWorkPermitSync`, `PermitPdfExport`, `PermitModuleFacts`, and `20261023145009_UserDirectory`. Applying them requires a PostgreSQL database and is not part of the build. The unapplied user-directory script is `server/permit-user-directory.sql`. Do not re-apply `server/permit-pdf-export.sql` or `server/permit-module-facts.sql` if those have already been applied.
+`PermitControl.Infrastructure` contains the EF Core migrations `InitialFoundation`, `GeneralWorkPermitSync`, `PermitPdfExport`, `PermitModuleFacts`, `20261023145009_UserDirectory`, and `20261023171410_AdministrationCatalogs`. Applying them requires a PostgreSQL database and is not part of the build. The unapplied scripts are `server/permit-user-directory.sql` and `server/permit-administration.sql`. Apply the user-directory script before the administration script. Do not re-apply `server/permit-pdf-export.sql` or `server/permit-module-facts.sql` if those have already been applied.
+
+## Administration catalogs
+
+Areas, equipment, and contractors carry `enabled`. A referenced row is disabled rather than deleted, and its historical name or tag is kept. Work types, hazards, controls, PPE, and permit templates are configurable catalogs and start empty. Field definitions and choices are versioned. Publishing advances `form_publications.published_version`. A permit stores `form_configuration_version` and is not rewritten when a later form is published. A permit rule stores a condition code, a condition value, and a fixed action. It does not store an executable expression. `configuration_audits` records the actor, action, entity, and a short summary. It does not store a PIN.

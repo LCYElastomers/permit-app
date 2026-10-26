@@ -21,8 +21,9 @@ public class PermitPdfTests
         Assert.True(document.Contains("NOT AUTHORIZED FOR WORK"));
         Assert.True(document.Contains("PTW-2026-00001"));
         Assert.True(document.Contains(SamplePermitId.ToString("D")));
-        Assert.True(document.Contains("Revision: 1"));
-        Assert.True(document.Contains("Lifecycle status: DRAFT"));
+        Assert.True(document.Contains("REV 01"));
+        Assert.DoesNotContain(document.Banner, line => line.Contains("Permit UUID", StringComparison.Ordinal));
+        Assert.Contains("DOCUMENT CONTROL", document.Sections.Select(section => section.Title));
         Assert.True(document.Contains("Line break"));
         Assert.True(document.Contains("Gas monitor"));
         Assert.True(document.Contains("Hard hat"));
@@ -31,10 +32,13 @@ public class PermitPdfTests
         Assert.True(document.Contains("Unit 2"));
         Assert.True(document.Contains("P-418"));
         Assert.True(document.Contains("WO-104583"));
-        Assert.True(document.Contains("Process opening: excluded"));
+        Assert.True(document.Contains("Process opening required? NO"));
         Assert.True(document.Contains("Working at height: Scaffold"));
         Assert.True(document.Contains("15:00"));
-        Assert.Contains("GENERAL INFORMATION", document.Sections.Select(section => section.Title));
+        Assert.Contains("WORK LOCATION", document.Sections.Select(section => section.Title));
+        Assert.Contains("PEOPLE & AUTHORIZATION", document.Sections.Select(section => section.Title));
+        Assert.Contains("Process opening required? NO", document.Sections.SelectMany(section => section.Lines));
+        Assert.Contains("PENDING", document.Sections.Single(section => section.Title == "PEOPLE & AUTHORIZATION").Lines);
         Assert.Contains("WORK SCOPE", document.Sections.Select(section => section.Title));
         Assert.Contains("HAZARDS", document.Sections.Select(section => section.Title));
         Assert.Contains("CONTROLS", document.Sections.Select(section => section.Title));
@@ -56,11 +60,11 @@ public class PermitPdfTests
         Assert.Contains("DRAFT", text);
         Assert.Contains("PTW-2026-00001", text);
         Assert.Contains(SamplePermitId.ToString("D"), text);
-        Assert.Contains("Revision: 1", text);
+        Assert.Contains("REV 01", text);
         Assert.Contains("Line break", text);
         Assert.Contains("Gas monitor", text);
         Assert.Contains("Hard hat", text);
-        Assert.Contains("Process opening: excluded", text);
+        Assert.Contains("Process opening required? NO", text);
     }
 
     [Fact]
@@ -150,7 +154,7 @@ public class PermitPdfTests
         Assert.Contains("WORK AUTHORIZED", document.Banner);
         Assert.True(document.Contains("PTW-2026-00001"));
         Assert.True(document.Contains(SamplePermitId.ToString("D")));
-        Assert.True(document.Contains("Revision: 1"));
+        Assert.True(document.Contains("REV 01"));
         Assert.True(document.Contains("GENERAL_WORK"));
         Assert.True(document.Contains("Unit 2"));
         Assert.True(document.Contains("P-418"));
@@ -167,7 +171,7 @@ public class PermitPdfTests
         Assert.True(document.Contains("Line break"));
         Assert.True(document.Contains("Gas monitor"));
         Assert.True(document.Contains("Hard hat"));
-        Assert.True(document.Contains("Process opening: excluded"));
+        Assert.True(document.Contains("Process opening required? NO"));
         Assert.True(document.Contains("WORKING_AT_HEIGHT"));
         Assert.True(document.Contains("2026-10-22 20:15:00 UTC"));
         Assert.DoesNotContain(document.Banner, line => line.Contains("signature", StringComparison.OrdinalIgnoreCase));
@@ -191,7 +195,7 @@ public class PermitPdfTests
         var later = PageText(pdf.Pages[1]);
 
         Assert.Contains("PTW-2026-00001", later);
-        Assert.Contains("Revision: 1", later);
+        Assert.Contains("REV 01", later);
         Assert.Contains(heading, later);
         Assert.Contains(authority, later);
         Assert.Contains("Page 2", later);
@@ -295,11 +299,146 @@ public class PermitPdfTests
         Assert.DoesNotContain("GENERAL WORK PERMIT", document.Banner);
         Assert.DoesNotContain(document.Sections, section => section.Title == "GENERAL WORK CONDITIONS");
         Assert.Contains("FIRE WATCH", document.Sections.Select(section => section.Title));
-        Assert.Contains("HOT WORK", document.Sections.Select(section => section.Title));
-        Assert.Contains("fireWatch: Alex Morgan", document.Sections.SelectMany(section => section.Lines));
+        Assert.Contains("HOT WORK CONTROLS", document.Sections.Select(section => section.Title));
+        Assert.Contains("Fire watch: Alex Morgan", document.Sections.SelectMany(section => section.Lines));
         Assert.Contains("NOT AUTHORIZED FOR WORK", document.Banner);
         Assert.False(document.Contains("WORK AUTHORIZED"));
     }
+
+    [Fact]
+    public void Sparse_draft_states_pending_authority_without_dash_placeholders()
+    {
+        var document = GeneralWorkDocuments.Compose(new AuthoritativeGeneralWork
+        {
+            Permit = new Permit
+            {
+                Id = SamplePermitId,
+                PermitNumber = "PTW-2026-00002",
+                PermitType = PermitType.GENERAL_WORK,
+                Status = PermitStatus.DRAFT,
+                CurrentRevision = 3,
+                JobDescription = "",
+            },
+        }, Guid.NewGuid(), GeneratedAt);
+
+        Assert.Contains("REV 03", document.Banner);
+        Assert.Contains("PENDING", document.Sections.Single(section => section.Title == "PEOPLE & AUTHORIZATION").Lines);
+        Assert.Contains("No hazards recorded.", document.Sections.Single(section => section.Title == "HAZARDS").Lines);
+        Assert.Contains("Not recorded", document.Sections.Single(section => section.Title == "WORK SCOPE").Lines);
+        Assert.DoesNotContain(document.Sections.SelectMany(section => section.Lines), line => line.Contains('—'));
+        Assert.False(document.Contains("WORK AUTHORIZED"));
+        Assert.DoesNotContain(document.Sections, section => section.Title == "GENERAL WORK CONDITIONS");
+    }
+
+    [Fact]
+    public void Active_page_states_work_authorized_before_document_control()
+    {
+        var source = Sample(PermitStatus.ACTIVE);
+        source.Permit.JobDescription = "Replace pressure gauge on P-418 discharge piping and verify operation.";
+        source.Approvals =
+        [
+            Approval("SUBMITTED", "REQUESTER", "Alex Morgan", "PCU-0009", "Mechanic", GeneratedAt.AddHours(-2)),
+            Approval("AUTHORIZED", "PERMIT_AUTHORIZER", "Bobby Fitzgerald", "PCU-0001", "IT Manager", GeneratedAt.AddHours(-1)),
+            Approval("ACCEPTED", "CRAFT_RECEIVER", "Jordan Lee", "PCU-0010", "Craft", GeneratedAt.AddMinutes(-30)),
+        ];
+        source.Hazards = Marks("Stored energy", "Hot surfaces", "Chemical exposure");
+        source.Controls = Controls("Barricade", "Gas monitor", "Drain verified");
+        source.Ppe = Clothing("Hard hat", "Safety glasses", "FR clothing", "Gloves", "Hearing protection");
+        var document = GeneralWorkDocuments.Compose(source, Guid.Parse("e81f6d21-1111-4111-8111-111111111111"), GeneratedAt);
+        var bytes = new PdfSharpPermitRenderer().Render(document);
+        using var stream = new MemoryStream(bytes);
+        var pdf = PdfReader.Open(stream, PdfDocumentOpenMode.Import);
+        var page = PageText(pdf.Pages[0]);
+
+        Assert.StartsWith("%PDF-", Encoding.Latin1.GetString(bytes));
+        Assert.Contains("WORK AUTHORIZED", page);
+        Assert.Contains("Replace pressure gauge", page);
+        Assert.Contains("Bobby Fitzgerald", page);
+        Assert.Contains("PCU-0001", page);
+        var uuidOnFirstPage = page.IndexOf("Permit UUID", StringComparison.Ordinal);
+        if (uuidOnFirstPage >= 0)
+        {
+            Assert.True(page.IndexOf("WORK AUTHORIZED", StringComparison.Ordinal) < uuidOnFirstPage);
+        }
+        else
+        {
+            Assert.Contains("Permit UUID", PageText(pdf.Pages[pdf.PageCount - 1]));
+        }
+        Assert.Contains("PERMIT AUTHORIZER", document.Sections.Single(section => section.Title == "PEOPLE & AUTHORIZATION").Lines);
+        Assert.Equal(DocumentTone.Active, document.Presentation.Tone);
+    }
+
+    [Fact]
+    public void Safety_lists_print_each_recorded_item()
+    {
+        var source = Sample(PermitStatus.ACTIVE);
+        source.Hazards = Marks("Stored energy", "Hot surfaces", "Chemical exposure", "Noise");
+        source.Controls = Controls("Barricade", "Drain verified", "Fire extinguisher");
+        source.Ppe = Clothing("Hard hat", "Safety glasses", "FR clothing", "Gloves", "Hearing protection");
+        var bytes = new PdfSharpPermitRenderer().Render(GeneralWorkDocuments.Compose(source, Guid.NewGuid(), GeneratedAt));
+        var text = Encoding.Latin1.GetString(bytes);
+        foreach (var item in source.Hazards.Select(item => item.Label).Concat(source.Controls.Select(item => item.Label)).Concat(source.Ppe.Select(item => item.Label)))
+        {
+            Assert.Contains(item, text);
+        }
+    }
+
+    [Fact]
+    public void Visual_fixtures_are_written_for_inspection()
+    {
+        var renderer = new PdfSharpPermitRenderer();
+        var directory = Path.Combine(AppContext.BaseDirectory, "pdf-preview");
+        Directory.CreateDirectory(directory);
+        WritePreview(directory, "general-work-draft-sparse.pdf", renderer, new AuthoritativeGeneralWork
+        {
+            Permit = new Permit
+            {
+                Id = SamplePermitId,
+                PermitNumber = "PTW-2026-00002",
+                PermitType = PermitType.GENERAL_WORK,
+                Status = PermitStatus.DRAFT,
+                CurrentRevision = 1,
+            },
+        });
+        var active = Sample(PermitStatus.ACTIVE);
+        active.Approvals =
+        [
+            Approval("AUTHORIZED", "PERMIT_AUTHORIZER", "Bobby Fitzgerald", "PCU-0001", "IT Manager", GeneratedAt),
+            Approval("ACCEPTED", "CRAFT_RECEIVER", "Jordan Lee", "PCU-0010", "Craft", GeneratedAt),
+        ];
+        active.Hazards = Marks("Stored energy", "Hot surfaces", "Chemical exposure");
+        active.Controls = Controls("Barricade", "Gas monitor");
+        active.Ppe = Clothing("Hard hat", "Safety glasses", "Gloves", "FR clothing");
+        WritePreview(directory, "general-work-active.pdf", renderer, active);
+        WritePreview(directory, "general-work-suspended.pdf", renderer, Sample(PermitStatus.SUSPENDED, suspensionReason: "Line opened before the monitor cleared", suspendedAt: GeneratedAt));
+        WritePreview(directory, "general-work-multipage.pdf", renderer, Sample(PermitStatus.DRAFT, Enumerable.Range(1, 80).Select(index => new PermitHazard { Label = $"Hazard line {index:00} for page break" }).ToArray()));
+        WritePreview(directory, "general-work-safety-lists.pdf", renderer, active);
+        Assert.True(File.Exists(Path.Combine(directory, "general-work-active.pdf")));
+    }
+
+    private static void WritePreview(string directory, string name, PdfSharpPermitRenderer renderer, AuthoritativeGeneralWork source)
+    {
+        var bytes = renderer.Render(GeneralWorkDocuments.Compose(source, Guid.NewGuid(), GeneratedAt));
+        Assert.Equal((byte)'%', bytes[0]);
+        File.WriteAllBytes(Path.Combine(directory, name), bytes);
+    }
+
+    private static PermitHazard[] Marks(params string[] labels) => labels.Select(label => new PermitHazard { Label = label }).ToArray();
+
+    private static PermitControlRecord[] Controls(params string[] labels) => labels.Select(label => new PermitControlRecord { Label = label }).ToArray();
+
+    private static PermitPpe[] Clothing(params string[] labels) => labels.Select(label => new PermitPpe { Label = label }).ToArray();
+
+    private static PermitApproval Approval(string decision, string role, string name, string code, string title, DateTimeOffset at) => new()
+    {
+        Decision = decision,
+        ActingRole = role,
+        RoleName = role,
+        DisplayNameSnapshot = name,
+        PermitUserCodeSnapshot = code,
+        JobTitleSnapshot = title,
+        DecidedAt = at,
+    };
 
     private static readonly Guid SamplePermitId = Guid.Parse("0b6d1a22-1111-4a1b-9c1d-111111111111");
 

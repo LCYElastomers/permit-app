@@ -201,7 +201,7 @@ public static class PinCommands
 
 public static class LifecycleCommands
 {
-    public static CommandResult Submit(Permit permit, User actor, IReadOnlyCollection<string> roles, int hazardCount, DateTimeOffset now, Guid? deviceId)
+    public static CommandResult Submit(Permit permit, User actor, IReadOnlyCollection<string> roles, int hazardCount, DateTimeOffset now, Guid? deviceId, int? formVersion = null)
     {
         if (!PermitCapabilities.Has(roles, nameof(AppRole.REQUESTER))) return new CommandResult("capability-required");
         if (!actor.Enabled) return new CommandResult("user-disabled");
@@ -214,6 +214,7 @@ public static class LifecycleCommands
         permit.Status = PermitStatus.PENDING_REVIEW;
         permit.UpdatedAt = now;
         if (permit.CreatedBy is null) permit.CreatedBy = actor.Id;
+        if (permit.FormConfigurationVersion is null && formVersion is > 0) permit.FormConfigurationVersion = formVersion;
         return Record(permit, actor, nameof(AppRole.REQUESTER), "SUBMITTED", PermitEventType.PERMIT_SUBMITTED, now, deviceId);
     }
 

@@ -1,30 +1,17 @@
-import { useEffect, useState } from "react";
 import { usePermits } from "../state/PermitStore";
 import { permitType } from "../permitTypes";
 import { kindShort, kindTitle } from "../workflow";
 import { Kv, ScreenHead, StateMark } from "../components/ui";
-import { listPlantPermits, permitFromPlant } from "../services/plantDirectory";
-import type { Permit } from "../types";
+import { PlantRefresh, stationSamplePermits, useAuthoritativePermits } from "../services/plantLists";
+
+const PENDING_STATUSES = ["PENDING_REVIEW", "AUTHORIZED"];
 
 export function PendingReview() {
   const { permits, drafts, openPermit, openStoredPermit, openPlantPermit } = usePermits();
-  const [plant, setPlant] = useState<Permit[]>([]);
-  useEffect(() => {
-    let stopped = false;
-    void Promise.all([listPlantPermits("PENDING_REVIEW"), listPlantPermits("AUTHORIZED")])
-      .then(([pending, authorized]) => {
-        if (!stopped) setPlant([...pending, ...authorized].map(permitFromPlant));
-      })
-      .catch(() => {
-        if (!stopped) setPlant([]);
-      });
-    return () => {
-      stopped = true;
-    };
-  }, []);
-  const real = drafts.filter((draft) => draft.lifecycleStatus === "PENDING_REVIEW");
-  const pending = permits
-    .filter((permit) => permit.status === "pending" && permit.sample !== false)
+  const { plant, refresh, ready } = useAuthoritativePermits(PENDING_STATUSES);
+  const plantNumbers = new Set(plant.map((permit) => permit.id));
+  const real = drafts.filter((draft) => draft.lifecycleStatus === "PENDING_REVIEW" && !(draft.permitNumber && plantNumbers.has(draft.permitNumber)));
+  const pending = stationSamplePermits(permits, "pending")
     .slice()
     .sort((a, b) => b.id.localeCompare(a.id));
 
@@ -35,6 +22,7 @@ export function PendingReview() {
         title="Pending Review"
         meta={`${plant.length} PLANT RECORDS · ${real.length} ON THIS DEVICE · ${pending.length} STATION SAMPLES`}
       />
+      <PlantRefresh ready={ready} onRefresh={() => void refresh()} />
       {plant.map((permit) => (
         <button key={permit.serverPermitId} type="button" className="permit-row" onClick={() => openPlantPermit(permit, "pending")}>
           <div className="row-top">
@@ -55,10 +43,11 @@ export function PendingReview() {
           <div className="row-work">{draft.description || "Job description not entered"}</div>
         </button>
       ))}
-      <p className="empty tight">Station samples below are not plant records.</p>
-      {pending.length === 0 ? (
+      {plant.length === 0 && real.length === 0 && pending.length === 0 ? (
         <p className="empty">No permits are waiting for review.</p>
-      ) : (
+      ) : null}
+      {pending.length > 0 ? <p className="empty tight">Station samples below are not plant records.</p> : null}
+      {pending.length === 0 ? null : (
         pending.map((permit) => {
           const outstanding = permit.signoffs.filter((signoff) => signoff.state === "outstanding");
           const signed = permit.signoffs.filter((signoff) => signoff.state === "signed");

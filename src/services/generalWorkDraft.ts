@@ -196,10 +196,14 @@ export function permitDraftFromRecord(record: StoredDraft): PermitDraft {
   };
 }
 
-export async function submitLocalPermit(id: string): Promise<PermitDraft> {
+const USER_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export async function submitLocalPermit(id: string, userId?: string | null): Promise<PermitDraft> {
   const stored = await invokeCommand<StoredDraft>("submit_permit_for_review", {
     permitId: id,
     eventId: crypto.randomUUID(),
+    outboxId: crypto.randomUUID(),
+    userId: userId && USER_ID.test(userId) ? userId : null,
   });
   notifyLocalStoreChanged("draft-saved");
   return permitDraftFromRecord(stored);

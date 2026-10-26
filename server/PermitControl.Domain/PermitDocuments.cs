@@ -9,14 +9,16 @@ public sealed class AuthoritativeGeneralWork
     public string? AreaName { get; init; }
     public string? EquipmentTag { get; init; }
     public string? CompanyName { get; init; }
-    public IReadOnlyList<PermitHazard> Hazards { get; init; } = [];
-    public IReadOnlyList<PermitControlRecord> Controls { get; init; } = [];
-    public IReadOnlyList<PermitPpe> Ppe { get; init; } = [];
+    public IReadOnlyList<PermitHazard> Hazards { get; set; } = [];
+    public IReadOnlyList<PermitControlRecord> Controls { get; set; } = [];
+    public IReadOnlyList<PermitPpe> Ppe { get; set; } = [];
     public IReadOnlyList<PermitModule> Modules { get; init; } = [];
     public IReadOnlyList<PermitParticipant> Participants { get; init; } = [];
     public string? CreationFactsJson { get; init; }
     public string? SuspensionReason { get; init; }
     public DateTimeOffset? SuspendedAt { get; init; }
+    public string? SuspendedByName { get; init; }
+    public string? SuspendedByCode { get; init; }
     public IReadOnlyList<PermitModuleFact> ModuleFacts { get; set; } = [];
     public IReadOnlyList<PermitApproval> Approvals { get; set; } = [];
 }
@@ -54,9 +56,59 @@ public sealed class DocumentRunningHeader
     public required string Authority { get; init; }
 }
 
+public enum DocumentTone
+{
+    Caution,
+    Active,
+    Warning,
+    Historical,
+}
+
+public sealed record DocumentField(string Label, string Value)
+{
+    public string Line { get; init; } = "";
+
+    public string Text => Line.Length > 0 ? Line : $"{Label}: {Value}";
+}
+
+public sealed class DocumentPerson
+{
+    public required string Role { get; init; }
+    public required IReadOnlyList<string> Lines { get; init; }
+}
+
+public sealed class PermitPresentation
+{
+    public required string TypeTitle { get; init; }
+    public required string TypeShort { get; init; }
+    public required string PermitNumber { get; init; }
+    public required string Revision { get; init; }
+    public required string Status { get; init; }
+    public required string Authority { get; init; }
+    public required DocumentTone Tone { get; init; }
+    public required string RunningState { get; init; }
+    public required IReadOnlyList<DocumentField> Location { get; init; }
+    public required IReadOnlyList<DocumentField> Party { get; init; }
+    public required IReadOnlyList<DocumentField> Validity { get; init; }
+    public required string Scope { get; init; }
+    public required IReadOnlyList<DocumentField> ScopeFacts { get; init; }
+    public required IReadOnlyList<DocumentPerson> People { get; init; }
+    public required IReadOnlyList<string> Hazards { get; init; }
+    public required string HazardsNote { get; init; }
+    public required IReadOnlyList<string> Controls { get; init; }
+    public required string ControlsNote { get; init; }
+    public required IReadOnlyList<string> Ppe { get; init; }
+    public required string PpeNote { get; init; }
+    public required IReadOnlyList<DocumentField> Conditions { get; init; }
+    public required IReadOnlyList<DocumentSection> Modules { get; init; }
+    public DocumentSection? Suspension { get; init; }
+    public required DocumentSection Control { get; init; }
+}
+
 public sealed class PermitDocument
 {
     public required DocumentRunningHeader RunningHeader { get; init; }
+    public required PermitPresentation Presentation { get; init; }
     public required IReadOnlyList<string> Banner { get; init; }
     public required IReadOnlyList<DocumentSection> Sections { get; init; }
 
@@ -200,11 +252,88 @@ public static class GeneralWorkDocuments
 {
     private static readonly Dictionary<string, string> ExclusionLabels = new(StringComparer.Ordinal)
     {
-        ["excludeOpening"] = "Process opening",
-        ["excludeContainment"] = "Containment break",
-        ["excludeEntry"] = "Confined-space entry",
-        ["excludeIsolation"] = "Energy isolation",
-        ["excludeHotWork"] = "Hot work",
+        ["excludeOpening"] = "Process opening required?",
+        ["excludeContainment"] = "Containment break required?",
+        ["excludeEntry"] = "Confined-space entry required?",
+        ["excludeIsolation"] = "Energy isolation required?",
+        ["excludeHotWork"] = "Hot work required?",
+    };
+
+    private static readonly Dictionary<string, string> FactLabels = new(StringComparer.Ordinal)
+    {
+        ["taskType"] = "Task type",
+        ["equipmentSystem"] = "Equipment / system",
+        ["serviceProcess"] = "Service / process",
+        ["materialInService"] = "Material in service",
+        ["coordination"] = "Operational coordination",
+        ["heightControls"] = "Working at height",
+        ["previousService"] = "Material previously in service",
+        ["loto"] = "LOTO / energy control",
+        ["lockBox"] = "Lock box",
+        ["blindRequirements"] = "Blind requirements",
+        ["initialTest"] = "Initial atmosphere test",
+        ["retests"] = "Periodic atmosphere retests",
+        ["hotWorkEquipment"] = "Hot-work equipment",
+        ["areaPrep"] = "Area preparation",
+        ["combustibleClearance"] = "Combustible clearance",
+        ["ignitionControls"] = "Ignition controls",
+        ["extinguishing"] = "Fire extinguishing equipment",
+        ["fireWatch"] = "Fire watch",
+        ["postFireWatch"] = "Post-work fire watch",
+        ["vesselId"] = "Vessel / space ID",
+        ["energyIsolation"] = "Isolation / LOTO",
+        ["blinds"] = "Blind locations",
+        ["mechanical"] = "Mechanical / process isolation",
+        ["atmospheric"] = "Atmospheric testing",
+        ["continuous"] = "Continuous / periodic monitoring",
+        ["preparation"] = "Space preparation",
+        ["entrant"] = "Authorized entrant",
+        ["attendant"] = "Confined space attendant",
+        ["rescue"] = "Rescue availability",
+        ["hotWorkInside"] = "Hot work inside space",
+        ["zeroEnergy"] = "Zero-energy verification",
+        ["flushing"] = "Flushing",
+        ["flushMaterial"] = "Flush material",
+        ["depressured"] = "Depressured / drained",
+        ["blinded"] = "Blinded / disconnected",
+        ["cleaned"] = "Cleaned / steamed",
+        ["nitrogen"] = "Nitrogen purge",
+        ["sump"] = "Sump condition",
+        ["barricades"] = "Barricades",
+        ["digLocation"] = "Excavation location",
+        ["depth"] = "Expected depth",
+        ["competentPerson"] = "Competent person",
+        ["utilityLocate"] = "Utility locate",
+        ["locateTicket"] = "Locate ticket",
+        ["drawings"] = "Underground drawings",
+        ["undergroundHazards"] = "Underground hazards",
+        ["isolationProtection"] = "Isolation / protection",
+        ["protectiveSystem"] = "Protective system",
+        ["soil"] = "Soil classification",
+        ["access"] = "Access / egress",
+        ["spoil"] = "Spoil-pile controls",
+        ["setback"] = "Equipment setback",
+        ["traffic"] = "Traffic controls",
+        ["water"] = "Water conditions",
+        ["panel"] = "Equipment / panel / circuit",
+        ["voltage"] = "Voltage",
+        ["qualifiedWorker"] = "Qualified electrical worker",
+        ["nfpa70e"] = "NFPA 70E training verification",
+        ["shockTraining"] = "Shock / arc-flash training",
+        ["cpr"] = "CPR / first-aid availability",
+        ["justification"] = "Energized-work justification",
+        ["inspection"] = "Equipment inspection",
+        ["labeling"] = "Arc-flash labeling",
+        ["adjacentIsolation"] = "Adjacent-energy isolation",
+        ["limitedBoundary"] = "Limited approach boundary",
+        ["restrictedBoundary"] = "Restricted approach boundary",
+        ["arcBoundary"] = "Arc-flash boundary",
+        ["ppeCategory"] = "Arc-flash PPE category",
+        ["tools"] = "Electrical tools",
+        ["observer"] = "Observer / safety watch",
+        ["disconnect"] = "Emergency disconnect",
+        ["rescuePlan"] = "Rescue planning",
+        ["electricalPpe"] = "Electrical PPE",
     };
 
     public static PermitDocument Compose(AuthoritativeGeneralWork source, Guid exportId, DateTimeOffset generatedAtUtc)
@@ -212,170 +341,317 @@ public static class GeneralWorkDocuments
         var permit = source.Permit;
         var facts = GeneralWorkFactsReader.Read(source.CreationFactsJson);
         var treatment = PermitDocumentStatus.Describe(permit.Status);
+        var revision = $"{permit.CurrentRevision:00}";
+        var number = string.IsNullOrWhiteSpace(permit.PermitNumber) ? "Not assigned" : permit.PermitNumber.Trim();
+        var titles = PermitTitle(permit.PermitType);
+        var tone = Tone(permit.Status);
+        var people = People(source);
+        var hazards = Clean(source.Hazards.Select(item => item.Label));
+        var controls = Clean(source.Controls.Select(item => item.Label));
+        var ppe = Clean(source.Ppe.Select(item => item.Label).Concat(facts.PpeText));
+        var conditions = permit.PermitType == PermitType.GENERAL_WORK ? Conditions(facts) : [];
+        var modules = ModuleFactSections(source.ModuleFacts);
+        var suspension = Suspension(source);
+        var control = Section("DOCUMENT CONTROL",
+        [
+            $"Permit UUID: {permit.Id:D}",
+            $"Revision: {revision}",
+            $"Export ID: {exportId:D}",
+            $"Generated: {generatedAtUtc:yyyy-MM-dd HH:mm:ss} UTC",
+            $"Permit type code: {ShownStatus(permit.PermitType)}",
+            $"Modules: {ModuleList(source.Modules)}",
+        ]);
+        var presentation = new PermitPresentation
+        {
+            TypeTitle = titles.Title,
+            TypeShort = titles.Short,
+            PermitNumber = number,
+            Revision = revision,
+            Status = treatment.Status,
+            Authority = treatment.Authority,
+            Tone = tone,
+            RunningState = $"{treatment.Status} - {treatment.Authority}",
+            Location =
+            [
+                Field("Area", Present(source.AreaName ?? facts.AreaName)),
+                Field("Equipment / tag", Present(source.EquipmentTag ?? facts.EquipmentTag)),
+                Field("Work order", Present(permit.WorkOrder)),
+            ],
+            Party =
+            [
+                Field("Company", Company(source, facts)),
+                Field("Requester", Present(Participant(source.Participants, "Requester"))),
+                Field("Permit receiver", Present(Participant(source.Participants, "Craft / Permit Receiver"))),
+            ],
+            Validity = Validity(permit, facts),
+            Scope = Present(permit.JobDescription),
+            ScopeFacts = ScopeFacts(facts),
+            People = people,
+            Hazards = hazards,
+            HazardsNote = "No hazards recorded.",
+            Controls = controls,
+            ControlsNote = "No controls recorded.",
+            Ppe = ppe,
+            PpeNote = "No PPE recorded.",
+            Conditions = conditions,
+            Modules = modules,
+            Suspension = suspension,
+            Control = control,
+        };
         var banner = new List<string>
         {
             "LCY PERMIT CONTROL",
-            PermitTitle(permit.PermitType),
-            $"Permit number: {Shown(permit.PermitNumber)}",
-            $"Permit UUID: {permit.Id:D}",
-            $"Revision: {permit.CurrentRevision}",
-            $"Lifecycle status: {ShownStatus(permit.Status)}",
-            $"Generated (UTC): {generatedAtUtc:yyyy-MM-dd HH:mm:ss} UTC",
-            $"Export: {exportId:D}",
-            $"Modules: {Modules(source.Modules)}",
+            titles.Title,
+            number,
+            $"REV {revision}",
             treatment.Status,
             treatment.Authority,
         };
-
-        var requester = Person(source.Participants, "Requester");
-        var craft = Person(source.Participants, "Craft / Permit Receiver");
+        var sections = new List<DocumentSection>
+        {
+            Section("WORK LOCATION", presentation.Location.Select(item => item.Text).ToArray()),
+            Section("WORK PARTY", presentation.Party.Select(item => item.Text).ToArray()),
+            Section("VALIDITY", presentation.Validity.Select(item => item.Text).ToArray()),
+            Section("WORK SCOPE", [presentation.Scope, ..presentation.ScopeFacts.Select(item => item.Text)]),
+            Section("PEOPLE & AUTHORIZATION", people.SelectMany(item => new[] { item.Role }.Concat(item.Lines)).ToArray()),
+            Section("HAZARDS", hazards.Count == 0 ? [presentation.HazardsNote] : hazards),
+            Section("CONTROLS", controls.Count == 0 ? [presentation.ControlsNote] : controls),
+            Section("PPE", ppe.Count == 0 ? [presentation.PpeNote] : ppe),
+        };
+        if (conditions.Count > 0) sections.Add(Section("GENERAL WORK CONDITIONS", conditions.Select(item => item.Text).ToArray()));
+        sections.AddRange(modules);
+        if (suspension is not null) sections.Add(suspension);
+        sections.Add(control);
         return new PermitDocument
         {
             RunningHeader = new DocumentRunningHeader
             {
-                PermitNumber = Shown(permit.PermitNumber),
+                PermitNumber = number,
                 Revision = permit.CurrentRevision,
                 Status = treatment.Status,
                 Authority = treatment.Authority,
             },
+            Presentation = presentation,
             Banner = banner,
-            Sections =
-            [
-                Section("GENERAL INFORMATION",
-                [
-                    $"Permit number: {Shown(permit.PermitNumber)}",
-                    $"Permit type: {permit.PermitType}",
-                    $"Status: {treatment.Status}",
-                    $"Revision: {permit.CurrentRevision}",
-                    $"Area: {Shown(source.AreaName ?? facts.AreaName)}",
-                    $"Equipment / tag: {Shown(source.EquipmentTag ?? facts.EquipmentTag)}",
-                    $"Work order: {Shown(permit.WorkOrder)}",
-                    $"Company type: {permit.CompanyType}",
-                    $"Company: {Shown(source.CompanyName ?? facts.CompanyName)}",
-                    $"Requester: {Shown(requester)}",
-                    $"Craft / permit receiver: {Shown(craft)}",
-                    $"Planned start: {Shown(facts.PlannedStartClock)}",
-                    $"Planned expiration: {Shown(facts.PlannedExpirationClock)}",
-                    $"Planned start (record): {Stamp(permit.PlannedStart)}",
-                    $"Expires (record): {Stamp(permit.ExpiresAt)}",
-                    $"Activated (record): {Stamp(permit.ActivatedAt)}",
-                    $"Modules: {Modules(source.Modules)}",
-                ]),
-                Section("WORK SCOPE",
-                [
-                    $"Job description: {Shown(permit.JobDescription)}",
-                    $"Task type: {Shown(facts.TaskType)}",
-                ]),
-                ItemSection("HAZARDS", source.Hazards.Select(item => item.Label)),
-                ItemSection("CONTROLS", source.Controls.Select(item => item.Label)),
-                ItemSection("PPE", source.Ppe.Select(item => item.Label).Concat(facts.PpeText)),
-                ..(permit.PermitType == PermitType.GENERAL_WORK
-                    ? new[] { Section("GENERAL WORK CONDITIONS", Conditions(facts)) }
-                    : Array.Empty<DocumentSection>()),
-                ..ModuleFactSections(source.ModuleFacts),
-                ..Authorization(source.Approvals),
-                ..Suspension(source),
-            ],
+            Sections = sections,
         };
     }
 
-    private static string PermitTitle(PermitType type) => type switch
+    private static (string Title, string Short) PermitTitle(PermitType type) => type switch
     {
-        PermitType.GENERAL_WORK => "GENERAL WORK PERMIT",
-        PermitType.HOT_WORK => "HOT WORK PERMIT",
-        PermitType.CONFINED_SPACE => "CONFINED SPACE PERMIT",
-        PermitType.OPENING_BLINDING => "OPENING / BLINDING PERMIT",
-        PermitType.EXCAVATION => "EXCAVATION PERMIT",
-        PermitType.LIVE_ELECTRICAL => "LIVE ELECTRICAL PERMIT",
-        _ => "PERMIT TO WORK",
+        PermitType.GENERAL_WORK => ("GENERAL WORK PERMIT", "GENERAL WORK"),
+        PermitType.HOT_WORK => ("HOT WORK PERMIT", "HOT WORK"),
+        PermitType.CONFINED_SPACE => ("CONFINED SPACE ENTRY PERMIT", "CONFINED SPACE"),
+        PermitType.OPENING_BLINDING => ("OPENING / BLINDING PERMIT", "OPENING / BLINDING"),
+        PermitType.EXCAVATION => ("EXCAVATION PERMIT", "EXCAVATION"),
+        PermitType.LIVE_ELECTRICAL => ("LIVE ELECTRICAL WORK PERMIT", "LIVE ELECTRICAL"),
+        _ => ("PERMIT TO WORK", "PERMIT"),
     };
 
-    private static IEnumerable<DocumentSection> ModuleFactSections(IReadOnlyList<PermitModuleFact> facts)
+    private static DocumentTone Tone(PermitStatus status)
     {
+        if (!Enum.IsDefined(status)) return DocumentTone.Warning;
+        return status switch
+        {
+            PermitStatus.ACTIVE => DocumentTone.Active,
+            PermitStatus.SUSPENDED or PermitStatus.EXPIRED or PermitStatus.CANCELLED => DocumentTone.Warning,
+            PermitStatus.CLOSED or PermitStatus.SUPERSEDED => DocumentTone.Historical,
+            _ => DocumentTone.Caution,
+        };
+    }
+
+    private static IReadOnlyList<DocumentField> Validity(Permit permit, GeneralWorkFacts facts)
+    {
+        var fields = new List<DocumentField>();
+        if (permit.PlannedStart is not null) fields.Add(Field("Planned start", Stamp(permit.PlannedStart)));
+        else fields.Add(Field("Planned start", Present(facts.PlannedStartClock)));
+        if (permit.PlannedStart is not null && !string.IsNullOrWhiteSpace(facts.PlannedStartClock))
+        {
+            fields.Add(Field("Stated start", facts.PlannedStartClock.Trim()));
+        }
+
+        if (permit.ExpiresAt is not null) fields.Add(Field("Expires", Stamp(permit.ExpiresAt)));
+        else fields.Add(Field("Expires", Present(facts.PlannedExpirationClock)));
+        if (permit.ExpiresAt is not null && !string.IsNullOrWhiteSpace(facts.PlannedExpirationClock))
+        {
+            fields.Add(Field("Stated end", facts.PlannedExpirationClock.Trim()));
+        }
+
+        if (permit.ActivatedAt is not null) fields.Add(Field("Activated", Stamp(permit.ActivatedAt)));
+        return fields;
+    }
+
+    private static IReadOnlyList<DocumentField> ScopeFacts(GeneralWorkFacts facts)
+    {
+        var fields = new List<DocumentField>();
+        AddFact(fields, "Task type", facts.TaskType);
+        AddFact(fields, "Service / process", facts.ServiceProcess);
+        AddFact(fields, "Material in service", facts.MaterialInService);
+        return fields;
+    }
+
+    private static void AddFact(List<DocumentField> fields, string label, string? value)
+    {
+        if (!string.IsNullOrWhiteSpace(value)) fields.Add(Field(label, value.Trim()));
+    }
+
+    private static IReadOnlyList<DocumentPerson> People(AuthoritativeGeneralWork source)
+    {
+        var people = new List<DocumentPerson>
+        {
+            PersonCard("REQUESTED BY", Approval(source.Approvals, "SUBMITTED"), Participant(source.Participants, "Requester"), "Submitted"),
+            PersonCard("PERMIT AUTHORIZER", Approval(source.Approvals, "AUTHORIZED"), null, "Authorized"),
+            PersonCard("CRAFT / PERMIT RECEIVER", Approval(source.Approvals, "ACCEPTED"), Participant(source.Participants, "Craft / Permit Receiver"), "Accepted"),
+        };
+        AddSpecialist(people, source, "FIRE WATCH", "fireWatch", PermitModuleKind.FIRE_WATCH, source.Permit.PermitType == PermitType.HOT_WORK);
+        AddSpecialist(people, source, "CONFINED SPACE ATTENDANT", "attendant", PermitModuleKind.CONFINED_SPACE, source.Permit.PermitType == PermitType.CONFINED_SPACE);
+        AddSpecialist(people, source, "COMPETENT PERSON", "competentPerson", PermitModuleKind.EXCAVATION, source.Permit.PermitType == PermitType.EXCAVATION);
+        AddSpecialist(people, source, "QUALIFIED ELECTRICAL WORKER", "qualifiedWorker", PermitModuleKind.LIVE_ELECTRICAL, source.Permit.PermitType == PermitType.LIVE_ELECTRICAL);
+        return people;
+    }
+
+    private static void AddSpecialist(List<DocumentPerson> people, AuthoritativeGeneralWork source, string role, string factName, PermitModuleKind kind, bool typeRequires)
+    {
+        var value = source.ModuleFacts.FirstOrDefault(item => item.Name == factName)?.Value?.Trim();
+        var applies = typeRequires || source.Modules.Any(item => item.Kind == kind) || source.ModuleFacts.Any(item => item.ModuleKind == kind);
+        if (!applies && string.IsNullOrWhiteSpace(value)) return;
+        people.Add(string.IsNullOrWhiteSpace(value)
+            ? new DocumentPerson { Role = role, Lines = ["NOT ASSIGNED"] }
+            : new DocumentPerson { Role = role, Lines = [value] });
+    }
+
+    private static DocumentPerson PersonCard(string role, PermitApproval? approval, string? participant, string timeLabel)
+    {
+        if (approval is not null)
+        {
+            var lines = new List<string> { approval.DisplayNameSnapshot!.Trim() };
+            if (!string.IsNullOrWhiteSpace(approval.PermitUserCodeSnapshot)) lines.Add(approval.PermitUserCodeSnapshot.Trim());
+            if (!string.IsNullOrWhiteSpace(approval.JobTitleSnapshot)) lines.Add(approval.JobTitleSnapshot.Trim());
+            lines.Add($"{timeLabel}: {Stamp(approval.DecidedAt)}");
+            return new DocumentPerson { Role = role, Lines = lines };
+        }
+
+        if (!string.IsNullOrWhiteSpace(participant))
+        {
+            return new DocumentPerson { Role = role, Lines = [participant.Trim(), $"{timeLabel}: PENDING"] };
+        }
+
+        return new DocumentPerson { Role = role, Lines = ["PENDING"] };
+    }
+
+    private static PermitApproval? Approval(IReadOnlyList<PermitApproval> approvals, string decision) =>
+        approvals.Where(item => item.Decision == decision && item.DecidedAt is not null && !string.IsNullOrWhiteSpace(item.DisplayNameSnapshot))
+            .OrderBy(item => item.DecidedAt)
+            .LastOrDefault();
+
+    private static IReadOnlyList<DocumentSection> ModuleFactSections(IReadOnlyList<PermitModuleFact> facts)
+    {
+        var sections = new List<DocumentSection>();
         foreach (var group in facts.GroupBy(item => item.ModuleKind).OrderBy(item => item.Key.ToString(), StringComparer.Ordinal))
         {
             var lines = group
+                .Where(item => !item.Name.Equals("ppe", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(item.Value))
                 .OrderBy(item => item.Name, StringComparer.Ordinal)
-                .Select(item => $"{item.Name}: {item.Value}")
+                .Select(item => $"{FactLabel(item.Name)}: {item.Value.Trim()}")
                 .ToArray();
-            if (lines.Length > 0) yield return Section(group.Key.ToString().Replace('_', ' '), lines);
+            if (lines.Length > 0) sections.Add(Section(ModuleTitle(group.Key), lines));
         }
+
+        return sections;
     }
 
-    private static IEnumerable<DocumentSection> Authorization(IReadOnlyList<PermitApproval> approvals)
+    private static string ModuleTitle(PermitModuleKind kind) => kind switch
     {
-        var rows = approvals
-            .Where(item => item.DecidedAt is not null && !string.IsNullOrWhiteSpace(item.DisplayNameSnapshot))
-            .OrderBy(item => item.DecidedAt)
-            .Select(item => $"{item.ActingRole}: {item.DisplayNameSnapshot} ({item.PermitUserCodeSnapshot}) {item.DecidedAt:yyyy-MM-dd HH:mm:ss} UTC")
-            .ToArray();
-        if (rows.Length == 0) yield break;
-        yield return Section("AUTHORIZATION", rows);
+        PermitModuleKind.HOT_WORK => "HOT WORK CONTROLS",
+        PermitModuleKind.FIRE_WATCH => "FIRE WATCH",
+        PermitModuleKind.ATMOSPHERIC_MONITORING => "ATMOSPHERIC MONITORING",
+        PermitModuleKind.LOTO_ISOLATION => "LOTO / ISOLATION",
+        PermitModuleKind.CONFINED_SPACE => "CONFINED SPACE ENTRY",
+        PermitModuleKind.RESCUE => "RESCUE",
+        PermitModuleKind.EXCAVATION => "EXCAVATION",
+        PermitModuleKind.OPENING_BLINDING => "OPENING / BLINDING",
+        PermitModuleKind.LIVE_ELECTRICAL => "LIVE ELECTRICAL WORK",
+        PermitModuleKind.WORKING_AT_HEIGHT => "WORKING AT HEIGHT",
+        _ => kind.ToString().Replace('_', ' '),
+    };
+
+    private static string FactLabel(string name)
+    {
+        if (FactLabels.TryGetValue(name, out var known)) return known;
+        var spaced = System.Text.RegularExpressions.Regex.Replace(name, "([a-z])([A-Z])", "$1 $2").Replace('_', ' ');
+        return spaced.Length == 0 ? name : char.ToUpperInvariant(spaced[0]) + spaced[1..];
     }
 
-    private static IEnumerable<DocumentSection> Suspension(AuthoritativeGeneralWork source)
+    private static DocumentSection? Suspension(AuthoritativeGeneralWork source)
     {
-        if (string.IsNullOrWhiteSpace(source.SuspensionReason) && source.SuspendedAt is null) yield break;
-        yield return Section("SUSPENSION",
+        if (string.IsNullOrWhiteSpace(source.SuspensionReason) && source.SuspendedAt is null && string.IsNullOrWhiteSpace(source.SuspendedByName)) return null;
+        var who = string.IsNullOrWhiteSpace(source.SuspendedByName) ? "Not recorded" : source.SuspendedByName.Trim();
+        if (!string.IsNullOrWhiteSpace(source.SuspendedByCode)) who = $"{who} / {source.SuspendedByCode.Trim()}";
+        return Section("SUSPENSION",
         [
-            $"Reason: {Shown(source.SuspensionReason)}",
-            $"Suspended (UTC): {Stamp(source.SuspendedAt)}",
+            $"Suspended at: {(source.SuspendedAt is null ? "Not recorded" : Stamp(source.SuspendedAt))}",
+            $"Suspended by: {who}",
+            $"Reason: {Present(source.SuspensionReason)}",
         ]);
     }
 
-    private static IReadOnlyList<string> Conditions(GeneralWorkFacts facts)
+    private static IReadOnlyList<DocumentField> Conditions(GeneralWorkFacts facts)
     {
-        var lines = new List<string>
+        var fields = new List<DocumentField>();
+        AddFact(fields, "Equipment / system", facts.EquipmentSystem);
+        AddFact(fields, "Operational coordination", facts.Coordination);
+        AddFact(fields, "Working at height", facts.HeightControls);
+        foreach (var item in facts.Exclusions.OrderBy(entry => entry.Key, StringComparer.Ordinal))
         {
-            $"Equipment / system: {Shown(facts.EquipmentSystem)}",
-            $"Service / process: {Shown(facts.ServiceProcess)}",
-            $"Material in service: {Shown(facts.MaterialInService)}",
-            $"Operational coordination: {Shown(facts.Coordination)}",
-            $"Working at height: {Shown(facts.HeightControls)}",
-        };
-        if (facts.Exclusions.Count == 0)
-        {
-            lines.Add("Exclusion answers: none recorded");
-            return lines;
+            var label = ExclusionLabels.TryGetValue(item.Key, out var known) ? known : FactLabel(item.Key);
+            var answer = Answer(item.Value);
+            fields.Add(new DocumentField(label, answer) { Line = $"{label} {answer}" });
         }
 
-        foreach (var item in facts.Exclusions.OrderBy(item => item.Key, StringComparer.Ordinal))
-        {
-            var label = ExclusionLabels.TryGetValue(item.Key, out var known) ? known : item.Key;
-            lines.Add($"{label}: {item.Value}");
-        }
-
-        return lines;
+        return fields;
     }
+
+    private static string Answer(string value) => value.Trim().ToLowerInvariant() switch
+    {
+        "excluded" or "no" or "false" => "NO",
+        "included" or "yes" or "true" => "YES",
+        _ => value.Trim(),
+    };
 
     private static DocumentSection Section(string title, IReadOnlyList<string> lines) => new() { Title = title, Lines = lines };
 
-    private static DocumentSection ItemSection(string title, IEnumerable<string> items)
+    private static DocumentField Field(string label, string value) => new(label, value);
+
+    private static string ModuleList(IReadOnlyList<PermitModule> modules)
     {
-        var lines = items.Select(item => item.Trim()).Where(item => item.Length > 0).Distinct(StringComparer.Ordinal).ToArray();
-        return new DocumentSection { Title = title, Lines = lines.Length == 0 ? ["None recorded."] : lines };
+        var names = modules.Select(item => item.Kind.ToString()).Distinct(StringComparer.Ordinal).OrderBy(item => item, StringComparer.Ordinal).ToArray();
+        return names.Length == 0 ? "Not recorded" : string.Join(", ", names);
     }
 
-    private static string Modules(IReadOnlyList<PermitModule> modules)
+    private static string Company(AuthoritativeGeneralWork source, GeneralWorkFacts facts)
     {
-        var names = modules.Select(item => item.Kind.ToString()).Distinct(StringComparer.Ordinal).ToArray();
-        return names.Length == 0 ? "None recorded." : string.Join(", ", names);
+        var name = source.CompanyName ?? facts.CompanyName;
+        if (!string.IsNullOrWhiteSpace(name)) return name.Trim();
+        return source.Permit.CompanyType == CompanyType.LCY ? "LCY" : "Not recorded";
     }
 
-    private static string? Person(IReadOnlyList<PermitParticipant> participants, string role) =>
+    private static string? Participant(IReadOnlyList<PermitParticipant> participants, string role) =>
         participants.FirstOrDefault(item => item.RoleName == role)?.DisplayName;
 
-    private static string Shown(string? value)
+    private static IReadOnlyList<string> Clean(IEnumerable<string> items) =>
+        items.Select(item => item.Trim()).Where(item => item.Length > 0).Distinct(StringComparer.Ordinal).ToArray();
+
+    private static string Present(string? value)
     {
         var trimmed = value?.Trim();
-        return string.IsNullOrEmpty(trimmed) ? "—" : trimmed;
+        return string.IsNullOrEmpty(trimmed) ? "Not recorded" : trimmed;
     }
 
-    private static string ShownStatus(PermitStatus status) =>
-        Enum.IsDefined(status) ? status.ToString() : "UNRECOGNIZED";
+    private static string ShownStatus(PermitType type) =>
+        Enum.IsDefined(type) ? type.ToString() : "UNRECOGNIZED";
 
     private static string Stamp(DateTimeOffset? value) =>
-        value is null ? "—" : value.Value.ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss") + " UTC";
+        value!.Value.ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss") + " UTC";
 }
 
 public static class PermitExportKeys

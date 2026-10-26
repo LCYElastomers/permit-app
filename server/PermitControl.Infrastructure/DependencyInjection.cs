@@ -25,6 +25,7 @@ public static class DependencyInjection
         services.AddScoped<IAreaCatalog, AreaCatalog>();
         services.AddScoped<IGeneralWorkSync, GeneralWorkSync>();
         services.AddScoped<IPlantDirectory, DirectoryService>();
+        services.AddScoped<IPlantAdministration, AdministrationService>();
         services.AddSingleton<IPermitPdfRenderer, PdfSharpPermitRenderer>();
         services.AddScoped<IPermitPdfExport, PermitPdfExportService>();
         services.AddScoped<IDatabaseProbe, DatabaseProbe>();

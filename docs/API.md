@@ -136,12 +136,16 @@ Success returns export metadata. It does not return a filesystem path or storage
 
 `GET /api/v1/sync/pull?since=2026-10-21T18:00:00Z`
 
-Push accepts exactly one `PERMIT_CREATED` event for a supported permit type. Current module values are stored as module facts. Specialty values are not stored in the event payload. Pull still returns `501` with `{ "error": "sync-not-implemented" }`. A missing or empty `events` array on push is `400`. More than one event is `400` with `{ "error": "single-event-required" }`. The request and acknowledgement are described in `docs/SYNC.md`.
+Push accepts exactly one event. `PERMIT_CREATED` creates a supported permit type and stores current module values as module facts. `PERMIT_SUBMITTED` moves that same permit from draft to pending review and does not allocate another permit number. Specialty values are not stored in the event payload. Pull still returns `501` with `{ "error": "sync-not-implemented" }`. A missing or empty `events` array on push is `400`. More than one event is `400` with `{ "error": "single-event-required" }`. The request and acknowledgement are described in `docs/SYNC.md`. Operational lists read `GET /api/v1/permits?status=` for `DRAFT`, `PENDING_REVIEW`, `AUTHORIZED`, `ACTIVE`, and `SUSPENDED` when Plant Link is ready.
 
 ## Client
 
 `src/lib/api/` wraps these paths. `VITE_PERMIT_API_URL` overrides the production default `https://permit-control.local`. Connectivity, area refresh, and permit PDF generation go through services. The PDF content request downloads bytes. It does not print the screen. Local drafts of every supported permit type are saved on the device. Pending, active, and suspended lists still include station samples. A missing API does not stop the desktop app.
 
+## Administration
+
+`/api/v1/administration` requires an administrator session. Catalog routes cover areas, equipment, contractors, work types, templates, hazards, controls, and PPE. Form routes cover fields, choices, publish, rules, and the published version. `GET /permit-types` lists the six system permit types and their modules. Publishing a form and saving a rule require the administrator PIN. Ordinary catalog edits use the session. The API does not run SQL or shell commands and does not return a connection string, token hash, or PIN hash.
+
 ## Not exposed
 
-There is no authentication scheme, no file-upload route, and no endpoint that returns a connection string.
+There is no username and password login, no file-upload route, and no endpoint that returns a connection string.

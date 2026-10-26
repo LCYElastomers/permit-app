@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 
 const MIGRATION_1: &str = include_str!("migrations/001_initial.sql");
 const MIGRATION_2: &str = include_str!("migrations/002_general_work.sql");
+const MIGRATION_3: &str = include_str!("migrations/003_reference_catalog.sql");
 const AREA_NAME_MAX: usize = 120;
 const TEXT_MAX: usize = 200;
 const DESCRIPTION_MAX: usize = 4000;
@@ -36,6 +37,26 @@ impl std::fmt::Display for StoreError {
 
 pub struct LocalDatabase {
     conn: Connection,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogInput {
+    pub id: String,
+    pub code: String,
+    pub name: String,
+    pub enabled: bool,
+    pub payload: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogRow {
+    pub id: String,
+    pub code: String,
+    pub name: String,
+    pub enabled: bool,
+    pub payload: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -127,6 +148,18 @@ pub struct PushablePermitCreate {
     pub occurred_at: String,
     pub permit_revision: i64,
     pub draft: DraftRecord,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PushablePermitSubmission {
+    pub outbox_id: String,
+    pub event_id: String,
+    pub permit_id: String,
+    pub occurred_at: String,
+    pub permit_revision: i64,
+    pub user_id: Option<String>,
+    pub device_id: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -254,6 +287,46 @@ impl LocalDatabase {
         Ok(())
     }
 
+    pub fn list_catalog(&self, catalog: &str) -> Result<Vec<CatalogRow>, StoreError> {
+        let mut statement = self
+            .conn
+            .prepare(
+                "SELECT id, code, name, enabled, payload FROM reference_catalog WHERE catalog = ?1 ORDER BY name, id",
+            )
+            .map_err(fail)?;
+        let rows = statement
+            .query_map(params![catalog], |row| {
+                Ok(CatalogRow {
+                    id: row.get(0)?,
+                    code: row.get(1)?,
+                    name: row.get(2)?,
+                    enabled: row.get::<_, i64>(3)? == 1,
+                    payload: row.get(4)?,
+                })
+            })
+            .map_err(fail)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(fail)
+    }
+
+    /// Replaces one catalog only after every row is valid. A rejected list leaves the previous rows.
+    pub fn replace_catalog(&mut self, catalog: &str, rows: &[CatalogInput]) -> Result<(), StoreError> {
+        if !catalog_name(catalog) {
+            return Err(StoreError::InvalidCatalog);
+        }
+        let cleaned = validate_catalog(rows)?;
+        let tx = self.conn.transaction().map_err(fail)?;
+        tx.execute("DELETE FROM reference_catalog WHERE catalog = ?1", params![catalog]).map_err(fail)?;
+        for row in &cleaned {
+            tx.execute(
+                "INSERT INTO reference_catalog (catalog, id, code, name, enabled, payload) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![catalog, row.id, row.code, row.name, if row.enabled { 1 } else { 0 }, row.payload],
+            )
+            .map_err(fail)?;
+        }
+        tx.commit().map_err(fail)?;
+        Ok(())
+    }
+
     pub fn note_sync_cycle(&mut self, phase: &str) -> Result<LocalStatus, StoreError> {
         let now = utc_now();
         let retrying = self.outbox_status_count("PENDING")?;
@@ -300,7 +373,11 @@ impl LocalDatabase {
                 "SELECT id, permit_number, permit_type, status, sync_state, area_id, area_name, equipment_tag,
                         work_order, job_description, company_type, company_name, requester, craft,
                         planned_start, expires_at, created_at, updated_at, current_revision, working_state,
-                        COALESCE((SELECT status FROM outbox WHERE entity_id = local_permits.id AND operation = 'create' ORDER BY created_at DESC LIMIT 1), '')
+                        COALESCE(
+                            (SELECT status FROM outbox WHERE entity_id = local_permits.id AND status != 'ACKNOWLEDGED' ORDER BY created_at DESC LIMIT 1),
+                            (SELECT status FROM outbox WHERE entity_id = local_permits.id AND operation = 'create' ORDER BY created_at DESC LIMIT 1),
+                            ''
+                        )
                  FROM local_permits
                  ORDER BY updated_at DESC, id",
             )
@@ -327,16 +404,34 @@ impl LocalDatabase {
         self.read_draft(&prepared.id)
     }
 
-    /// Moves a saved draft to PENDING_REVIEW on this device. This does not authorize work and does not contact the server.
-    pub fn submit_for_review(&mut self, id: &str, event_id: &str) -> Result<DraftRecord, StoreError> {
-        if !is_uuid(id) || !is_uuid(event_id) {
+    /// Moves a saved draft to PENDING_REVIEW on this device and queues PERMIT_SUBMITTED.
+    /// The commit does not contact the server and does not authorize work.
+    pub fn submit_for_review(
+        &mut self,
+        id: &str,
+        event_id: &str,
+        outbox_id: &str,
+        user_id: Option<&str>,
+    ) -> Result<DraftRecord, StoreError> {
+        if !is_uuid(id) || !is_uuid(event_id) || !is_uuid(outbox_id) || event_id == outbox_id {
             return Err(StoreError::InvalidChange);
         }
+        let user = match user_id {
+            Some(value) if !value.is_empty() => {
+                if !is_uuid(value) {
+                    return Err(StoreError::InvalidChange);
+                }
+                Some(value)
+            }
+            _ => None,
+        };
         let now = utc_now();
         let tx = self.conn.transaction().map_err(fail)?;
         let updated = tx
             .execute(
-                "UPDATE local_permits SET status = 'PENDING_REVIEW', updated_at = ?1 WHERE id = ?2 AND status = 'DRAFT'",
+                "UPDATE local_permits
+                 SET status = 'PENDING_REVIEW', sync_state = 'PENDING', updated_at = ?1
+                 WHERE id = ?2 AND status = 'DRAFT'",
                 params![now, id],
             )
             .map_err(fail)?;
@@ -347,10 +442,20 @@ impl LocalDatabase {
             "INSERT INTO local_permit_events (
                 id, permit_id, permit_revision, event_type, occurred_at, recorded_at,
                 user_id, device_id, payload, sync_state
-             ) VALUES (?1, ?2, 1, 'SUBMITTED', ?3, ?3, NULL, NULL, NULL, 'LOCAL')",
-            params![event_id, id, now],
+             ) VALUES (?1, ?2, 1, 'PERMIT_SUBMITTED', ?3, ?3, ?4, NULL, NULL, 'PENDING')",
+            params![event_id, id, now, user],
         )
         .map_err(fail)?;
+        tx.execute(
+            "INSERT INTO outbox (
+                id, event_id, entity_type, entity_id, operation, created_at,
+                attempt_count, last_attempt_at, status, last_error_code
+             ) VALUES (?1, ?2, 'permit', ?3, 'submit', ?4, 0, NULL, 'PENDING', NULL)",
+            params![outbox_id, event_id, id, now],
+        )
+        .map_err(fail)?;
+        tx.execute("UPDATE sync_state SET current_sync_state = 'PENDING' WHERE id = 1", [])
+            .map_err(fail)?;
         tx.commit().map_err(fail)?;
         self.read_draft(id)
     }
@@ -462,7 +567,11 @@ impl LocalDatabase {
                 "SELECT id, permit_number, permit_type, status, sync_state, area_id, area_name, equipment_tag,
                         work_order, job_description, company_type, company_name, requester, craft,
                         planned_start, expires_at, created_at, updated_at, current_revision, working_state,
-                        COALESCE((SELECT status FROM outbox WHERE entity_id = local_permits.id AND operation = 'create' ORDER BY created_at DESC LIMIT 1), '')
+                        COALESCE(
+                            (SELECT status FROM outbox WHERE entity_id = local_permits.id AND status != 'ACKNOWLEDGED' ORDER BY created_at DESC LIMIT 1),
+                            (SELECT status FROM outbox WHERE entity_id = local_permits.id AND operation = 'create' ORDER BY created_at DESC LIMIT 1),
+                            ''
+                        )
                  FROM local_permits WHERE id = ?1",
                 params![id],
                 draft_from_row,
@@ -509,6 +618,43 @@ impl LocalDatabase {
                 draft: self.read_draft(&permit_id)?,
             });
         }
+        Ok(items)
+    }
+
+    /// Submissions wait until the permit number exists, so creation is acknowledged first.
+    pub fn list_pushable_permit_submissions(&self) -> Result<Vec<PushablePermitSubmission>, StoreError> {
+        let mut statement = self
+            .conn
+            .prepare(
+                "SELECT outbox.id, outbox.event_id, outbox.entity_id, events.occurred_at, events.permit_revision,
+                        events.user_id, events.device_id
+                 FROM outbox
+                 JOIN local_permit_events AS events ON events.id = outbox.event_id
+                 JOIN local_permits AS permits ON permits.id = outbox.entity_id
+                 WHERE outbox.status = 'PENDING'
+                   AND outbox.operation = 'submit'
+                   AND events.event_type = 'PERMIT_SUBMITTED'
+                   AND permits.status = 'PENDING_REVIEW'
+                   AND permits.permit_number IS NOT NULL
+                   AND permits.permit_number != ''
+                 ORDER BY outbox.created_at, outbox.id",
+            )
+            .map_err(fail)?;
+        let items = statement
+            .query_map([], |row| {
+                Ok(PushablePermitSubmission {
+                    outbox_id: row.get(0)?,
+                    event_id: row.get(1)?,
+                    permit_id: row.get(2)?,
+                    occurred_at: row.get(3)?,
+                    permit_revision: row.get(4)?,
+                    user_id: row.get(5)?,
+                    device_id: row.get(6)?,
+                })
+            })
+            .map_err(fail)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(fail)?;
         Ok(items)
     }
 
@@ -573,6 +719,85 @@ impl LocalDatabase {
         tx.execute(
             "UPDATE outbox SET status = 'ACKNOWLEDGED', last_error_code = NULL, last_attempt_at = ?1 WHERE id = ?2",
             params![now, outbox_id],
+        )
+        .map_err(fail)?;
+        let resting = resting_sync_state(&tx)?;
+        tx.execute(
+            "UPDATE sync_state SET last_permit_sync_at = ?1, current_sync_state = ?2 WHERE id = 1",
+            params![now, resting],
+        )
+        .map_err(fail)?;
+        tx.commit().map_err(fail)?;
+        self.read_draft(permit_id)
+    }
+
+    /// Marks a submitted event acknowledged. The permit number and lifecycle status stay as they are.
+    pub fn acknowledge_permit_submitted(
+        &mut self,
+        outbox_id: &str,
+        event_id: &str,
+        permit_id: &str,
+        permit_number: &str,
+    ) -> Result<DraftRecord, StoreError> {
+        if !permit_number_ok(permit_number) {
+            return Err(StoreError::InvalidChange);
+        }
+        let now = utc_now();
+        let tx = self.conn.transaction().map_err(fail)?;
+        let stored: Option<String> = tx
+            .query_row(
+                "SELECT permit_number FROM local_permits WHERE id = ?1 AND status = 'PENDING_REVIEW'",
+                params![permit_id],
+                |row| row.get(0),
+            )
+            .ok();
+        if stored.as_deref() != Some(permit_number) {
+            return Err(StoreError::InvalidChange);
+        }
+        let already: i64 = tx
+            .query_row(
+                "SELECT COUNT(*) FROM outbox
+                 WHERE id = ?1 AND event_id = ?2 AND entity_id = ?3 AND status = 'ACKNOWLEDGED' AND operation = 'submit'",
+                params![outbox_id, event_id, permit_id],
+                |row| row.get(0),
+            )
+            .map_err(fail)?;
+        if already == 1 {
+            tx.commit().map_err(fail)?;
+            return self.read_draft(permit_id);
+        }
+        let matched: i64 = tx
+            .query_row(
+                "SELECT COUNT(*) FROM outbox
+                 WHERE id = ?1 AND event_id = ?2 AND entity_id = ?3 AND status = 'PENDING' AND operation = 'submit'",
+                params![outbox_id, event_id, permit_id],
+                |row| row.get(0),
+            )
+            .map_err(fail)?;
+        if matched != 1 {
+            return Err(StoreError::InvalidChange);
+        }
+        tx.execute(
+            "UPDATE local_permit_events SET sync_state = 'ACKNOWLEDGED' WHERE id = ?1 AND permit_id = ?2 AND event_type = 'PERMIT_SUBMITTED'",
+            params![event_id, permit_id],
+        )
+        .map_err(fail)?;
+        tx.execute(
+            "UPDATE outbox SET status = 'ACKNOWLEDGED', last_error_code = NULL, last_attempt_at = ?1 WHERE id = ?2",
+            params![now, outbox_id],
+        )
+        .map_err(fail)?;
+        let remaining: i64 = tx
+            .query_row(
+                "SELECT COUNT(*) FROM outbox WHERE entity_id = ?1 AND status != 'ACKNOWLEDGED'",
+                params![permit_id],
+                |row| row.get(0),
+            )
+            .map_err(fail)?;
+        let permit_sync = if remaining == 0 { "SYNCHRONIZED" } else { "PENDING" };
+        tx.execute(
+            "UPDATE local_permits SET sync_state = ?1, updated_at = ?2 WHERE id = ?3",
+            params![permit_sync, now, permit_id],
         )
         .map_err(fail)?;
         let resting = resting_sync_state(&tx)?;
@@ -931,7 +1156,38 @@ fn migrate(conn: &Connection) -> Result<(), rusqlite::Error> {
     if current_version(conn)? < 2 {
         apply_migration(conn, 2, MIGRATION_2)?;
     }
+    if current_version(conn)? < 3 {
+        apply_migration(conn, 3, MIGRATION_3)?;
+    }
     Ok(())
+}
+
+fn catalog_name(catalog: &str) -> bool {
+    matches!(catalog, "equipment" | "contractors" | "work-types" | "hazards" | "controls" | "ppe" | "templates")
+}
+
+fn validate_catalog(rows: &[CatalogInput]) -> Result<Vec<CatalogInput>, StoreError> {
+    let mut cleaned = Vec::with_capacity(rows.len());
+    let mut seen = HashSet::new();
+    for row in rows {
+        let id = row.id.trim();
+        let code = row.code.trim();
+        let name = row.name.trim();
+        if id.is_empty() || code.is_empty() || name.is_empty() || code.len() > 40 || name.len() > 160 || row.payload.len() > 2000 {
+            return Err(StoreError::InvalidCatalog);
+        }
+        if !seen.insert(id.to_string()) {
+            return Err(StoreError::InvalidCatalog);
+        }
+        cleaned.push(CatalogInput {
+            id: id.to_string(),
+            code: code.to_string(),
+            name: name.to_string(),
+            enabled: row.enabled,
+            payload: row.payload.clone(),
+        });
+    }
+    Ok(cleaned)
 }
 
 fn apply_migration(conn: &Connection, version: i64, script: &str) -> Result<(), rusqlite::Error> {
@@ -1060,6 +1316,34 @@ mod tests {
         (dir, database)
     }
 
+    #[test]
+    fn rejected_catalog_refresh_keeps_the_last_good_copy() {
+        let (_dir, mut database) = temp_store();
+        let good = CatalogInput {
+            id: "eq-1".to_string(),
+            code: "P-200".to_string(),
+            name: "Pump".to_string(),
+            enabled: true,
+            payload: "{}".to_string(),
+        };
+        database.replace_catalog("equipment", &[good.clone()]).unwrap();
+        let rejected = CatalogInput {
+            id: " ".to_string(),
+            code: "BAD".to_string(),
+            name: "Bad".to_string(),
+            enabled: true,
+            payload: "{}".to_string(),
+        };
+        assert!(database.replace_catalog("equipment", &[rejected]).is_err());
+        assert_eq!(database.list_catalog("equipment").unwrap(), vec![CatalogRow {
+            id: good.id,
+            code: good.code,
+            name: good.name,
+            enabled: true,
+            payload: good.payload,
+        }]);
+    }
+
     fn area(id: &str, name: &str) -> AreaInput {
         AreaInput {
             id: id.to_string(),
@@ -1109,12 +1393,17 @@ mod tests {
     #[test]
     fn fresh_database_applies_initial_migration() {
         let (_dir, database) = temp_store();
-        assert_eq!(database.schema_version().unwrap(), 2);
+        assert_eq!(database.schema_version().unwrap(), 3);
         let migrations: i64 = database
             .conn
             .query_row("SELECT COUNT(*) FROM schema_migrations", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(migrations, 2);
+        assert_eq!(migrations, 3);
+        let catalog: i64 = database
+            .conn
+            .query_row("SELECT COUNT(*) FROM reference_catalog", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(catalog, 0);
         let status = database.status().unwrap();
         assert_eq!(status.sync_state, "IDLE");
         assert_eq!(status.pending_count, 0);
@@ -1131,12 +1420,12 @@ mod tests {
         let path = dir.path().join(DATABASE_FILE_NAME);
         LocalDatabase::open(&path).unwrap();
         let database = LocalDatabase::open(&path).unwrap();
-        assert_eq!(database.schema_version().unwrap(), 2);
+        assert_eq!(database.schema_version().unwrap(), 3);
         let migrations: i64 = database
             .conn
             .query_row("SELECT COUNT(*) FROM schema_migrations", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(migrations, 2);
+        assert_eq!(migrations, 3);
     }
 
     #[test]
@@ -1410,22 +1699,26 @@ mod tests {
                 .submit_for_review(
                     "44444444-4444-4444-8444-000000000002",
                     "77777777-7777-4777-8777-000000000002",
+                    "88888888-8888-4888-8888-000000000002",
+                    None,
                 )
                 .unwrap();
             assert_eq!(submitted.permit_type, "HOT_WORK");
             assert_eq!(submitted.status, "PENDING_REVIEW");
+            assert_eq!(submitted.outbox_status, "PENDING");
             assert_eq!(submitted.working_state["permitType"], "HOT_WORK");
             assert_eq!(database.list_pushable_permit_creates().unwrap().len(), 6);
+            assert!(database.list_pushable_permit_submissions().unwrap().is_empty());
             let submitted_events: i64 = database
                 .conn
                 .query_row(
-                    "SELECT COUNT(*) FROM local_permit_events WHERE event_type = 'SUBMITTED' AND sync_state = 'LOCAL'",
+                    "SELECT COUNT(*) FROM local_permit_events WHERE event_type = 'PERMIT_SUBMITTED' AND sync_state = 'PENDING'",
                     [],
                     |row| row.get(0),
                 )
                 .unwrap();
             assert_eq!(submitted_events, 1);
-            assert_eq!(counts(&database).2, 6);
+            assert_eq!(counts(&database).2, 7);
         }
         let mut database = LocalDatabase::open(&path).unwrap();
         let hot = database
@@ -1435,7 +1728,17 @@ mod tests {
             .find(|draft| draft.permit_type == "HOT_WORK")
             .unwrap();
         assert_eq!(hot.status, "PENDING_REVIEW");
+        assert_eq!(hot.outbox_status, "PENDING");
         assert_eq!(hot.working_state["moduleState"]["fields"]["depth"], "4 ft");
+        let pending_submit: i64 = database
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM outbox WHERE operation = 'submit' AND status = 'PENDING'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(pending_submit, 1);
         let mut edited = sample_draft("000000000002");
         edited.permit_type = "HOT_WORK".to_string();
         edited.job_description = "Weld the spool".to_string();
@@ -1559,6 +1862,64 @@ mod tests {
         assert_eq!(draft[0].status, "DRAFT");
         assert!(database.list_pushable_permit_creates().unwrap().is_empty());
         assert!(database.status().unwrap().last_permit_sync_at.is_some());
+    }
+
+    #[test]
+    fn submitted_permit_survives_reopen_and_acknowledges_after_the_number() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(DATABASE_FILE_NAME);
+        {
+            let mut database = LocalDatabase::open(&path).unwrap();
+            database.save_general_work_draft(sample_draft("111111111111")).unwrap();
+            database
+                .submit_for_review(
+                    "44444444-4444-4444-8444-111111111111",
+                    "77777777-7777-4777-8777-111111111111",
+                    "88888888-8888-4888-8888-111111111111",
+                    Some("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
+                )
+                .unwrap();
+            assert!(database.list_pushable_permit_submissions().unwrap().is_empty());
+            assert_eq!(database.status().unwrap().pending_count, 2);
+        }
+        let mut database = LocalDatabase::open(&path).unwrap();
+        let reopened = database.list_drafts().unwrap();
+        assert_eq!(reopened[0].status, "PENDING_REVIEW");
+        assert_eq!(reopened[0].permit_number, None);
+        assert_eq!(database.list_pushable_permit_creates().unwrap().len(), 1);
+        let create = database.list_pushable_permit_creates().unwrap().remove(0);
+        database
+            .acknowledge_permit_created(&create.outbox_id, &create.event_id, &create.draft.id, "PTW-2026-00042")
+            .unwrap();
+        let submissions = database.list_pushable_permit_submissions().unwrap();
+        assert_eq!(submissions.len(), 1);
+        assert_eq!(submissions[0].user_id.as_deref(), Some("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"));
+        database.note_push_deferred(&submissions[0].outbox_id).unwrap();
+        assert_eq!(database.status().unwrap().sync_state, "BACKOFF");
+        assert_eq!(database.list_pushable_permit_submissions().unwrap().len(), 1);
+        let acked = database
+            .acknowledge_permit_submitted(
+                &submissions[0].outbox_id,
+                &submissions[0].event_id,
+                &submissions[0].permit_id,
+                "PTW-2026-00042",
+            )
+            .unwrap();
+        assert_eq!(acked.status, "PENDING_REVIEW");
+        assert_eq!(acked.permit_number.as_deref(), Some("PTW-2026-00042"));
+        assert_eq!(acked.outbox_status, "ACKNOWLEDGED");
+        assert_eq!(database.status().unwrap().pending_count, 0);
+        assert!(database.status().unwrap().last_permit_sync_at.is_some());
+        assert!(database.list_pushable_permit_submissions().unwrap().is_empty());
+        database
+            .acknowledge_permit_submitted(
+                &submissions[0].outbox_id,
+                &submissions[0].event_id,
+                &submissions[0].permit_id,
+                "PTW-2026-00042",
+            )
+            .unwrap();
+        assert_eq!(database.list_drafts().unwrap().len(), 1);
     }
 
     #[test]
