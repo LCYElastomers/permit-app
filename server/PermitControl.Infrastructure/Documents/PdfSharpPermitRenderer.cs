@@ -28,17 +28,11 @@ public sealed class PdfSharpPermitRenderer : IPermitPdfRenderer
             using var footer = XGraphics.FromPdfPage(numbered, XGraphicsPdfPageOptions.Append);
             footer.DrawLine(new XPen(XColor.FromArgb(196, 196, 196), 0.4), 40, numbered.Height.Point - 32, numbered.Width.Point - 40, numbered.Height.Point - 32);
             footer.DrawString(
-                "LCY Permit Control  ·  Controlled Electronic Record",
-                canvas.Footer,
-                canvas.Muted,
-                new XRect(40, numbered.Height.Point - 24, numbered.Width.Point - 160, 10),
-                XStringFormats.TopLeft);
-            footer.DrawString(
-                $"Page {index + 1} of {total}",
+                $"LCY Permit Control  ·  Controlled Electronic Record  ·  Page {index + 1} of {total}",
                 canvas.Footer,
                 canvas.Muted,
                 new XRect(40, numbered.Height.Point - 24, numbered.Width.Point - 80, 10),
-                XStringFormats.TopRight);
+                XStringFormats.TopLeft);
         }
 
         using var stream = new MemoryStream();
@@ -351,12 +345,12 @@ public sealed class PdfSharpPermitRenderer : IPermitPdfRenderer
 
         private void QuietHeading(string title)
         {
-            Ensure(36);
-            y += SectionGap;
-            graphics.DrawLine(new XPen(XColor.FromArgb(186, 186, 186), 0.5), Left, y, Left + Width, y);
-            y += 6;
-            graphics.DrawString(title, Label, Muted, new XRect(Left, y, Width, 10), XStringFormats.TopLeft);
-            y += 12;
+            Ensure(24);
+            y += 8;
+            graphics.DrawLine(new XPen(XColor.FromArgb(186, 186, 186), 0.4), Left, y, Left + Width, y);
+            y += 4;
+            graphics.DrawString(title, Label, Muted, new XRect(Left, y, Width, 9), XStringFormats.TopLeft);
+            y += 10;
         }
 
         private void Paragraph(string text, XFont font, double lead)
