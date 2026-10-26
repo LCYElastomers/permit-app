@@ -11,6 +11,7 @@ export interface LocalStatus {
   lastPermitSyncAt: string | null;
   lastAttemptedSyncAt: string | null;
   referenceAreasSyncedAt: string | null;
+  schemaVersion: number;
 }
 
 export type LocalView =
@@ -19,17 +20,47 @@ export type LocalView =
   | ({ status: "available" } & LocalStatus);
 
 export const LOCAL_STORE_FAILURE = {
-  code: "local-store-unavailable",
+  code: "local-storage-unavailable",
   summary: "Local permit data is unavailable.",
 } as const;
 
-export class LocalStoreFailure extends Error {
-  readonly code = LOCAL_STORE_FAILURE.code;
+const LOCAL_FAILURES: Record<string, string> = {
+  "local-storage-unavailable": "Local permit data is unavailable.",
+  "local-store-unavailable": "Local permit data is unavailable.",
+  "local-storage-write-failed": "Permit Control could not save this change on the device.",
+  "working-state-invalid": "Permit Control could not read this permit's saved details.",
+  "working-state-version-unsupported": "This permit uses a newer saved format. The original record was not changed.",
+  "permit-validation-failed": "This permit is not ready to submit.",
+  "local-transaction-failed": "Permit Control could not save this change on the device.",
+  "tauri-command-failed": "Permit Control could not complete this local command.",
+};
 
-  constructor() {
-    super(LOCAL_STORE_FAILURE.summary);
+export class LocalStoreFailure extends Error {
+  readonly code: string;
+
+  constructor(code: string = LOCAL_STORE_FAILURE.code) {
+    super(LOCAL_FAILURES[code] ?? LOCAL_FAILURES["tauri-command-failed"]);
     this.name = "LocalStoreFailure";
+    this.code = code;
   }
+}
+
+export function localStorageUnavailable(error: unknown): boolean {
+  return error instanceof LocalStoreFailure && (error.code === "local-storage-unavailable" || error.code === "local-store-unavailable");
+}
+
+export function localFailureMessage(error: unknown): string {
+  const code = error instanceof LocalStoreFailure ? error.code : "tauri-command-failed";
+  if (code === "local-storage-unavailable" || code === "local-store-unavailable") {
+    return "This draft could not be saved on this device. Local data is unavailable. The form is still here.";
+  }
+  if (code === "permit-validation-failed") {
+    return "PERMIT NOT READY. Complete the preparation items listed below. Local data is available.";
+  }
+  if (code === "working-state-version-unsupported" || code === "working-state-invalid") {
+    return "DRAFT NOT SAVED. Your current form entries remain available. The original saved permit was not changed.";
+  }
+  return "DRAFT NOT SAVED. Your current form entries remain available. Permit Control could not save this change on the device.";
 }
 
 export class AreaCatalogRejected extends Error {
@@ -107,8 +138,17 @@ export async function invokeCommand<T>(command: string, args?: Record<string, un
   } catch (error) {
     if (error instanceof LocalStoreFailure || error instanceof AreaCatalogRejected) throw error;
     if (isCommandCode(error, "invalid-area-catalog")) throw new AreaCatalogRejected();
-    throw new LocalStoreFailure();
+    const reported = commandText(error);
+    const code = reported in LOCAL_FAILURES ? reported : "tauri-command-failed";
+    console.error("local persistence", { operation: command, category: code, code: reported || "unclassified" });
+    throw new LocalStoreFailure(code);
   }
+}
+
+function commandText(error: unknown): string {
+  if (typeof error === "string") return error;
+  if (error && typeof error === "object" && "message" in error && typeof error.message === "string") return error.message;
+  return "";
 }
 
 function isCommandCode(error: unknown, code: string): boolean {

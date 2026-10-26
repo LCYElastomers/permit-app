@@ -10,6 +10,7 @@ import {
 } from "react";
 import { initialPermits, templates } from "../data/mock";
 import { listLocalDrafts, persistGeneralWorkDraft, persistPermitCorrection } from "../services/generalWorkDraft";
+import { LocalStoreFailure } from "../services/localStore";
 import { onLocalStoreChanged } from "../services/localStore";
 import { GENERAL_EXCLUSIONS, permitType } from "../permitTypes";
 import { plantClock } from "../plantClock";
@@ -91,9 +92,14 @@ function permitFromDraft(draft: PermitDraft, id: string, time: string): Permit {
     }))
     .sort((a, b) => a.time.localeCompare(b.time));
 
+  const knownFields = new Set(spec.fields.map((item) => item.key));
   const conditions = spec.fields
     .filter((item) => fields[item.key]?.trim())
     .map((item) => ({ label: item.label, value: fields[item.key].trim() }));
+  for (const [key, value] of Object.entries(fields)) {
+    if (!value.trim() || knownFields.has(key) || key.startsWith("exclude") || key === "otherHazard" || key === "otherControl") continue;
+    conditions.push({ label: titleCase(key), value: value.trim() });
+  }
   if (draft.kind === "general") {
     for (const exclusion of GENERAL_EXCLUSIONS) {
       const value = fields[exclusion.key];
@@ -339,6 +345,9 @@ export function PermitProvider({ children }: { children: ReactNode }) {
   };
 
   const saveDraft = async () => {
+    if (form.preserveWorkingState) {
+      throw new LocalStoreFailure("working-state-version-unsupported");
+    }
     const correcting = Boolean(
       form.id && form.permitNumber && (form.lifecycleStatus === "DRAFT" || form.lifecycleStatus === "PENDING_REVIEW"),
     );
@@ -370,6 +379,13 @@ export function PermitProvider({ children }: { children: ReactNode }) {
   const openCorrection = (permit: Permit, step = 0) => {
     const status = permit.plantRecord?.status;
     if (!permit.serverPermitId || (status !== "DRAFT" && status !== "PENDING_REVIEW")) return;
+    const local = drafts.find((draft) => draft.id === permit.serverPermitId || (permit.id !== "" && draft.permitNumber === permit.id));
+    if (local) {
+      setForm({ ...structuredClone(local), step });
+      setScreen("new");
+      setOrigin("pending");
+      return;
+    }
     setForm({
       ...emptyDraft(permit.kind),
       id: permit.serverPermitId,

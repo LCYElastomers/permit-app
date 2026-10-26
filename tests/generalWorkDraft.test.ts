@@ -2,9 +2,11 @@ import { describe, expect, it, vi } from "vitest";
 import type { PlantLink } from "../src/lib/connectivity";
 import {
   generalWorkSaveRequest,
+  permitDraftFromRecord,
   persistGeneralWorkDraft,
   type StoredDraft,
 } from "../src/services/generalWorkDraft";
+import { localFailureMessage, LocalStoreFailure } from "../src/services/localStore";
 import type { PermitKind } from "../src/types";
 import { detailDocumentTarget } from "../src/services/permitDocumentActions";
 import { storedPermitRecord } from "../src/state/PermitStore";
@@ -146,5 +148,43 @@ describe("general work local save", () => {
     expect(suspended.status).toBe("suspended");
     expect(detailDocumentTarget(suspended).permitId).toBeNull();
     expect(detailDocumentTarget(suspended).kind).toBe("hot-work");
+  });
+
+  it("restores version 1 general work and keeps unknown details on the next save", () => {
+    const restored = permitDraftFromRecord({
+      ...stored(generalWorkSaveRequest(draft(), { id: permitId, eventId, outboxId })),
+      workingState: {
+        version: 1,
+        step: 2,
+        hazards: ["fall"],
+        controls: ["PPE"],
+        fields: { taskType: "Inspection", ppe: ["Hard hat", "Gloves"], extraNote: "keep me" },
+        names: { requester: "Elena Voss" },
+        signatures: { supervisor: { name: "Bobby Fitzgerald", time: "15:05" } },
+        legacyNote: "still here",
+      } as StoredDraft["workingState"],
+    });
+    expect(restored.kind).toBe("general");
+    expect(restored.fields.taskType).toBe("Inspection");
+    expect(restored.fields.ppe).toBe("Hard hat, Gloves");
+    expect(restored.fields.extraNote).toBe("keep me");
+    expect(restored.signatures.supervisor.name).toBe("Bobby Fitzgerald");
+    expect(restored.preserveWorkingState).toBe(false);
+    const request = generalWorkSaveRequest(restored, { id: permitId, eventId, outboxId });
+    expect(request.workingState.version).toBe(2);
+    expect(request.workingState.moduleState.fields.extraNote).toBe("keep me");
+    expect(JSON.stringify(request.workingState)).toContain("still here");
+  });
+
+  it("does not turn a newer working state into an editable blank draft", () => {
+    const restored = permitDraftFromRecord({
+      ...stored(generalWorkSaveRequest(draft(), { id: permitId, eventId, outboxId })),
+      workingState: { version: 9, permitType: "HOT_WORK", kept: "original-scope" } as StoredDraft["workingState"],
+    });
+    expect(restored.preserveWorkingState).toBe(true);
+    expect(restored.hazards).toEqual([]);
+    expect(localFailureMessage(new LocalStoreFailure("working-state-version-unsupported"))).toContain("DRAFT NOT SAVED");
+    expect(localFailureMessage(new LocalStoreFailure("local-storage-write-failed"))).not.toContain("Local data is unavailable");
+    expect(localFailureMessage(new LocalStoreFailure())).toContain("Local data is unavailable");
   });
 });

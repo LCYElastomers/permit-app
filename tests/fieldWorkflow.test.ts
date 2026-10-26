@@ -46,6 +46,8 @@ describe("offline submit for review", () => {
       plannedStart: "15:00",
       plannedEnd: "19:00",
       hazards: ["heat"],
+      controls: ["PPE"],
+      fields: { ppe: "Hard hat" },
     };
     expect(canSubmitForReview(ready)).toBe(true);
     expect(preparationGaps(ready)).toEqual([]);

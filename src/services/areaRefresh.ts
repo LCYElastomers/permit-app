@@ -1,6 +1,6 @@
 import { apiRequest } from "../lib/api/client";
 import { syncMayStart, type PlantLink } from "../lib/connectivity";
-import { AreaCatalogRejected, replaceReferenceAreas } from "./localStore";
+import { AreaCatalogRejected, localStorageUnavailable, replaceReferenceAreas } from "./localStore";
 import { parseAreaList, type AreaRecord } from "./areas";
 
 export type AreaRefreshResult = "updated" | "kept" | "storage-failed";
@@ -27,6 +27,7 @@ export async function refreshAreaCatalog(input: {
     await replace(areas);
   } catch (error) {
     if (error instanceof AreaCatalogRejected) return "kept";
+    if (!localStorageUnavailable(error)) return "kept";
     return "storage-failed";
   }
   return "updated";

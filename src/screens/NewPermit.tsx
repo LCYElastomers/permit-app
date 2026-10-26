@@ -10,6 +10,7 @@ import { localDraftLabel, submitLocalPermit } from "../services/generalWorkDraft
 import { useIdentity } from "../services/identity";
 import { describePermitSave } from "../services/syncStatus";
 import { draftDocumentTarget, documentActionPlacement } from "../services/permitDocumentActions";
+import { localFailureMessage } from "../services/localStore";
 import { usePermits } from "../state/PermitStore";
 import type { PermitDraft, PermitKind } from "../types";
 import {
@@ -124,6 +125,9 @@ export function NewPermit() {
         <PermitDocumentActions target={draftDocumentTarget(form)} placement="documents" />
       ) : null}
 
+      {form.preserveWorkingState ? (
+        <p className="field-note">This permit uses a saved format this version cannot edit. The original record was not changed.</p>
+      ) : null}
       <div className="workflow-stage">
         <div className="workflow-main">
           <TypeRecommendationNotice form={form} onUse={(kind) => patch({ kind })} />
@@ -202,8 +206,9 @@ export function NewPermit() {
               setSaving(true);
               setSaveError("");
               void saveDraft()
-                .catch(() => {
-                  setSaveError("This draft could not be saved on this device. Local data is unavailable. The form is still here.");
+                .catch((error: unknown) => {
+                  console.error("local persistence", { operation: "save_draft", category: error instanceof Error ? error.name : "unknown" });
+                  setSaveError(localFailureMessage(error));
                 })
                 .finally(() => {
                   savingRef.current = false;
@@ -223,7 +228,12 @@ export function NewPermit() {
               className="btn btn-next"
               disabled={!canSubmitForReview(form) || saving}
               onClick={() => {
-                if (savingRef.current || !canSubmitForReview(form)) return;
+                if (savingRef.current) return;
+                if (!canSubmitForReview(form)) {
+                  const gaps = preparationGaps(form);
+                  setSaveError(gaps.length > 0 ? `PERMIT NOT READY. Complete: ${gaps.join(", ")}.` : "PERMIT NOT READY.");
+                  return;
+                }
                 savingRef.current = true;
                 setSaving(true);
                 setSaveError("");
@@ -233,7 +243,10 @@ export function NewPermit() {
                     updateForm(() => saved);
                     setSaveError("");
                   })
-                  .catch(() => setSaveError("This draft could not be submitted. It is still saved on this device."))
+                  .catch((error: unknown) => {
+                    console.error("local persistence", { operation: "submit_for_review", category: error instanceof Error ? error.name : "unknown" });
+                    setSaveError(localFailureMessage(error));
+                  })
                   .finally(() => {
                     savingRef.current = false;
                     setSaving(false);
@@ -669,8 +682,8 @@ function AuthorizationStep({
           <p>Pending review. Saved locally. This permit is not authorized for work.</p>
         ) : preparationGaps(form).length > 0 ? (
           <>
-            <p>Cannot submit for review</p>
-            <p>Complete the following:</p>
+            <p>PERMIT NOT READY</p>
+            <p>Complete:</p>
             <ul>
               {preparationGaps(form).map((item) => (
                 <li key={item}>{item}</li>

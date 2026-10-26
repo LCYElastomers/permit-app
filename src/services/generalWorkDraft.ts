@@ -122,19 +122,105 @@ export function generalWorkSaveRequest(
     permitType: serverPermitType(draft.kind),
     plannedStart: draft.plannedStart.trim() ? draft.plannedStart : null,
     expiresAt: draft.plannedEnd.trim() ? draft.plannedEnd : null,
-    workingState: {
-      version: 2,
-      permitType: serverPermitType(draft.kind),
-      workflowStep: draft.step,
-      moduleState: {
-        hazards: draft.hazards,
-        controls: draft.controls,
-        fields: draft.fields,
-        names: draft.names,
-        signatures: draft.signatures,
-      },
+    workingState: preservedWorkingState(draft),
+  };
+}
+
+function preservedWorkingState(draft: PermitDraft): PermitWorkingState {
+  const next: PermitWorkingState = {
+    version: 2,
+    permitType: serverPermitType(draft.kind),
+    workflowStep: draft.step,
+    moduleState: {
+      hazards: draft.hazards,
+      controls: draft.controls,
+      fields: draft.fields,
+      names: draft.names,
+      signatures: draft.signatures,
     },
   };
+  const original = draft.sourceWorkingState;
+  if (!original || original.version === 2) {
+    const prior = original?.version === 2 ? original : undefined;
+    const priorModule = prior && typeof prior.moduleState === "object" && prior.moduleState ? prior.moduleState as PermitWorkingState["moduleState"] : undefined;
+    return {
+      ...(prior ?? {}),
+      ...next,
+      moduleState: {
+        ...(priorModule ?? {}),
+        hazards: next.moduleState.hazards,
+        controls: next.moduleState.controls,
+        fields: { ...stringRecord(priorModule?.fields), ...next.moduleState.fields },
+        names: { ...stringRecord(priorModule?.names), ...next.moduleState.names },
+        signatures: { ...signatureRecord(priorModule?.signatures), ...next.moduleState.signatures },
+      },
+    };
+  }
+  if (original.version === 1) {
+    const { version: _version, step: _step, hazards: _hazards, controls: _controls, fields, names, signatures, ...rest } = original;
+    return {
+      ...rest,
+      ...next,
+      moduleState: {
+        ...next.moduleState,
+        fields: { ...stringRecord(fields), ...next.moduleState.fields },
+        names: { ...stringRecord(names), ...next.moduleState.names },
+        signatures: { ...signatureRecord(signatures), ...next.moduleState.signatures },
+      },
+    };
+  }
+  return next;
+}
+
+function stringRecord(value: unknown): Record<string, string> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const record: Record<string, string> = {};
+  for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof item === "string") record[key] = item;
+    else if (typeof item === "number" || typeof item === "boolean") record[key] = String(item);
+    else if (Array.isArray(item)) record[key] = item.filter((entry) => typeof entry === "string").join(", ");
+    else if (item && typeof item === "object") {
+      const labeled = item as { id?: unknown; label?: unknown };
+      if (typeof labeled.label === "string") record[key] = labeled.label;
+      else if (typeof labeled.id === "string") record[key] = labeled.id;
+    }
+  }
+  return record;
+}
+
+function stringList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (typeof item === "string" && item.trim()) return [item];
+    if (typeof item === "number" || typeof item === "boolean") return [String(item)];
+    if (item && typeof item === "object") {
+      const labeled = item as { id?: unknown; label?: unknown };
+      if (typeof labeled.id === "string") return [labeled.id];
+      if (typeof labeled.label === "string") return [labeled.label];
+    }
+    return [];
+  });
+}
+
+function signatureRecord(value: unknown): Record<string, { name: string; time: string }> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const record: Record<string, { name: string; time: string }> = {};
+  for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+    if (!item || typeof item !== "object") continue;
+    const signature = item as { name?: unknown; time?: unknown };
+    if (typeof signature.name !== "string") continue;
+    record[key] = { name: signature.name, time: typeof signature.time === "string" ? signature.time : "" };
+  }
+  return record;
+}
+
+export function workingStatePreserved(state: { version?: unknown; permitType?: unknown } | null | undefined): boolean {
+  if (state?.version === 1) return false;
+  return !(
+    state?.version === 2
+    && typeof state.permitType === "string"
+    && state.permitType in KIND_FROM_SERVER
+  );
 }
 
 export function restoredModuleState(state: StoredDraft["workingState"]): {
@@ -146,25 +232,28 @@ export function restoredModuleState(state: StoredDraft["workingState"]): {
   names: Record<string, string>;
   signatures: Record<string, { name: string; time: string }>;
 } {
+  if (workingStatePreserved(state)) {
+    return { kind: "general", step: 0, hazards: [], controls: [], fields: {}, names: {}, signatures: {} };
+  }
   if (state.version === 2) {
     return {
       kind: kindFromServerPermitType(state.permitType),
       step: state.workflowStep,
-      hazards: state.moduleState.hazards ?? [],
-      controls: state.moduleState.controls ?? [],
-      fields: state.moduleState.fields ?? {},
-      names: state.moduleState.names ?? {},
-      signatures: state.moduleState.signatures ?? {},
+      hazards: stringList(state.moduleState?.hazards),
+      controls: stringList(state.moduleState?.controls),
+      fields: stringRecord(state.moduleState?.fields),
+      names: stringRecord(state.moduleState?.names),
+      signatures: signatureRecord(state.moduleState?.signatures),
     };
   }
   return {
     kind: "general",
-    step: state.step,
-    hazards: state.hazards ?? [],
-    controls: state.controls ?? [],
-    fields: state.fields ?? {},
-    names: state.names ?? {},
-    signatures: state.signatures ?? {},
+    step: typeof state.step === "number" ? state.step : 0,
+    hazards: stringList(state.hazards),
+    controls: stringList(state.controls),
+    fields: stringRecord(state.fields),
+    names: stringRecord(state.names),
+    signatures: signatureRecord(state.signatures),
   };
 }
 
@@ -196,6 +285,8 @@ export function permitDraftFromRecord(record: StoredDraft): PermitDraft {
     outboxStatus: record.outboxStatus,
     lifecycleStatus: record.status,
     currentRevision: record.currentRevision,
+    sourceWorkingState: record.workingState as unknown as PermitDraft["sourceWorkingState"],
+    preserveWorkingState: workingStatePreserved(record.workingState),
   };
 }
 

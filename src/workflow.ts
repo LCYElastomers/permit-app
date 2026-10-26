@@ -260,6 +260,9 @@ export function preparationGaps(draft: PermitDraft): string[] {
   if (!draft.plannedStart) missing.push("Planned start");
   if (!draft.plannedEnd) missing.push("Planned expiration");
   if (draft.hazards.length === 0) missing.push("At least one hazard");
+  if (draft.controls.length === 0) missing.push("Controls");
+  const ppe = `${draft.fields.ppe ?? ""} ${draft.fields.electricalPpe ?? ""}`.trim();
+  if (!ppe) missing.push("PPE");
   return missing;
 }
 

@@ -3,7 +3,7 @@ import { API_TIMEOUT_MS } from "../lib/api/config";
 import { syncMayStart, type PlantLink } from "../lib/connectivity";
 import { restoredModuleState, type GeneralWorkWorkingState, type PermitWorkingState } from "./generalWorkDraft";
 import { notifyPlantPermitsChanged } from "./plantDirectory";
-import { invokeCommand, notifyLocalStoreChanged } from "./localStore";
+import { invokeCommand, localStorageUnavailable, notifyLocalStoreChanged } from "./localStore";
 
 export interface PushableDraft {
   id: string;
@@ -188,8 +188,8 @@ export async function pushGeneralWorkCreates(input: {
   let items: PushablePermitCreate[];
   try {
     items = await list();
-  } catch {
-    return "storage-failed";
+  } catch (error) {
+    return pushStorage(error);
   }
   if (items.length === 0) return "idle";
   let synced = false;
@@ -205,18 +205,18 @@ export async function pushGeneralWorkCreates(input: {
       if (isTransient(error)) {
         try {
           await defer(item.outboxId);
-        } catch {
-          return "storage-failed";
+        } catch (error) {
+          return pushStorage(error);
         }
         return "deferred";
       }
-      return "storage-failed";
+      return pushStorage(error);
     }
     if (response.status === 400 || response.status === 409) {
       try {
         await attention(item.outboxId, rejectionCode(response.body));
-      } catch {
-        return "storage-failed";
+      } catch (error) {
+        return pushStorage(error);
       }
       needsAttention = true;
       continue;
@@ -224,8 +224,8 @@ export async function pushGeneralWorkCreates(input: {
     if (response.status === 502 || response.status === 503 || response.status === 504) {
       try {
         await defer(item.outboxId);
-      } catch {
-        return "storage-failed";
+      } catch (error) {
+        return pushStorage(error);
       }
       return "deferred";
     }
@@ -233,16 +233,16 @@ export async function pushGeneralWorkCreates(input: {
     if (!ack) {
       try {
         await defer(item.outboxId);
-      } catch {
-        return "storage-failed";
+      } catch (error) {
+        return pushStorage(error);
       }
       return "deferred";
     }
     try {
       await acknowledge(item, ack.permitNumber);
       synced = true;
-    } catch {
-      return "storage-failed";
+    } catch (error) {
+      return pushStorage(error);
     }
   }
   if (synced) return "synced";
@@ -269,8 +269,8 @@ export async function pushPermitSubmissions(input: {
   let items: PushablePermitSubmission[];
   try {
     items = await list();
-  } catch {
-    return "storage-failed";
+  } catch (error) {
+    return pushStorage(error);
   }
   if (items.length === 0) return "idle";
   let synced = false;
@@ -286,28 +286,28 @@ export async function pushPermitSubmissions(input: {
       if (isTransient(error)) {
         try {
           await defer(item.outboxId);
-        } catch {
-          return "storage-failed";
+        } catch (error) {
+          return pushStorage(error);
         }
         return "deferred";
       }
-      return "storage-failed";
+      return pushStorage(error);
     }
     if (!syncMayStart(input.link()) || input.signal.aborted) return synced ? "synced" : "stopped";
     const code = rejectionCode(response.body);
     if ((response.status === 400 || response.status === 409) && RETRYABLE_REJECTION.has(code)) {
       try {
         await defer(item.outboxId);
-      } catch {
-        return "storage-failed";
+      } catch (error) {
+        return pushStorage(error);
       }
       return "deferred";
     }
     if (response.status === 400 || response.status === 409) {
       try {
         await attention(item.outboxId, code);
-      } catch {
-        return "storage-failed";
+      } catch (error) {
+        return pushStorage(error);
       }
       needsAttention = true;
       continue;
@@ -315,8 +315,8 @@ export async function pushPermitSubmissions(input: {
     if (response.status === 502 || response.status === 503 || response.status === 504) {
       try {
         await defer(item.outboxId);
-      } catch {
-        return "storage-failed";
+      } catch (error) {
+        return pushStorage(error);
       }
       return "deferred";
     }
@@ -324,16 +324,16 @@ export async function pushPermitSubmissions(input: {
     if (!ack) {
       try {
         await defer(item.outboxId);
-      } catch {
-        return "storage-failed";
+      } catch (error) {
+        return pushStorage(error);
       }
       return "deferred";
     }
     try {
       await acknowledge(item, ack.permitNumber);
       synced = true;
-    } catch {
-      return "storage-failed";
+    } catch (error) {
+      return pushStorage(error);
     }
   }
   if (synced) return "synced";
@@ -360,8 +360,8 @@ export async function pushPermitRevisions(input: {
   let items: PushablePermitCreate[];
   try {
     items = await list();
-  } catch {
-    return "storage-failed";
+  } catch (error) {
+    return pushStorage(error);
   }
   if (items.length === 0) return "idle";
   let synced = false;
@@ -377,28 +377,28 @@ export async function pushPermitRevisions(input: {
       if (isTransient(error)) {
         try {
           await defer(item.outboxId);
-        } catch {
-          return "storage-failed";
+        } catch (error) {
+          return pushStorage(error);
         }
         return "deferred";
       }
-      return "storage-failed";
+      return pushStorage(error);
     }
     if (!syncMayStart(input.link()) || input.signal.aborted) return synced ? "synced" : "stopped";
     const code = rejectionCode(response.body);
     if ((response.status === 400 || response.status === 409) && RETRYABLE_REJECTION.has(code)) {
       try {
         await defer(item.outboxId);
-      } catch {
-        return "storage-failed";
+      } catch (error) {
+        return pushStorage(error);
       }
       return "deferred";
     }
     if (response.status === 400 || response.status === 409) {
       try {
         await attention(item.outboxId, code);
-      } catch {
-        return "storage-failed";
+      } catch (error) {
+        return pushStorage(error);
       }
       needsAttention = true;
       continue;
@@ -406,18 +406,25 @@ export async function pushPermitRevisions(input: {
     if (response.status === 502 || response.status === 503 || response.status === 504) {
       try {
         await defer(item.outboxId);
-      } catch {
-        return "storage-failed";
+      } catch (error) {
+        return pushStorage(error);
       }
       return "deferred";
     }
-    if (!response.status.toString().startsWith("2")) return "storage-failed";
+    if (!response.status.toString().startsWith("2")) {
+      try {
+        await defer(item.outboxId);
+      } catch (error) {
+        return pushStorage(error);
+      }
+      return "deferred";
+    }
     const ack = readAcknowledgement(response.body, { eventId: item.eventId, permitId: item.draft.id });
     if (!ack) {
       try {
         await attention(item.outboxId, "rejected");
-      } catch {
-        return "storage-failed";
+      } catch (error) {
+        return pushStorage(error);
       }
       needsAttention = true;
       continue;
@@ -425,13 +432,17 @@ export async function pushPermitRevisions(input: {
     try {
       await acknowledge(item, ack.permitNumber);
       synced = true;
-    } catch {
-      return "storage-failed";
+    } catch (error) {
+      return pushStorage(error);
     }
   }
   if (synced) return "synced";
   if (needsAttention) return "attention";
   return "idle";
+}
+
+function pushStorage(error: unknown): PushStep {
+  return localStorageUnavailable(error) ? "storage-failed" : "deferred";
 }
 
 function isTransient(error: unknown): boolean {

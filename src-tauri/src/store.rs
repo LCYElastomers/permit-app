@@ -18,20 +18,32 @@ pub const DATABASE_FILE_NAME: &str = "permit-control.sqlite";
 #[derive(Debug)]
 pub enum StoreError {
     Unavailable,
+    WriteFailed,
+    WorkingStateInvalid,
+    WorkingStateUnsupported,
+    TransactionFailed,
     InvalidCatalog,
     InvalidChange,
     InvalidPhase,
 }
 
+impl StoreError {
+    pub fn code(&self) -> &'static str {
+        match self {
+            StoreError::Unavailable => "local-storage-unavailable",
+            StoreError::WriteFailed => "local-storage-write-failed",
+            StoreError::WorkingStateInvalid => "working-state-invalid",
+            StoreError::WorkingStateUnsupported => "working-state-version-unsupported",
+            StoreError::TransactionFailed | StoreError::InvalidChange => "local-transaction-failed",
+            StoreError::InvalidCatalog => "invalid-area-catalog",
+            StoreError::InvalidPhase => "invalid-sync-phase",
+        }
+    }
+}
+
 impl std::fmt::Display for StoreError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let message = match self {
-            StoreError::Unavailable => "local store unavailable",
-            StoreError::InvalidCatalog => "invalid area catalog",
-            StoreError::InvalidChange => "invalid local change",
-            StoreError::InvalidPhase => "invalid sync phase",
-        };
-        formatter.write_str(message)
+        formatter.write_str(self.code())
     }
 }
 
@@ -87,6 +99,7 @@ pub struct LocalStatus {
     pub last_permit_sync_at: Option<String>,
     pub last_attempted_sync_at: Option<String>,
     pub reference_areas_synced_at: Option<String>,
+    pub schema_version: i64,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -208,11 +221,11 @@ pub struct OutboxChange {
 
 impl LocalDatabase {
     pub fn open(path: impl AsRef<Path>) -> Result<Self, StoreError> {
-        let conn = Connection::open(path).map_err(fail)?;
-        conn.pragma_update(None, "journal_mode", "WAL").map_err(fail)?;
-        conn.pragma_update(None, "foreign_keys", "ON").map_err(fail)?;
-        conn.busy_timeout(Duration::from_secs(5)).map_err(fail)?;
-        migrate(&conn).map_err(fail)?;
+        let conn = Connection::open(path).map_err(unavailable)?;
+        conn.pragma_update(None, "journal_mode", "WAL").map_err(unavailable)?;
+        conn.pragma_update(None, "foreign_keys", "ON").map_err(unavailable)?;
+        conn.busy_timeout(Duration::from_secs(5)).map_err(unavailable)?;
+        migrate(&conn).map_err(unavailable)?;
         Ok(Self { conn })
     }
 
@@ -223,6 +236,7 @@ impl LocalDatabase {
 
     pub fn status(&self) -> Result<LocalStatus, StoreError> {
         let pending_count = self.pending_count()?;
+        let schema_version = current_version(&self.conn).map_err(unavailable)?;
         self.conn
             .query_row(
                 "SELECT current_sync_state, last_plant_contact_at, last_reference_sync_at, last_permit_sync_at,
@@ -238,6 +252,7 @@ impl LocalDatabase {
                         last_permit_sync_at: row.get(3)?,
                         last_attempted_sync_at: row.get(4)?,
                         reference_areas_synced_at: row.get(5)?,
+                        schema_version,
                     })
                 },
             )
@@ -440,7 +455,8 @@ impl LocalDatabase {
             )
             .map_err(fail)?;
         if updated != 1 {
-            return Err(StoreError::InvalidChange);
+            drop(tx);
+            return self.existing_submission(id);
         }
         tx.execute(
             "INSERT INTO local_permit_events (
@@ -532,6 +548,7 @@ impl LocalDatabase {
     }
 
     fn update_general_work(&mut self, draft: &PreparedDraft) -> Result<(), StoreError> {
+        stored_working_state_writable(&self.conn, &draft.id)?;
         let changed = self
             .conn
             .execute(
@@ -601,6 +618,7 @@ impl LocalDatabase {
             if status != "DRAFT" && status != "PENDING_REVIEW" {
                 return Err(StoreError::InvalidChange);
             }
+            stored_working_state_writable(&tx, &prepared.id)?;
             if let (Some(stored), Some(incoming)) = (stored_number.as_deref(), incoming_number.as_deref()) {
                 if stored != incoming {
                     return Err(StoreError::InvalidChange);
@@ -749,12 +767,15 @@ impl LocalDatabase {
         drop(statement);
         let mut items = Vec::with_capacity(keys.len());
         for (outbox_id, event_id, permit_id, occurred_at, permit_revision) in keys {
+            let Some(draft) = self.readable_draft(&permit_id)? else {
+                continue;
+            };
             items.push(PushablePermitCreate {
                 outbox_id,
                 event_id,
                 occurred_at,
                 permit_revision,
-                draft: self.read_draft(&permit_id)?,
+                draft,
             });
         }
         Ok(items)
@@ -839,6 +860,41 @@ impl LocalDatabase {
         self.read_draft(permit_id)
     }
 
+    fn existing_submission(&self, id: &str) -> Result<DraftRecord, StoreError> {
+        let status: String = self
+            .conn
+            .query_row("SELECT status FROM local_permits WHERE id = ?1", params![id], |row| row.get(0))
+            .map_err(fail)?;
+        if status == "PENDING_REVIEW" {
+            let events: i64 = self
+                .conn
+                .query_row(
+                    "SELECT COUNT(*) FROM local_permit_events WHERE permit_id = ?1 AND event_type = 'PERMIT_SUBMITTED'",
+                    params![id],
+                    |row| row.get(0),
+                )
+                .map_err(fail)?;
+            if events > 0 {
+                log::info!("local submission already recorded permit_id={id}");
+                return self.read_draft(id);
+            }
+        }
+        log::error!("local submission refused permit_id={id} status={status} category=local-transaction-failed");
+        Err(StoreError::TransactionFailed)
+    }
+
+    fn readable_draft(&self, id: &str) -> Result<Option<DraftRecord>, StoreError> {
+        let draft = self.read_draft(id)?;
+        if !working_state_supported(&draft.working_state) {
+            log::error!(
+                "local sync skipped unreadable working state permit_id={id} permit_type={} category=working-state-version-unsupported",
+                draft.permit_type
+            );
+            return Ok(None);
+        }
+        Ok(Some(draft))
+    }
+
     fn read_draft(&self, id: &str) -> Result<DraftRecord, StoreError> {
         self.conn
             .query_row(
@@ -888,12 +944,15 @@ impl LocalDatabase {
         drop(statement);
         let mut items = Vec::with_capacity(keys.len());
         for (outbox_id, event_id, permit_id, occurred_at, permit_revision) in keys {
+            let Some(draft) = self.readable_draft(&permit_id)? else {
+                continue;
+            };
             items.push(PushablePermitCreate {
                 outbox_id,
                 event_id,
                 occurred_at,
                 permit_revision,
-                draft: self.read_draft(&permit_id)?,
+                draft,
             });
         }
         Ok(items)
@@ -1294,18 +1353,56 @@ fn permit_type_ok(value: &str) -> bool {
     )
 }
 
+fn working_state_supported(value: &serde_json::Value) -> bool {
+    if value.get("preserved").and_then(serde_json::Value::as_bool) == Some(true) {
+        return false;
+    }
+    matches!(value.get("version").and_then(serde_json::Value::as_i64), Some(1) | Some(2))
+}
+
+fn stored_working_state_writable(conn: &Connection, id: &str) -> Result<(), StoreError> {
+    let raw = match conn.query_row(
+        "SELECT working_state FROM local_permits WHERE id = ?1",
+        params![id],
+        |row| row.get::<_, String>(0),
+    ) {
+        Ok(value) => value,
+        Err(rusqlite::Error::QueryReturnedNoRows) => return Ok(()),
+        Err(error) => return Err(fail(error)),
+    };
+    let value: serde_json::Value = match serde_json::from_str(&raw) {
+        Ok(value) => value,
+        Err(error) => {
+            log::error!("working state invalid; original row preserved permit_id={id} category=working-state-invalid detail={error}");
+            return Err(StoreError::WorkingStateInvalid);
+        }
+    };
+    let version = value.get("version").and_then(serde_json::Value::as_i64);
+    if matches!(version, Some(1) | Some(2)) {
+        return Ok(());
+    }
+    log::error!(
+        "working state version unsupported; original row preserved permit_id={id} version={} category=working-state-version-unsupported",
+        version.map(|item| item.to_string()).unwrap_or_else(|| "missing".to_string())
+    );
+    Err(StoreError::WorkingStateUnsupported)
+}
+
 fn canonical_working_state(value: &serde_json::Value, permit_type: &str) -> Result<(String, String), StoreError> {
     let Some(object) = value.as_object() else {
-        return Err(StoreError::InvalidChange);
+        log::error!("working state invalid permit_type={permit_type} category=working-state-invalid");
+        return Err(StoreError::WorkingStateInvalid);
     };
     let version = object.get("version").and_then(serde_json::Value::as_i64);
     let permit_type = if version == Some(1) {
         if permit_type != "GENERAL_WORK" {
-            return Err(StoreError::InvalidChange);
+            log::error!("working state invalid permit_type={permit_type} version=1 category=working-state-invalid");
+            return Err(StoreError::WorkingStateInvalid);
         }
         let step = object.get("step").and_then(serde_json::Value::as_i64);
         if step.is_none_or(|step| !(0..=5).contains(&step)) {
-            return Err(StoreError::InvalidChange);
+            log::error!("working state invalid permit_type={permit_type} version=1 category=working-state-invalid");
+            return Err(StoreError::WorkingStateInvalid);
         }
         if !object.get("hazards").is_some_and(serde_json::Value::is_array)
             || !object.get("controls").is_some_and(serde_json::Value::is_array)
@@ -1313,20 +1410,24 @@ fn canonical_working_state(value: &serde_json::Value, permit_type: &str) -> Resu
             || !object.get("names").is_some_and(serde_json::Value::is_object)
             || !object.get("signatures").is_some_and(serde_json::Value::is_object)
         {
-            return Err(StoreError::InvalidChange);
+            log::error!("working state invalid permit_type={permit_type} version=1 category=working-state-invalid");
+            return Err(StoreError::WorkingStateInvalid);
         }
         "GENERAL_WORK".to_string()
     } else if version == Some(2) {
         let declared = object.get("permitType").and_then(serde_json::Value::as_str).unwrap_or("");
         if !permit_type_ok(declared) || declared != permit_type {
-            return Err(StoreError::InvalidChange);
+            log::error!("working state invalid permit_type={permit_type} version=2 category=working-state-invalid");
+            return Err(StoreError::WorkingStateInvalid);
         }
         let step = object.get("workflowStep").and_then(serde_json::Value::as_i64);
         if step.is_none_or(|step| !(0..=5).contains(&step)) {
-            return Err(StoreError::InvalidChange);
+            log::error!("working state invalid permit_type={permit_type} version=2 category=working-state-invalid");
+            return Err(StoreError::WorkingStateInvalid);
         }
         let Some(module_state) = object.get("moduleState").and_then(serde_json::Value::as_object) else {
-            return Err(StoreError::InvalidChange);
+            log::error!("working state invalid permit_type={permit_type} version=2 category=working-state-invalid");
+            return Err(StoreError::WorkingStateInvalid);
         };
         if !module_state.get("hazards").is_some_and(serde_json::Value::is_array)
             || !module_state.get("controls").is_some_and(serde_json::Value::is_array)
@@ -1334,15 +1435,20 @@ fn canonical_working_state(value: &serde_json::Value, permit_type: &str) -> Resu
             || !module_state.get("names").is_some_and(serde_json::Value::is_object)
             || !module_state.get("signatures").is_some_and(serde_json::Value::is_object)
         {
-            return Err(StoreError::InvalidChange);
+            log::error!("working state invalid permit_type={permit_type} version=2 category=working-state-invalid");
+            return Err(StoreError::WorkingStateInvalid);
         }
         declared.to_string()
     } else {
-        return Err(StoreError::InvalidChange);
+        log::error!(
+            "working state version unsupported permit_type={permit_type} version={} category=working-state-version-unsupported",
+            version.map(|item| item.to_string()).unwrap_or_else(|| "missing".to_string())
+        );
+        return Err(StoreError::WorkingStateUnsupported);
     };
     let stored = serde_json::to_string(value).map_err(|error| {
-        log::error!("working state could not be stored: {error}");
-        StoreError::InvalidChange
+        log::error!("working state could not be stored category=working-state-invalid detail={error}");
+        StoreError::WorkingStateInvalid
     })?;
     Ok((stored, permit_type))
 }
@@ -1402,12 +1508,13 @@ fn sanitize_error_code(value: &str) -> String {
 
 fn draft_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<DraftRecord> {
     let raw: String = row.get(19)?;
-    let working_state = serde_json::from_str(&raw).map_err(|error| {
-        log::error!("working state unreadable: {error}");
-        rusqlite::Error::InvalidColumnType(19, "working_state".to_string(), rusqlite::types::Type::Text)
-    })?;
+    let permit_id: String = row.get(0)?;
+    let working_state = serde_json::from_str(&raw).unwrap_or_else(|error| {
+        log::error!("working state unreadable; original row preserved permit_id={permit_id} category=working-state-invalid detail={error}");
+        serde_json::json!({ "preserved": true })
+    });
     Ok(DraftRecord {
-        id: row.get(0)?,
+        id: permit_id,
         permit_number: row.get(1)?,
         permit_type: row.get(2)?,
         status: row.get(3)?,
@@ -1583,9 +1690,38 @@ fn utc_now() -> String {
     chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string()
 }
 
-fn fail(err: impl std::fmt::Display) -> StoreError {
-    log::error!("local store failure: {err}");
+fn unavailable(err: impl std::fmt::Display) -> StoreError {
+    log::error!("local storage unavailable category=local-storage-unavailable detail={}", sqlite_detail(&err.to_string()));
     StoreError::Unavailable
+}
+
+fn fail(err: impl std::fmt::Display) -> StoreError {
+    let message = err.to_string();
+    if database_unusable(&message) {
+        return unavailable(message);
+    }
+    log::error!("local storage write failed category=local-storage-write-failed detail={}", sqlite_detail(&message));
+    StoreError::WriteFailed
+}
+
+fn database_unusable(message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
+    lower.contains("unable to open")
+        || lower.contains("not a database")
+        || lower.contains("disk i/o")
+        || lower.contains("disk image is malformed")
+        || lower.contains("access is denied")
+}
+
+fn sqlite_detail(message: &str) -> String {
+    let first = message.lines().next().unwrap_or(message);
+    let clipped: String = first.chars().take(160).collect();
+    let lower = clipped.to_ascii_lowercase();
+    if lower.contains("select ") || lower.contains("insert ") || lower.contains("update ") || lower.contains("delete ") {
+        "sqlite error".to_string()
+    } else {
+        clipped
+    }
 }
 
 #[cfg(test)]
@@ -2400,5 +2536,183 @@ mod tests {
         assert_eq!(staged.current_revision, 2);
         assert_eq!(database.list_pushable_permit_creates().unwrap().len(), 0);
         assert_eq!(database.list_pushable_permit_revisions().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn working_state_errors_do_not_mean_the_database_is_unavailable() {
+        let (_dir, mut database) = temp_store();
+        assert_eq!(database.status().unwrap().schema_version, 3);
+        let mut draft = sample_draft("111111111111");
+        draft.working_state = serde_json::json!({ "version": 2, "permitType": "GENERAL_WORK" });
+        let invalid = database.save_general_work_draft(draft).unwrap_err();
+        assert!(matches!(invalid, StoreError::WorkingStateInvalid));
+        assert_eq!(invalid.code(), "working-state-invalid");
+        assert_ne!(invalid.code(), "local-storage-unavailable");
+        assert_eq!(counts(&database), (0, 0, 0));
+    }
+
+    #[test]
+    fn newer_or_unreadable_working_state_is_not_overwritten() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(DATABASE_FILE_NAME);
+        let id = "44444444-4444-4444-8444-111111111111";
+        {
+            let mut database = LocalDatabase::open(&path).unwrap();
+            database.save_general_work_draft(sample_draft("111111111111")).unwrap();
+            database
+                .conn
+                .execute(
+                    "UPDATE local_permits SET working_state = ?1 WHERE id = ?2",
+                    params![r#"{"version":9,"kept":"original-scope","moduleState":{"fields":{"ppe":"Hard hat"}}}"#, id],
+                )
+                .unwrap();
+            let mut replacement = sample_draft("111111111111");
+            replacement.job_description = "This must not replace the saved scope".to_string();
+            replacement.event_id.clear();
+            replacement.outbox_id.clear();
+            let refused = database.save_general_work_draft(replacement).unwrap_err();
+            assert!(matches!(refused, StoreError::WorkingStateUnsupported));
+            assert_eq!(refused.code(), "working-state-version-unsupported");
+        }
+        let database = LocalDatabase::open(&path).unwrap();
+        let raw: String = database
+            .conn
+            .query_row("SELECT working_state FROM local_permits WHERE id = ?1", params![id], |row| row.get(0))
+            .unwrap();
+        assert!(raw.contains("original-scope"));
+        assert!(raw.contains("Hard hat"));
+        let listed = database.list_drafts().unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].job_description, "Gauge glass inspection");
+        assert!(database.list_pushable_permit_creates().unwrap().is_empty());
+    }
+
+    #[test]
+    fn repeated_submit_does_not_duplicate_the_local_event() {
+        let (_dir, mut database) = temp_store();
+        database.save_general_work_draft(sample_draft("111111111111")).unwrap();
+        let id = "44444444-4444-4444-8444-111111111111";
+        database
+            .submit_for_review(id, "77777777-7777-4777-8777-111111111111", "88888888-8888-4888-8888-111111111111", None)
+            .unwrap();
+        let again = database
+            .submit_for_review(id, "77777777-7777-4777-8777-222222222222", "88888888-8888-4888-8888-222222222222", None)
+            .unwrap();
+        assert_eq!(again.status, "PENDING_REVIEW");
+        let events: i64 = database
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM local_permit_events WHERE event_type = 'PERMIT_SUBMITTED'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let outbox: i64 = database
+            .conn
+            .query_row("SELECT COUNT(*) FROM outbox WHERE operation = 'submit'", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(events, 1);
+        assert_eq!(outbox, 1);
+    }
+
+    #[test]
+    fn every_permit_type_round_trips_section_values_through_a_reopened_database() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(DATABASE_FILE_NAME);
+        let types = [
+            ("GENERAL_WORK", "taskType", "Inspection", "ppe", "Hard hat, gloves"),
+            ("HOT_WORK", "fireWatch", "Alex Morgan", "initialTest", "O2 20.9"),
+            ("CONFINED_SPACE", "vesselId", "V-100", "attendant", "Jordan Lee"),
+            ("OPENING_BLINDING", "zeroEnergy", "Verified", "blinded", "Line 4"),
+            ("EXCAVATION", "digLocation", "North ditch", "depth", "4 ft"),
+            ("LIVE_ELECTRICAL", "voltage", "480 V", "electricalPpe", "Category 2"),
+        ];
+        {
+            let mut database = LocalDatabase::open(&path).unwrap();
+            for (index, item) in types.iter().enumerate() {
+                let (permit_type, key, value, other_key, other_value) = *item;
+                let suffix = format!("{:012}", index + 1);
+                let mut draft = sample_draft(&suffix);
+                draft.permit_type = (*permit_type).to_string();
+                draft.job_description = format!("Line one\nLine two for {permit_type}");
+                draft.working_state = serde_json::json!({
+                    "version": 2,
+                    "permitType": permit_type,
+                    "workflowStep": 4,
+                    "kept": true,
+                    "moduleState": {
+                        "hazards": ["atmospheric", "electrical"],
+                        "controls": ["LOTO", "PPE"],
+                        "fields": {
+                            key: value,
+                            other_key: other_value,
+                            "areaCatalog": "0b6d1a22-1111-4a1b-9c1d-111111111111",
+                            "energized": "true"
+                        },
+                        "names": { "requester": "Elena Voss" },
+                        "signatures": { "supervisor": { "name": "Bobby Fitzgerald", "time": "15:05" } }
+                    }
+                });
+                database.save_general_work_draft(draft).unwrap();
+            }
+        }
+        let mut database = LocalDatabase::open(&path).unwrap();
+        for (permit_type, key, value, other_key, other_value) in types.iter().copied() {
+            let saved = database
+                .list_drafts()
+                .unwrap()
+                .into_iter()
+                .find(|draft| draft.permit_type == permit_type)
+                .unwrap();
+            assert_eq!(saved.working_state["moduleState"]["fields"][key], value);
+            assert_eq!(saved.working_state["moduleState"]["fields"][other_key], other_value);
+            assert_eq!(saved.working_state["moduleState"]["fields"]["energized"], "true");
+            assert_eq!(saved.working_state["moduleState"]["fields"]["areaCatalog"], "0b6d1a22-1111-4a1b-9c1d-111111111111");
+            assert_eq!(saved.working_state["moduleState"]["hazards"][0], "atmospheric");
+            assert_eq!(saved.working_state["moduleState"]["controls"][1], "PPE");
+            assert_eq!(saved.working_state["moduleState"]["signatures"]["supervisor"]["name"], "Bobby Fitzgerald");
+            assert_eq!(saved.working_state["kept"], true);
+            assert!(saved.job_description.contains("Line two"));
+            let mut edited = sample_draft("000000000001");
+            edited.id = saved.id.clone();
+            edited.permit_type = permit_type.to_string();
+            edited.job_description = saved.job_description.clone();
+            edited.working_state = saved.working_state.clone();
+            edited.working_state["moduleState"]["fields"][key] = serde_json::json!(format!("{value} revised"));
+            edited.event_id.clear();
+            edited.outbox_id.clear();
+            database.save_general_work_draft(edited).unwrap();
+        }
+        drop(database);
+        let database = LocalDatabase::open(&path).unwrap();
+        for (permit_type, key, value, _, _) in types.iter().copied() {
+            let saved = database
+                .list_drafts()
+                .unwrap()
+                .into_iter()
+                .find(|draft| draft.permit_type == permit_type)
+                .unwrap();
+            assert_eq!(saved.working_state["moduleState"]["fields"][key], format!("{value} revised"));
+            assert_eq!(saved.working_state["kept"], true);
+        }
+        let legacy = database.list_drafts().unwrap().into_iter().find(|draft| draft.permit_type == "GENERAL_WORK");
+        assert!(legacy.is_some());
+    }
+
+    #[test]
+    fn version_one_general_work_still_reopens_with_its_fields() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(DATABASE_FILE_NAME);
+        {
+            let mut database = LocalDatabase::open(&path).unwrap();
+            database.save_general_work_draft(sample_draft("111111111111")).unwrap();
+        }
+        let database = LocalDatabase::open(&path).unwrap();
+        let saved = database.list_drafts().unwrap().remove(0);
+        assert_eq!(saved.working_state["version"], 1);
+        assert_eq!(saved.working_state["fields"]["taskType"], "Inspection");
+        assert_eq!(saved.working_state["fields"]["ppe"], "Gloves");
+        assert_eq!(saved.working_state["fields"]["excludeOpening"], "excluded");
+        assert_eq!(saved.area_id.as_deref(), Some("0b6d1a22-1111-4a1b-9c1d-111111111111"));
     }
 }

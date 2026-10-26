@@ -48,6 +48,11 @@ export function DeviceProvider({ children }: { children: ReactNode }) {
     };
     const settle = async (step: PushStep) => {
       if (step === "storage-failed") {
+        const status = await readLocalStatus().catch(() => null);
+        if (status) {
+          if (!stopped) setLocal({ status: "available", ...status });
+          return false;
+        }
         await noteSyncCycle("stopped").catch(() => undefined);
         if (!stopped) setLocal({ status: "failed" });
         return true;

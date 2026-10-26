@@ -150,6 +150,11 @@ export interface PermitDraft {
   outboxStatus: string;
   lifecycleStatus?: string;
   currentRevision?: number;
+  sourceWorkingState?: {
+    version: number;
+    [key: string]: unknown;
+  };
+  preserveWorkingState?: boolean;
 }
 
 export interface PermitTemplate {
