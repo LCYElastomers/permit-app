@@ -54,6 +54,7 @@ export function PermitDocumentActions({
   if (resolved === "toolbar") {
     return (
       <div className="document-toolbar" aria-label="Documents">
+        <span className="kicker">DOCUMENTS</span>
         <button type="button" className="btn btn-ghost" onClick={() => void request("PRINT")}>
           View PDF
         </button>

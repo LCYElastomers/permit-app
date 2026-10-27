@@ -34,7 +34,13 @@ export function DraftsScreen() {
               <span className="pid mono">{draft.permitNumber ?? "LOCAL DRAFT"}</span>
               <span className="kind">{kindTitle(draft.kind)}</span>
               <span className="row-status">
-                <span className="screen-meta">{draft.lifecycleStatus ?? "DRAFT"}</span>
+                <span className="screen-meta">
+                  {draft.permitNumber
+                    ? "DRAFT · SYNCHRONIZED"
+                    : draft.outboxStatus === "ATTENTION"
+                      ? "SAVED LOCALLY · NEEDS ATTENTION"
+                      : "SAVED LOCALLY · PENDING SYNC"}
+                </span>
               </span>
             </div>
             <div className="row-work">{draft.description || "Job description not entered"}</div>

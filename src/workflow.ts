@@ -81,11 +81,9 @@ export function screenLabel(screen: ListScreen): string {
     case "command":
       return "Command Center";
     case "active":
-      return "Active Permits";
     case "pending":
-      return "Pending Review";
     case "suspended":
-      return "Suspended";
+      return "Permits";
     case "new":
       return "New Permit";
     case "drafts":

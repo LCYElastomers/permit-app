@@ -1,6 +1,9 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import type { PermitStatus } from "../types";
+import { visiblePickerOptions } from "../services/picker";
 import { statusLabel } from "../workflow";
+import { useComposition } from "./Composition";
 
 export function ScreenHead({
   kicker,
@@ -66,6 +69,8 @@ export function TouchSelect({
   value,
   placeholder,
   disabled = false,
+  searchable = true,
+  emptyMessage = "No choices are available on this device yet.",
   options,
   onChange,
 }: {
@@ -73,18 +78,25 @@ export function TouchSelect({
   value: string;
   placeholder: string;
   disabled?: boolean;
+  searchable?: boolean;
+  emptyMessage?: string;
   options: { id: string; label: string }[];
   onChange: (id: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [coarse, setCoarse] = useState(() => typeof window !== "undefined" && window.matchMedia("(any-pointer: coarse)").matches);
+  const composition = useComposition();
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const listId = useId();
+  const titleId = `${listId}-title`;
   const selected = options.find((option) => option.id === value);
   const close = () => {
     setOpen(false);
     setQuery("");
+    triggerRef.current?.focus();
   };
 
   useEffect(() => {
@@ -97,24 +109,104 @@ export function TouchSelect({
 
   useEffect(() => {
     if (!open) return;
-    if (!coarse) searchRef.current?.focus();
+    const panel = panelRef.current;
+    if (searchable && !coarse) searchRef.current?.focus();
+    else {
+      const current = panel?.querySelector<HTMLElement>(".picker-option.on");
+      const first = panel?.querySelector<HTMLElement>(".picker-option");
+      (current ?? first ?? panel)?.focus();
+    }
     const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      setOpen(false);
-      setQuery("");
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setOpen(false);
+        setQuery("");
+        triggerRef.current?.focus();
+        return;
+      }
+      if (event.key !== "Tab" || !panel) return;
+      const items = [...panel.querySelectorAll<HTMLElement>("button, input, [href]")].filter((item) => !item.hasAttribute("disabled"));
+      if (items.length === 0) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [coarse, open]);
+  }, [coarse, open, searchable]);
 
-  const needle = query.trim().toLowerCase();
-  const shown = options.filter((option) => option.label.toLowerCase().includes(needle));
+  const shown = visiblePickerOptions(options, searchable ? query : "");
+  const sheet = (
+    <div
+      className={`picker-sheet composition-${composition}`}
+      onClick={(event) => {
+        if (event.target === event.currentTarget) close();
+      }}
+    >
+      <div
+        ref={panelRef}
+        className="picker-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+      >
+        <div className="picker-bar">
+          <div className="picker-title" id={titleId}>{`SELECT ${label.toUpperCase()}`}</div>
+          {searchable ? (
+            <label className="form-field">
+              <span>Search</span>
+              <input ref={searchRef} type="text" value={query} onChange={(event) => setQuery(event.target.value)} />
+            </label>
+          ) : null}
+          <button
+            type="button"
+            className="btn btn-ghost"
+            onClick={() => {
+              onChange("");
+              close();
+            }}
+          >
+            Clear
+          </button>
+          <button type="button" className="btn" onClick={close}>
+            Close
+          </button>
+        </div>
+        <div className="picker-list" id={listId} role="listbox" aria-labelledby={titleId}>
+          {shown.length === 0 ? <p className="empty">{options.length === 0 ? emptyMessage : "No matches."}</p> : null}
+          {shown.map((option) => (
+            <button
+              key={option.id}
+              type="button"
+              role="option"
+              aria-selected={option.id === value}
+              className={option.id === value ? "picker-option on" : "picker-option"}
+              onClick={() => {
+                onChange(option.id);
+                close();
+              }}
+            >
+              <span>{option.label}</span>
+              {option.id === value ? <span className="picker-state">SELECTED</span> : null}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
 
   return (
     <div className="form-field">
       <span id={`${listId}-label`}>{label}</span>
       <button
+        ref={triggerRef}
         type="button"
         className={coarse ? "picker-trigger is-coarse" : "picker-trigger"}
         disabled={disabled}
@@ -127,48 +219,7 @@ export function TouchSelect({
         <span>{selected?.label || placeholder}</span>
         <span aria-hidden="true">›</span>
       </button>
-      {open ? (
-        <div className="picker-sheet" role="dialog" aria-modal="true" aria-labelledby={`${listId}-label`}>
-          <div className="picker-bar">
-            <label className="form-field">
-              <span>Search</span>
-              <input ref={searchRef} type="text" value={query} onChange={(event) => setQuery(event.target.value)} />
-            </label>
-            <button
-              type="button"
-              className="btn btn-ghost"
-              onClick={() => {
-                onChange("");
-                close();
-              }}
-            >
-              Clear
-            </button>
-            <button type="button" className="btn" onClick={close}>
-              Close
-            </button>
-          </div>
-          <div className="picker-list" id={listId} role="listbox" aria-labelledby={`${listId}-label`}>
-            {shown.length === 0 ? <p className="empty">No matches.</p> : null}
-            {shown.map((option) => (
-              <button
-                key={option.id}
-                type="button"
-                role="option"
-                aria-selected={option.id === value}
-                className={option.id === value ? "picker-option on" : "picker-option"}
-                onClick={() => {
-                  onChange(option.id);
-                  close();
-                }}
-              >
-                <span>{option.label}</span>
-                <span className="picker-state">{option.id === value ? "SELECTED" : "OPEN"}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      ) : null}
+      {open && typeof document !== "undefined" ? createPortal(sheet, document.body) : null}
     </div>
   );
 }

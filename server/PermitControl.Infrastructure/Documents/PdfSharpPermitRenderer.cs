@@ -9,6 +9,7 @@ namespace PermitControl.Infrastructure.Documents;
 
 public sealed class PdfSharpPermitRenderer : IPermitPdfRenderer
 {
+    private const double PageMargin = 36;
     private static readonly object Gate = new();
     private static bool fontsReady;
 
@@ -26,12 +27,12 @@ public sealed class PdfSharpPermitRenderer : IPermitPdfRenderer
         {
             var numbered = pdf.Pages[index];
             using var footer = XGraphics.FromPdfPage(numbered, XGraphicsPdfPageOptions.Append);
-            footer.DrawLine(new XPen(XColor.FromArgb(196, 196, 196), 0.4), 40, numbered.Height.Point - 32, numbered.Width.Point - 40, numbered.Height.Point - 32);
+            footer.DrawLine(new XPen(XColor.FromArgb(188, 190, 192), 0.5), PageMargin, numbered.Height.Point - 30, numbered.Width.Point - PageMargin, numbered.Height.Point - 30);
             footer.DrawString(
                 $"LCY Permit Control  ·  Controlled Electronic Record  ·  Page {index + 1} of {total}",
                 canvas.Footer,
                 canvas.Muted,
-                new XRect(40, numbered.Height.Point - 24, numbered.Width.Point - 80, 10),
+                new XRect(PageMargin, numbered.Height.Point - 21, numbered.Width.Point - (PageMargin * 2), 10),
                 XStringFormats.TopLeft);
         }
 
@@ -53,7 +54,7 @@ public sealed class PdfSharpPermitRenderer : IPermitPdfRenderer
 
     private sealed class Canvas
     {
-        private const double Left = 40;
+        private const double Left = PageMargin;
         private readonly PdfDocument pdf;
         private readonly PermitPresentation view;
         private readonly XImage logo;
@@ -68,20 +69,22 @@ public sealed class PdfSharpPermitRenderer : IPermitPdfRenderer
             logo = BrandLogo.Image;
             Title = new XFont("IBM Plex Sans", 20, XFontStyleEx.Bold);
             Number = new XFont("IBM Plex Sans", 13, XFontStyleEx.Bold);
-            Section = new XFont("IBM Plex Sans", 10, XFontStyleEx.Bold);
-            Body = new XFont("IBM Plex Sans", 10, XFontStyleEx.Regular);
+            Section = new XFont("IBM Plex Sans", 10.5, XFontStyleEx.Bold);
+            Body = new XFont("IBM Plex Sans", 9.5, XFontStyleEx.Regular);
             Scope = new XFont("IBM Plex Sans", 10.5, XFontStyleEx.Regular);
-            Name = new XFont("IBM Plex Sans", 11, XFontStyleEx.Bold);
-            Strong = new XFont("IBM Plex Sans", 11, XFontStyleEx.Bold);
-            Label = new XFont("IBM Plex Sans", 8, XFontStyleEx.Bold);
+            Name = new XFont("IBM Plex Sans", 10.5, XFontStyleEx.Bold);
+            Strong = new XFont("IBM Plex Sans", 10.5, XFontStyleEx.Bold);
+            Label = new XFont("IBM Plex Sans", 7.5, XFontStyleEx.Bold);
             Brand = new XFont("IBM Plex Sans", 9, XFontStyleEx.Bold);
+            Revision = new XFont("IBM Plex Sans", 8.5, XFontStyleEx.Bold);
             Running = new XFont("IBM Plex Sans", 8, XFontStyleEx.Regular);
             Status = new XFont("IBM Plex Sans", 16, XFontStyleEx.Bold);
-            Authority = new XFont("IBM Plex Sans", 13, XFontStyleEx.Bold);
-            Meta = new XFont("IBM Plex Sans", 8.5, XFontStyleEx.Regular);
+            Authority = new XFont("IBM Plex Sans", 12, XFontStyleEx.Bold);
+            Meta = new XFont("IBM Plex Sans", 8, XFontStyleEx.Regular);
             Time = new XFont("IBM Plex Sans", 7.5, XFontStyleEx.Regular);
             Small = new XFont("IBM Plex Sans", 7.5, XFontStyleEx.Regular);
             Footer = new XFont("IBM Plex Sans", 7, XFontStyleEx.Regular);
+            Hairline = new XPen(XColor.FromArgb(188, 190, 192), 0.6);
             Ink = new XSolidBrush(XColor.FromArgb(28, 28, 28));
             Muted = new XSolidBrush(XColor.FromArgb(82, 82, 82));
             Paper = new XSolidBrush(XColor.FromArgb(255, 255, 255));
@@ -107,7 +110,9 @@ public sealed class PdfSharpPermitRenderer : IPermitPdfRenderer
         private XFont Strong { get; }
         private XFont Label { get; }
         private XFont Brand { get; }
+        private XFont Revision { get; }
         private XFont Running { get; }
+        private XPen Hairline { get; }
         private XFont Status { get; }
         private XFont Authority { get; }
         private XFont Meta { get; }
@@ -116,9 +121,9 @@ public sealed class PdfSharpPermitRenderer : IPermitPdfRenderer
         private XBrush Ink { get; }
         private XBrush Paper { get; }
         private double Width => page.Width.Point - (Left * 2);
-        private double Limit => page.Height.Point - 52;
-        private const double SectionGap = 12;
-        private const double FieldGap = 7;
+        private double Limit => page.Height.Point - 46;
+        private const double SectionGap = 10;
+        private const double FieldGap = 6;
 
         public void Draw()
         {
@@ -132,46 +137,47 @@ public sealed class PdfSharpPermitRenderer : IPermitPdfRenderer
             DrawMarks("CONTROLS", view.Controls, view.ControlsNote, 2);
             DrawMarks("PPE", view.Ppe, view.PpeNote, 3);
             if (view.Conditions.Count > 0) DrawFields("GENERAL WORK CONDITIONS", view.Conditions);
-            foreach (var module in view.Modules) DrawLines(module.Title, module.Lines);
+            foreach (var module in view.Modules) DrawModule(module.Title, module.Lines);
             DrawLines(view.Control.Title, view.Control.Lines, quiet: true);
             graphics.Dispose();
         }
 
         private void DrawFirstPageHeader()
         {
-            const double band = 104;
+            const double band = 78;
             graphics.DrawRectangle(Charcoal, 0, 0, page.Width.Point, band);
-            graphics.DrawRectangle(Accent, 0, band, page.Width.Point, 3);
-            const double maxHeight = 28d;
-            const double maxWidth = 148d;
+            graphics.DrawRectangle(Accent, 0, band, page.Width.Point, 2.25);
+            const double maxHeight = 22d;
+            const double maxWidth = 132d;
             var scale = Math.Min(maxWidth / logo.PointWidth, maxHeight / logo.PointHeight);
             var logoWidth = logo.PointWidth * scale;
             var logoHeight = logo.PointHeight * scale;
-            graphics.DrawImage(logo, Left, 16 + ((32 - logoHeight) / 2), logoWidth, logoHeight);
-            graphics.DrawString("PERMIT CONTROL", Brand, Paper, new XRect(Left, 22, Width, 14), XStringFormats.TopRight);
-            var titleWidth = Width * 0.62;
+            graphics.DrawImage(logo, Left, 12 + ((24 - logoHeight) / 2), logoWidth, logoHeight);
+            graphics.DrawString("PERMIT CONTROL", Brand, Paper, new XRect(Left, 16, Width, 14), XStringFormats.TopRight);
+            var titleWidth = Width * 0.58;
             var titleFont = graphics.MeasureString(view.TypeTitle, Title).Width <= titleWidth ? Title : Status;
-            graphics.DrawString(view.TypeTitle, titleFont, Paper, new XRect(Left, 56, titleWidth, 24), XStringFormats.TopLeft);
-            graphics.DrawString(view.PermitNumber, Number, Paper, new XRect(Left, 56, Width, 16), XStringFormats.TopRight);
-            graphics.DrawString($"REV {view.Revision}", Brand, PaperMuted, new XRect(Left, 76, Width, 12), XStringFormats.TopRight);
-            y = band + 16;
+            graphics.DrawString(view.TypeTitle, titleFont, Paper, new XRect(Left, 44, titleWidth, 22), XStringFormats.TopLeft);
+            graphics.DrawString(view.PermitNumber, Number, Paper, new XRect(Left, 44, Width, 16), XStringFormats.TopRight);
+            graphics.DrawString($"REV {view.Revision}", Revision, PaperMuted, new XRect(Left, 60, Width, 11), XStringFormats.TopRight);
+            y = band + 14;
         }
 
         private void DrawBanner()
         {
-            var (fill, bar) = view.Tone switch
+            var (fill, bar) = view.Status switch
             {
-                DocumentTone.Active => (XColor.FromArgb(226, 236, 228), XColor.FromArgb(27, 94, 58)),
-                DocumentTone.Warning => (XColor.FromArgb(244, 232, 232), XColor.FromArgb(140, 32, 32)),
-                DocumentTone.Historical => (XColor.FromArgb(236, 236, 236), XColor.FromArgb(70, 70, 70)),
-                _ => (XColor.FromArgb(244, 239, 224), XColor.FromArgb(140, 98, 20)),
+                "ACTIVE" => (XColor.FromArgb(236, 243, 238), XColor.FromArgb(27, 94, 58)),
+                "AUTHORIZED" => (XColor.FromArgb(244, 245, 246), XColor.FromArgb(70, 74, 78)),
+                "SUSPENDED" or "EXPIRED" or "CANCELLED" => (XColor.FromArgb(248, 240, 240), XColor.FromArgb(122, 28, 28)),
+                "CLOSED" or "SUPERSEDED" => (XColor.FromArgb(244, 244, 244), XColor.FromArgb(90, 90, 90)),
+                _ => (XColor.FromArgb(248, 244, 234), XColor.FromArgb(122, 90, 28)),
             };
-            const double height = 56;
+            const double height = 44;
             Ensure(height + 8);
             graphics.DrawRectangle(new XSolidBrush(fill), Left, y, Width, height);
-            graphics.DrawRectangle(new XSolidBrush(bar), Left, y, 5, height);
-            graphics.DrawString(view.Status, Status, Ink, new XRect(Left + 16, y + 8, Width - 28, 20), XStringFormats.TopLeft);
-            graphics.DrawString(view.Authority, Authority, Ink, new XRect(Left + 16, y + 32, Width - 28, 16), XStringFormats.TopLeft);
+            graphics.DrawRectangle(new XSolidBrush(bar), Left, y, view.Tone == DocumentTone.Warning ? 5 : 3.5, height);
+            graphics.DrawString(view.Status, Status, Ink, new XRect(Left + 14, y + 5, Width - 24, 18), XStringFormats.TopLeft);
+            graphics.DrawString(view.Authority, Authority, Ink, new XRect(Left + 14, y + 24, Width - 24, 14), XStringFormats.TopLeft);
             y += height + 12;
         }
 
@@ -188,17 +194,17 @@ public sealed class PdfSharpPermitRenderer : IPermitPdfRenderer
             var widths = rich == 2
                 ? substantive.Select(count => count > 0 ? Width * 0.39 : Width * 0.22).ToArray()
                 : Enumerable.Repeat(Width / 3, 3).ToArray();
-            var height = columns.Select((column, index) => ColumnHeight(column.Fields, widths[index] - 16)).Max() + 26;
+            var height = columns.Select((column, index) => ColumnHeight(column.Fields, index == columns.Length - 1 ? widths[index] : widths[index] - 16)).Max() + 28;
             Ensure(height + 6);
             var x = Left;
             for (var index = 0; index < columns.Length; index++)
             {
-                var inner = widths[index] - 16;
+                var inner = index == columns.Length - 1 ? widths[index] : widths[index] - 16;
                 var cursor = y;
-                graphics.DrawString(columns[index].Title, Section, Ink, new XRect(x, cursor, inner, 12), XStringFormats.TopLeft);
-                cursor += 14;
-                graphics.DrawRectangle(Accent, x, cursor, 22, 1.6);
-                cursor += 8;
+                graphics.DrawString(columns[index].Title, Section, Ink, new XRect(x, cursor, inner, 13), XStringFormats.TopLeft);
+                cursor += 15;
+                graphics.DrawLine(Hairline, x, cursor, x + inner, cursor);
+                cursor += 7;
                 foreach (var field in columns[index].Fields)
                 {
                     graphics.DrawString(field.Label.ToUpperInvariant(), Label, Muted, new XRect(x, cursor, inner, 10), XStringFormats.TopLeft);
@@ -221,7 +227,7 @@ public sealed class PdfSharpPermitRenderer : IPermitPdfRenderer
         private void DrawScope()
         {
             Heading("WORK SCOPE");
-            Paragraph(view.Scope, Scope, 5);
+            Paragraph(view.Scope, Scope, 5.5);
             foreach (var fact in view.ScopeFacts) DrawStacked(fact, Width);
             if (view.ScopeFacts.Count > 0) y += 2;
         }
@@ -271,7 +277,7 @@ public sealed class PdfSharpPermitRenderer : IPermitPdfRenderer
 
             var used = items.Any(item => item.Length > 36) ? 1 : columns;
             var colWidth = Width / used;
-            var check = new XPen(XColor.FromArgb(28, 28, 28), 1.5);
+                var check = new XPen(XColor.FromArgb(28, 28, 28), 1.7);
             for (var index = 0; index < items.Count; index++)
             {
                 var column = index % used;
@@ -286,13 +292,33 @@ public sealed class PdfSharpPermitRenderer : IPermitPdfRenderer
                 }
 
                 var x = Left + (column * colWidth);
-                graphics.DrawLine(check, x, y + 6, x + 3.2, y + 10);
-                graphics.DrawLine(check, x + 3.2, y + 10, x + 9.2, y + 2);
-                graphics.DrawString(items[index], Body, Ink, new XRect(x + 14, y - 1, colWidth - 18, 13), XStringFormats.TopLeft);
+                graphics.DrawLine(check, x, y + 7, x + 3.4, y + 11.2);
+                graphics.DrawLine(check, x + 3.4, y + 11.2, x + 10, y + 2.2);
+                graphics.DrawString(items[index], Scope, Ink, new XRect(x + 16, y, colWidth - 22, 14), XStringFormats.TopLeft);
                 if (column == used - 1 || index == items.Count - 1) y += 16;
             }
 
             y += 2;
+        }
+
+        private void DrawModule(string title, IReadOnlyList<string> lines)
+        {
+            var facts = lines.Select(SplitFact).ToArray();
+            var estimated = 26 + facts.Sum(fact => fact.Label is null ? 16 : 24 + (Wrap(fact.Value, Body, Width).Count * 13));
+            if (estimated < 150) Ensure(estimated);
+            Heading(title, 20);
+            foreach (var fact in facts)
+            {
+                if (fact.Label is null) Paragraph(fact.Value, Body, 3);
+                else DrawStacked(new DocumentField(fact.Label, fact.Value), Width);
+            }
+        }
+
+        private static (string? Label, string Value) SplitFact(string line)
+        {
+            var index = line.IndexOf(": ", StringComparison.Ordinal);
+            if (index is <= 0 or > 42) return (null, line);
+            return (line[..index], line[(index + 2)..]);
         }
 
         private void DrawFields(string title, IReadOnlyList<DocumentField> fields)
@@ -337,10 +363,10 @@ public sealed class PdfSharpPermitRenderer : IPermitPdfRenderer
         {
             Ensure(18 + follow);
             y += SectionGap;
-            graphics.DrawString(title, Section, Ink, new XRect(Left, y, Width, 12), XStringFormats.TopLeft);
-            y += 14;
-            graphics.DrawRectangle(Accent, Left, y, 22, 1.6);
-            y += 8;
+            graphics.DrawString(title, Section, Ink, new XRect(Left, y, Width, 13), XStringFormats.TopLeft);
+            y += 15;
+            graphics.DrawLine(Hairline, Left, y, Left + Width, y);
+            y += 7;
         }
 
         private void QuietHeading(string title)
@@ -407,17 +433,17 @@ public sealed class PdfSharpPermitRenderer : IPermitPdfRenderer
             page = pdf.AddPage();
             page.Size = PdfSharp.PageSize.Letter;
             graphics = XGraphics.FromPdfPage(page);
-            y = 28;
-            var state = view.Tone == DocumentTone.Active ? view.Status : $"{view.Status}  |  {view.Authority}";
+            y = 22;
+            var state = view.Tone == DocumentTone.Active ? view.Status : $"{view.Status}  ·  {view.Authority}";
             graphics.DrawString(
                 $"{view.PermitNumber}  |  {view.TypeShort}  |  REV {view.Revision}  |  {state}",
                 Running,
                 Ink,
                 new XRect(Left, y, Width, 11),
                 XStringFormats.TopLeft);
-            y += 14;
-            graphics.DrawLine(new XPen(XColor.FromArgb(180, 180, 180), 0.4), Left, y, Left + Width, y);
-            y += 10;
+            y += 13;
+            graphics.DrawLine(Hairline, Left, y, Left + Width, y);
+            y += 9;
             return true;
         }
 

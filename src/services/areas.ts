@@ -44,6 +44,15 @@ export function presentAreaCatalog(
   return { status: "ready", areas };
 }
 
+export const AREA_PICKER_EMPTY =
+  "No Areas are available on this device yet. Connect to the plant network to synchronize reference data.";
+
+export function areaPickerMessage(catalog: AreaCatalog): string {
+  if (catalog.status === "loading") return "Loading areas.";
+  if (catalog.status === "storage-failed") return "Local permit data is unavailable on this device.";
+  return AREA_PICKER_EMPTY;
+}
+
 export function areaIdForName(areas: AreaRecord[], name: string): string {
   return areas.find((area) => area.name === name)?.id ?? "";
 }

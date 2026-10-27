@@ -562,7 +562,58 @@ public class PermitPdfTests
         lists.Ppe = Clothing("Hard hat", "Safety glasses", "FR clothing", "Gloves", "Hearing protection", "Harness", "Face shield", "Chemical gloves");
         WritePreview(directory, "safety-lists.pdf", renderer, lists);
         WritePreview(directory, "pending-authorization.pdf", renderer, Sample(PermitStatus.PENDING_REVIEW));
-        foreach (var name in new[] { "general-work-draft-sparse.pdf", "general-work-active.pdf", "hot-work-active.pdf", "general-work-suspended.pdf", "specialty-multipage.pdf", "safety-lists.pdf", "pending-authorization.pdf" })
+        WritePreview(directory, "confined-space-active.pdf", renderer, Specialty(PermitType.CONFINED_SPACE, "PTW-2026-00044", "Enter the cooling-water vessel to inspect the internal coating.",
+        [
+            Fact(PermitModuleKind.CONFINED_SPACE, "vesselId", "V-210 cooling-water drum"),
+            Fact(PermitModuleKind.CONFINED_SPACE, "energyIsolation", "Pumps locked and blinds installed"),
+            Fact(PermitModuleKind.CONFINED_SPACE, "attendant", "Alex Morgan"),
+            Fact(PermitModuleKind.CONFINED_SPACE, "entrant", "Jordan Lee"),
+            Fact(PermitModuleKind.ATMOSPHERIC_MONITORING, "initialTest", "O2 20.9 percent, LEL 0 percent, H2S 0 ppm"),
+            Fact(PermitModuleKind.ATMOSPHERIC_MONITORING, "continuous", "Retest every 30 minutes"),
+            Fact(PermitModuleKind.RESCUE, "rescue", "Rescue team staged at the north access"),
+        ]));
+        WritePreview(directory, "excavation-active.pdf", renderer, Specialty(PermitType.EXCAVATION, "PTW-2026-00051", "Excavate the north pipe rack for the cooling-water tie-in.",
+        [
+            Fact(PermitModuleKind.EXCAVATION, "digLocation", "North pipe rack, column line C"),
+            Fact(PermitModuleKind.EXCAVATION, "depth", "4 ft"),
+            Fact(PermitModuleKind.EXCAVATION, "utilityLocate", "Locate complete"),
+            Fact(PermitModuleKind.EXCAVATION, "protectiveSystem", "Sloped 1.5 to 1"),
+            Fact(PermitModuleKind.EXCAVATION, "access", "Ladder at each end"),
+            Fact(PermitModuleKind.EXCAVATION, "competentPerson", "Alex Morgan"),
+            Fact(PermitModuleKind.EXCAVATION, "traffic", "Barricaded and flagged"),
+        ]));
+        WritePreview(directory, "opening-blinding-active.pdf", renderer, Specialty(PermitType.OPENING_BLINDING, "PTW-2026-00062", "Open the cooling-water flange and install the spectacle blind.",
+        [
+            Fact(PermitModuleKind.OPENING_BLINDING, "equipmentSystem", "Cooling-water header"),
+            Fact(PermitModuleKind.OPENING_BLINDING, "materialInService", "Cooling water"),
+            Fact(PermitModuleKind.OPENING_BLINDING, "depressured", "Drained and depressured"),
+            Fact(PermitModuleKind.OPENING_BLINDING, "blindRequirements", "Spectacle blind at flange FW-12"),
+            Fact(PermitModuleKind.LOTO_ISOLATION, "loto", "Valves locked closed"),
+        ]));
+        WritePreview(directory, "live-electrical-active.pdf", renderer, Specialty(PermitType.LIVE_ELECTRICAL, "PTW-2026-00073", "Test voltage at the lighting panel with the circuit energized.",
+        [
+            Fact(PermitModuleKind.LIVE_ELECTRICAL, "panel", "Lighting panel LP-2"),
+            Fact(PermitModuleKind.LIVE_ELECTRICAL, "voltage", "480 V"),
+            Fact(PermitModuleKind.LIVE_ELECTRICAL, "justification", "Shutdown would stop occupied-building lighting"),
+            Fact(PermitModuleKind.LIVE_ELECTRICAL, "limitedBoundary", "3 ft 6 in"),
+            Fact(PermitModuleKind.LIVE_ELECTRICAL, "ppeCategory", "Category 2"),
+            Fact(PermitModuleKind.LIVE_ELECTRICAL, "qualifiedWorker", "Alex Morgan"),
+            Fact(PermitModuleKind.LIVE_ELECTRICAL, "observer", "Jordan Lee"),
+        ]));
+        foreach (var name in new[]
+        {
+            "general-work-draft-sparse.pdf",
+            "general-work-active.pdf",
+            "hot-work-active.pdf",
+            "confined-space-active.pdf",
+            "excavation-active.pdf",
+            "opening-blinding-active.pdf",
+            "live-electrical-active.pdf",
+            "general-work-suspended.pdf",
+            "specialty-multipage.pdf",
+            "safety-lists.pdf",
+            "pending-authorization.pdf",
+        })
         {
             var path = Path.Combine(directory, name);
             Assert.True(File.Exists(path), path);
@@ -590,6 +641,25 @@ public class PermitPdfTests
     private static PermitControlRecord[] Controls(params string[] labels) => labels.Select(label => new PermitControlRecord { Label = label }).ToArray();
 
     private static PermitPpe[] Clothing(params string[] labels) => labels.Select(label => new PermitPpe { Label = label }).ToArray();
+
+    private static AuthoritativeGeneralWork Specialty(PermitType type, string number, string scope, IReadOnlyList<PermitModuleFact> facts)
+    {
+        var source = Sample(PermitStatus.ACTIVE);
+        source.Permit.PermitType = type;
+        source.Permit.PermitNumber = number;
+        source.Permit.JobDescription = scope;
+        source.Permit.ActivatedAt = GeneratedAt;
+        source.ModuleFacts = facts;
+        source.Approvals =
+        [
+            Approval("SUBMITTED", "REQUESTER", "Patrick Grigsby", "PCU-0002", "Day Supervisor", GeneratedAt.AddHours(-2)),
+            Approval("AUTHORIZED", "PERMIT_AUTHORIZER", "Mike Distefano", "PCU-0003", "Permit Authorizer", GeneratedAt.AddHours(-1)),
+            Approval("ACCEPTED", "CRAFT_RECEIVER", "Jordan Lee", "PCU-0010", "Craft", GeneratedAt.AddMinutes(-30)),
+        ];
+        return source;
+    }
+
+    private static PermitModuleFact Fact(PermitModuleKind kind, string name, string value) => new() { ModuleKind = kind, Name = name, Value = value };
 
     private static PermitApproval Approval(string decision, string role, string name, string code, string title, DateTimeOffset at) => new()
     {

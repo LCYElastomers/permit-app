@@ -2,28 +2,50 @@ import { usePermits } from "../state/PermitStore";
 import { permitType } from "../permitTypes";
 import { kindShort, kindTitle } from "../workflow";
 import { Kv, ScreenHead, StateMark } from "../components/ui";
+import { PermitBrowseBar, PermitStatusFilters, usePermitBrowse, type BrowseRow } from "../components/PermitFilters";
 import { PlantRefresh, stationSamplePermits, useAuthoritativePermits } from "../services/plantLists";
 
 const PENDING_STATUSES = ["PENDING_REVIEW", "AUTHORIZED"];
 
 export function PendingReview() {
   const { permits, drafts, openPermit, openStoredPermit, openPlantPermit } = usePermits();
+  const browse = usePermitBrowse();
   const { plant, refresh, ready } = useAuthoritativePermits(PENDING_STATUSES);
   const plantNumbers = new Set(plant.map((permit) => permit.id));
   const real = drafts.filter((draft) => draft.lifecycleStatus === "PENDING_REVIEW" && !(draft.permitNumber && plantNumbers.has(draft.permitNumber)));
   const pending = stationSamplePermits(permits, "pending")
     .slice()
     .sort((a, b) => b.id.localeCompare(a.id));
+  const plantShown = plant.filter((permit) => browse.accept(rowOf(permit.id, permit.kind, permit.area, permit.company, [permit.work, permit.workOrder, permit.equipment])));
+  const realShown = real.filter((draft) => browse.accept(rowOf(draft.permitNumber ?? "", draft.kind, draft.area, "", [draft.description, draft.place, draft.workOrder])));
+  const pendingShown = pending.filter((permit) => browse.accept(rowOf(permit.id, permit.kind, permit.area, permit.company, [permit.work, permit.jobDescription, permit.workOrder, permit.equipment, permit.location])));
+  const browseRows: BrowseRow[] = [
+    ...plant.map((permit) => rowOf(permit.id, permit.kind, permit.area, permit.company, [permit.work, permit.workOrder, permit.equipment])),
+    ...real.map((draft) => rowOf(draft.permitNumber ?? "", draft.kind, draft.area, "", [draft.description, draft.place, draft.workOrder])),
+    ...pending.map((permit) => rowOf(permit.id, permit.kind, permit.area, permit.company, [permit.work, permit.workOrder, permit.equipment])),
+  ];
 
   return (
     <div className="screen">
       <ScreenHead
         kicker="OPERATIONS"
-        title="Pending Review"
-        meta={`${plant.length} PLANT RECORDS · ${real.length} ON THIS DEVICE · ${pending.length} STATION SAMPLES`}
+        title="Permits"
+        meta={`${plantShown.length} PLANT RECORDS · ${realShown.length} ON THIS DEVICE · ${pendingShown.length} STATION SAMPLES`}
+      />
+      <PermitStatusFilters current="pending" />
+      <PermitBrowseBar
+        query={browse.query}
+        area={browse.area}
+        kind={browse.kind}
+        company={browse.company}
+        rows={browseRows}
+        onQuery={browse.setQuery}
+        onArea={browse.setArea}
+        onKind={browse.setKind}
+        onCompany={browse.setCompany}
       />
       <PlantRefresh ready={ready} onRefresh={() => void refresh()} />
-      {plant.map((permit) => (
+      {plantShown.map((permit) => (
         <button key={permit.serverPermitId} type="button" className="permit-row" onClick={() => openPlantPermit(permit, "pending")}>
           <div className="row-top">
             <span className="pid mono">{permit.id}</span>
@@ -33,7 +55,7 @@ export function PendingReview() {
           <div className="row-work">{permit.work}</div>
         </button>
       ))}
-      {real.map((draft) => (
+      {realShown.map((draft) => (
         <button key={draft.id} type="button" className="permit-row" onClick={() => openStoredPermit(draft.id, "pending")}>
           <div className="row-top">
             <span className="pid mono">{draft.permitNumber ?? "LOCAL"}</span>
@@ -43,12 +65,12 @@ export function PendingReview() {
           <div className="row-work">{draft.description || "Job description not entered"}</div>
         </button>
       ))}
-      {plant.length === 0 && real.length === 0 && pending.length === 0 ? (
+      {plantShown.length === 0 && realShown.length === 0 && pendingShown.length === 0 ? (
         <p className="empty">No permits are waiting for review.</p>
       ) : null}
-      {pending.length > 0 ? <p className="empty tight">Station samples below are not plant records.</p> : null}
-      {pending.length === 0 ? null : (
-        pending.map((permit) => {
+      {pendingShown.length > 0 ? <p className="empty tight">Station samples below are not plant records.</p> : null}
+      {pendingShown.length === 0 ? null : (
+        pendingShown.map((permit) => {
           const outstanding = permit.signoffs.filter((signoff) => signoff.state === "outstanding");
           const signed = permit.signoffs.filter((signoff) => signoff.state === "signed");
           const place =
@@ -97,4 +119,8 @@ export function PendingReview() {
       )}
     </div>
   );
+}
+
+function rowOf(id: string, kind: string, area: string, company: string, text: string[]): BrowseRow {
+  return { area, kind, company, text: [id, area, company, ...text] };
 }

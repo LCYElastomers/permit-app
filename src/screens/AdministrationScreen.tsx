@@ -17,6 +17,7 @@ import { UsersScreen } from "./UsersScreen";
 import { useDevice } from "../services/device";
 import { useIdentity } from "../services/identity";
 import { canPerform, listPlantUsers, pinMessage } from "../services/plantDirectory";
+import { PinInput } from "../components/PinInput";
 import { safeDiagnostic } from "../services/lifecyclePrompt";
 import {
   listCatalog,
@@ -800,6 +801,7 @@ function PublishReview({ token, bundle, permitTitle, onClose, onSaved }: { token
       await onSaved();
       onClose();
     } catch (error) {
+      setPin("");
       setNotice({ title: "CONFIGURATION NOT PUBLISHED", body: `${contextual(pinMessage(error), "Permit Control could not publish this configuration.")} Your unsaved configuration has been preserved.` });
     }
   };
@@ -810,7 +812,7 @@ function PublishReview({ token, bundle, permitTitle, onClose, onSaved }: { token
       subject="this publication"
       dirty={pin.length > 0}
       primaryLabel="Publish version"
-      onClose={onClose}
+      onClose={() => { setPin(""); onClose(); }}
       onSave={() => void publish()}
       error={notice ? <AdminError title={notice.title} onRetry={() => void publish()}>{notice.body}</AdminError> : null}
     >
@@ -825,7 +827,7 @@ function PublishReview({ token, bundle, permitTitle, onClose, onSaved }: { token
       </ul>
       <p className="admin-inline-note">Historical permits will remain on their existing versions.</p>
       <AdminField label="PIN" width="small" help="The administrator PIN confirms this publication.">
-        <input type="text" inputMode="numeric" autoComplete="off" value={pin} onChange={(event) => setPin(event.target.value)} />
+        <PinInput purpose="current" value={pin} onChange={setPin} />
       </AdminField>
     </AdminEditorModal>
   );
@@ -894,6 +896,9 @@ function RuleEditor({
   const [action, setAction] = useState(seed?.action ?? "REQUIRE_MODULE");
   const [target, setTarget] = useState(seed?.actionTarget ?? "HOT_WORK");
   const [pin, setPin] = useState("");
+  useEffect(() => {
+    setPin("");
+  }, [seed?.id]);
   const [notice, setNotice] = useState<Notice>(null);
   const field = bundle.fields.find((item) => item.code === conditionCode);
   const dirty = conditionCode !== (seed?.conditionCode ?? bundle.fields[0]?.code ?? "") || conditionValue !== (seed?.conditionValue ?? "YES") || action !== (seed?.action ?? "REQUIRE_MODULE") || target !== (seed?.actionTarget ?? "HOT_WORK") || pin.length > 0;
@@ -913,6 +918,7 @@ function RuleEditor({
       setPin("");
       await onSaved();
     } catch (error) {
+      setPin("");
       setNotice({ title: "RULE NOT SAVED", body: `${contextual(pinMessage(error), "Permit Control could not save this rule.")} The statement is still in the editor.` });
     }
   };
@@ -929,7 +935,7 @@ function RuleEditor({
       recordLabel={seed ? `Version ${seed.configurationVersion}` : "New rule"}
       onPrevious={onPrevious}
       onNext={onNext}
-      onClose={onClose}
+      onClose={() => { setPin(""); onClose(); }}
       onSave={() => void save()}
       error={notice ? <AdminError title={notice.title} onRetry={() => void save()}>{notice.body}</AdminError> : null}
     >
@@ -971,7 +977,7 @@ function RuleEditor({
         <p>{conditionCode || "FIELD"} is {displayValue(conditionValue)} → {actionPhrase(action, target, bundle.fields)} ({target || "TARGET"})</p>
       </details>
       <AdminField label="PIN" width="small" help="Saving a rule confirms with the administrator PIN and adds it to the working version.">
-        <input type="text" inputMode="numeric" autoComplete="off" value={pin} onChange={(event) => setPin(event.target.value)} />
+        <PinInput purpose="current" value={pin} onChange={setPin} />
       </AdminField>
     </AdminEditorModal>
   );

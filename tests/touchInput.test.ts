@@ -37,8 +37,12 @@ describe("touch focus", () => {
     expect(workflow).toContain('type="text"');
     expect(workflow).toContain("<textarea");
     expect(workflow).not.toContain(".focus(");
-    const pin = source("../src/components/AuthorizationPanel.tsx");
-    expect(pin).toContain('type="text" inputMode="numeric"');
+    const pin = source("../src/components/PinInput.tsx");
+    expect(pin).toContain('type="password"');
+    expect(pin).toContain('inputMode="numeric"');
+    const auth = source("../src/components/AuthorizationPanel.tsx");
+    expect(auth).toContain("<PinInput");
+    expect(auth).not.toContain('type="text" inputMode="numeric"');
     const css = source("../src/index.css");
     expect(css).toContain("input, textarea, select { touch-action: manipulation; }");
     expect(css).toContain("scroll-margin-bottom: 160px;");
@@ -49,6 +53,6 @@ describe("touch focus", () => {
     const modal = source("../src/components/admin.tsx");
     expect(modal).toContain("shouldRestoreModalFocus");
     const picker = source("../src/components/ui.tsx");
-    expect(picker).toContain("if (!coarse) searchRef.current?.focus();");
+    expect(picker).toContain("if (searchable && !coarse) searchRef.current?.focus();");
   });
 });

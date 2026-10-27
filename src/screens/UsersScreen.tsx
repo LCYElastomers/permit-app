@@ -9,6 +9,7 @@ import {
   AdminStatus,
 } from "../components/admin";
 import { ScreenHead } from "../components/ui";
+import { PinInput } from "../components/PinInput";
 import { useIdentity } from "../services/identity";
 import {
   addPlantQualification,
@@ -219,6 +220,9 @@ function UserEditor({
   const [enabled, setEnabled] = useState(user.enabled);
   const [added, setAdded] = useState<string[]>([]);
   const [pin, setPin] = useState("");
+  useEffect(() => {
+    setPin("");
+  }, [user.id]);
   const [active, setActive] = useState<UserTab>(tab);
   const [notice, setNotice] = useState<Notice>(null);
   const [securityNote, setSecurityNote] = useState("");
@@ -261,6 +265,7 @@ function UserEditor({
       document.body.dataset.adminRestore = `admin-user-${userId}`;
       await onSaved(saved.id ? saved : { ...draft, id: userId });
     } catch (error) {
+      setPin("");
       fail(error, "USER NOT SAVED", "Permit Control could not save this user.");
     }
   };
@@ -274,6 +279,7 @@ function UserEditor({
       setPin("");
       setSecurityNote(`${label} completed. Profile edits in this window are still here.`);
     } catch (error) {
+      setPin("");
       fail(error, "SECURITY ACTION NOT COMPLETED", "Permit Control could not complete that security action.");
     }
   };
@@ -291,7 +297,7 @@ function UserEditor({
       recordLabel={draft.permitUserCode || "New user"}
       onPrevious={onPrevious}
       onNext={onNext}
-      onClose={onClose}
+      onClose={() => { setPin(""); onClose(); }}
       onSave={() => void save()}
       error={notice ? <AdminError title={notice.title}>{notice.body}</AdminError> : null}
     >
@@ -384,7 +390,7 @@ function UserEditor({
       ) : null}
       {draft.id ? (
         <AdminField label="Administrator PIN" width="small" help="Used to confirm role changes, enabled state, and security actions. The PIN is not stored in this editor.">
-          <input type="text" inputMode="numeric" autoComplete="off" value={pin} onChange={(event) => setPin(event.target.value)} />
+          <PinInput purpose="current" value={pin} onChange={setPin} />
         </AdminField>
       ) : null}
     </AdminEditorModal>

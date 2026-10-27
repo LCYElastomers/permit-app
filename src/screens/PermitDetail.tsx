@@ -41,7 +41,7 @@ export function PermitDetail() {
       <div className="screen">
         <p className="empty">That permit is not on this station.</p>
         <button type="button" className="btn" onClick={() => go("active")}>
-          Active Permits
+          Permits
         </button>
       </div>
     );
@@ -87,6 +87,10 @@ export function PermitDetail() {
           <div className="wo-line mono">{permit.workOrder}</div>
         </div>
         <div className="detail-actions">
+        <div className="next-action">
+          <div className="kicker">NEXT ACTION</div>
+          <strong>{nextActionLabel(permit)}</strong>
+        </div>
         {permit.plantRecord ? (
           <AuthorizationPanel permit={permit} onUpdated={replacePlantPermit} />
         ) : permit.sample === false ? (
@@ -379,6 +383,15 @@ export function PermitDetail() {
       </div>
     </div>
   );
+}
+
+function nextActionLabel(permit: Permit): string {
+  const status = permit.plantRecord?.status ?? "";
+  if (status === "PENDING_REVIEW" || permit.status === "pending") return "AUTHORIZE PERMIT";
+  if (status === "AUTHORIZED") return "ACCEPT PERMIT";
+  if (status === "ACTIVE" || permit.status === "active") return "WORK AUTHORIZED";
+  if (status === "SUSPENDED" || permit.status === "suspended") return "WORK NOT AUTHORIZED";
+  return "REVIEW PERMIT";
 }
 
 function windowOf(permit: Permit): string {

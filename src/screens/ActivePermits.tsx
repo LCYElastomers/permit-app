@@ -4,10 +4,12 @@ import type { Permit } from "../types";
 import { permitType } from "../permitTypes";
 import { expiryLabel, expiryState, kindShort, kindTitle } from "../workflow";
 import { Kv, ScreenHead } from "../components/ui";
+import { PermitBrowseBar, PermitStatusFilters, usePermitBrowse, type BrowseRow, type PermitFilter } from "../components/PermitFilters";
 import { PlantRefresh, stationSamplePermits, useAuthoritativePermits } from "../services/plantLists";
 
-export function ActivePermits() {
-  const { permits, drafts, openPermit, openStoredPermit, openPlantPermit, go, showActive, listArea, activeView } = usePermits();
+export function ActivePermits({ filter = "active" }: { filter?: PermitFilter }) {
+  const { permits, drafts, openPermit, openStoredPermit, openPlantPermit, showActive, listArea } = usePermits();
+  const browse = usePermitBrowse();
   const { plant, refresh, ready } = useAuthoritativePermits(["ACTIVE"]);
   const plantNumbers = new Set(plant.map((permit) => permit.id));
   const real = drafts.filter((draft) => draft.lifecycleStatus === "ACTIVE" && !(draft.permitNumber && plantNumbers.has(draft.permitNumber)));
@@ -17,20 +19,31 @@ export function ActivePermits() {
     .filter((permit) => (listArea ? permit.area === listArea : true))
     .slice()
     .sort((a, b) => b.started.localeCompare(a.started));
-  const pending = permits.filter((permit) => permit.status === "pending").length;
-  const suspended = permits.filter((permit) => permit.status === "suspended").length;
-  const expiring = permits.filter(
-    (permit) => permit.status === "active" && expiryState(permit.expires, clock.hm) !== "ok" && (listArea ? permit.area === listArea : true),
-  ).length;
-  const shown = activeView === "expiring" ? active.filter((permit) => expiryState(permit.expires, clock.hm) !== "ok") : active;
+  const shown = (filter === "expiring" ? active.filter((permit) => expiryState(permit.expires, clock.hm) !== "ok") : active)
+    .filter((permit) => browse.accept(sampleRow(permit)));
+  const plantShown = plant.filter((permit) => browse.accept(plantRow(permit)));
+  const realShown = real.filter((draft) => browse.accept(draftRow(draft)));
+  const browseRows = [...plant.map(plantRow), ...real.map(draftRow), ...active.map(sampleRow)];
 
   return (
     <div className="screen">
       <div className="sticky-head">
         <ScreenHead
           kicker="OPERATIONS"
-          title="Active Permits"
+          title="Permits"
           meta={listArea ? `${listArea.toUpperCase()} · ${shown.length} SHOWN` : `SHIFT B · ${shown.length} SHOWN`}
+        />
+        <PermitStatusFilters current={filter} />
+        <PermitBrowseBar
+          query={browse.query}
+          area={browse.area}
+          kind={browse.kind}
+          company={browse.company}
+          rows={browseRows}
+          onQuery={browse.setQuery}
+          onArea={browse.setArea}
+          onKind={browse.setKind}
+          onCompany={browse.setCompany}
         />
         <PlantRefresh ready={ready} onRefresh={() => void refresh()} />
         {listArea ? (
@@ -43,30 +56,8 @@ export function ActivePermits() {
             </button>
           </div>
         ) : null}
-        <div className="metrics">
-          <button type="button" className={activeView === "all" ? "metric on" : "metric"} onClick={() => showActive("all", listArea)}>
-            <span className="metric-value">{active.length}</span>
-            <span className="metric-label">Active</span>
-          </button>
-          <button type="button" className="metric" onClick={() => go("pending")}>
-            <span className="metric-value">{pending}</span>
-            <span className="metric-label">Pending Review</span>
-          </button>
-          <button type="button" className="metric" onClick={() => go("suspended")}>
-            <span className="metric-value">{suspended}</span>
-            <span className="metric-label">Suspended</span>
-          </button>
-          <button
-            type="button"
-            className={activeView === "expiring" ? "metric on" : "metric"}
-            onClick={() => showActive("expiring", listArea)}
-          >
-            <span className="metric-value">{expiring}</span>
-            <span className="metric-label">Expiring Soon</span>
-          </button>
-        </div>
       </div>
-      {plant.map((permit) => (
+      {plantShown.map((permit) => (
         <button key={permit.serverPermitId} type="button" className="permit-row" onClick={() => openPlantPermit(permit, "active")}>
           <div className="row-top">
             <span className="pid mono">{permit.id}</span>
@@ -76,7 +67,7 @@ export function ActivePermits() {
           <div className="row-work">{permit.work}</div>
         </button>
       ))}
-      {real.map((draft) => (
+      {realShown.map((draft) => (
         <button key={draft.id} type="button" className="permit-row" onClick={() => openStoredPermit(draft.id, "active")}>
           <div className="row-top">
             <span className="pid mono">{draft.permitNumber ?? "LOCAL"}</span>
@@ -102,6 +93,18 @@ export function ActivePermits() {
       )}
     </div>
   );
+}
+
+function plantRow(permit: Permit): BrowseRow {
+  return { area: permit.area, kind: permit.kind, company: permit.company, text: [permit.id, permit.work, permit.workOrder, permit.equipment, permit.area] };
+}
+
+function draftRow(draft: { area: string; kind: Permit["kind"]; description: string; place: string; workOrder: string; permitNumber?: string | null }): BrowseRow {
+  return { area: draft.area, kind: draft.kind, company: "", text: [draft.permitNumber ?? "", draft.description, draft.place, draft.workOrder, draft.area] };
+}
+
+function sampleRow(permit: Permit): BrowseRow {
+  return { area: permit.area, kind: permit.kind, company: permit.company, text: [permit.id, permit.work, permit.jobDescription, permit.workOrder, permit.equipment, permit.location, permit.area] };
 }
 
 function PermitRow({

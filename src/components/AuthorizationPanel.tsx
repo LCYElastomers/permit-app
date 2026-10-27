@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AdminEditorModal } from "./admin";
+import { PinInput } from "./PinInput";
 import { useDevice } from "../services/device";
 import { useIdentity } from "../services/identity";
 import { blockingItemCopy, lifecyclePrompt } from "../services/lifecyclePrompt";
@@ -18,6 +19,10 @@ export function AuthorizationPanel({ permit, onUpdated }: { permit: Permit; onUp
   const [confirming, setConfirming] = useState(false);
   const [returning, setReturning] = useState(false);
   const [message, setMessage] = useState("");
+  useEffect(() => {
+    setPin("");
+    setConfirming(false);
+  }, [identity.user?.id, permit.serverPermitId]);
   if (!record || !permit.serverPermitId) return null;
   const shown = lifecyclePrompt({
     status: record.status,
@@ -76,6 +81,7 @@ export function AuthorizationPanel({ permit, onUpdated }: { permit: Permit; onUp
       setPin("");
       setConfirming(false);
     } catch (error) {
+      setPin("");
       setMessage(pinMessage(error));
     }
   };
@@ -100,7 +106,7 @@ export function AuthorizationPanel({ permit, onUpdated }: { permit: Permit; onUp
         ) : null}
         {shown.blocked && shown.gaps.length === 0 ? <p>{shown.blocked}</p> : null}
         {shown.action ? (
-          <button type="button" className="btn" onClick={() => { setMessage(""); setConfirming(true); }}>{shown.nextTitle}</button>
+          <button type="button" className="btn" onClick={() => { setMessage(""); setPin(""); setConfirming(true); }}>{shown.nextTitle}</button>
         ) : null}
         {shown.correction === "edit" ? (
           <button type="button" className="btn" onClick={() => edit(shown.focusStep)}>Edit permit</button>
@@ -126,15 +132,12 @@ export function AuthorizationPanel({ permit, onUpdated }: { permit: Permit; onUp
           code={permit.id}
           subtitle={`${kindTitle(permit.kind)} · REV ${permit.revision}`}
           primaryLabel={shown.nextTitle}
-          onClose={() => { setConfirming(false); setMessage(""); }}
+          onClose={() => { setConfirming(false); setPin(""); setMessage(""); }}
           onSave={() => void run()}
           error={message || undefined}
         >
           <p className="correction-copy">{permit.area || "No area"} · {identity.user?.displayName} · {identity.user?.permitUserCode} · {shown.actingRole?.replaceAll("_", " ")}</p>
-          <label className="confirm-field">
-            <span>PIN</span>
-            <input type="text" inputMode="numeric" autoComplete="off" maxLength={6} value={pin} onChange={(event) => setPin(event.target.value)} />
-          </label>
+          <PinInput label="PIN" purpose="current" value={pin} onChange={setPin} />
         </AdminEditorModal>
       ) : null}
       {returning ? (

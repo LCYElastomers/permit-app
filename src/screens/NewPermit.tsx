@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { contractors } from "../data/mock";
 import { GENERAL_EXCLUSIONS, PERMIT_TYPES, typeRecommendations } from "../permitTypes";
 import { plantClock } from "../plantClock";
-import { areaIdForName, areaSelection, type AreaCatalog } from "../services/areas";
+import { areaIdForName, areaPickerMessage, areaSelection, type AreaCatalog } from "../services/areas";
 import { catalogLabel } from "../services/catalogLabels";
 import { useAreaCatalog } from "../services/useAreaCatalog";
 import { useDevice } from "../services/device";
@@ -44,6 +44,7 @@ export function NewPermit() {
   const blockers = issueBlockers(form);
   const step = STEPS[form.step] ?? STEPS[0];
   const saveLine = saveError || describePermitSave(form, link.link);
+  const [typeChosen, setTypeChosen] = useState(() => Boolean(form.id) || form.step > 0);
 
   const patch = (partial: Partial<PermitDraft>) => {
     updateForm((current) => ({ ...current, ...partial }));
@@ -62,16 +63,21 @@ export function NewPermit() {
 
   return (
     <div className="screen fill workflow">
+      {typeChosen ? null : (
+        <TypeChooser onSelect={(kind) => { patch({ kind, step: 0 }); setTypeChosen(true); }} />
+      )}
+      {typeChosen ? (
+      <>
       <div className="steps">
         {STEPS.map((item, index) => (
           <button
             key={item.num}
             type="button"
-            className={form.step === index ? "step current" : "step"}
+            className={form.step === index ? "step current" : index < form.step ? "step done" : "step"}
             onClick={() => patch({ step: index })}
           >
             <span className="step-num">{item.num}</span>
-            <span className="step-label">{item.label}</span>
+            <span className="step-label">{item.label === "PERMIT DETAILS" ? "DETAILS" : item.label}</span>
           </button>
         ))}
       </div>
@@ -88,22 +94,17 @@ export function NewPermit() {
       </div>
 
       <div className="kind-bar">
-        <div className="kind-switch type-switch" role="group" aria-label="Permit type">
-          {PERMIT_TYPES.map((type) => (
-            <button
-              key={type.id}
-              type="button"
-              className={form.kind === type.id ? "on" : ""}
-              onClick={() => patch({ kind: type.id })}
-            >
-              {type.short}
-            </button>
-          ))}
-        </div>
         <div className="kind-meta mono">
+          {kindTitle(form.kind)}
+          {" · "}
           {form.permitNumber ? form.permitNumber : form.id ? `LOCAL DRAFT ${localDraftLabel(form.id)}` : "UNSAVED"}
         </div>
-        <button type="button" className="btn btn-ghost" onClick={() => { resetForm(); setSaveError(""); }}>
+        {form.step === 0 ? (
+          <button type="button" className="btn btn-ghost" onClick={() => setTypeChosen(false)}>
+            Change permit type
+          </button>
+        ) : null}
+        <button type="button" className="btn btn-ghost" onClick={() => { resetForm(); setTypeChosen(false); setSaveError(""); }}>
           Clear
         </button>
         {documentActionPlacement(composition) === "toolbar" ? (
@@ -130,6 +131,7 @@ export function NewPermit() {
       ) : null}
       <div className="workflow-stage">
         <div className="workflow-main">
+          <p className="step-purpose">{STEP_PURPOSE[form.step]}</p>
           <TypeRecommendationNotice form={form} onUse={(kind) => patch({ kind })} />
           {form.step === 0 && <ScopeStep form={form} patch={patch} setField={setField} catalog={catalog} />}
           {form.step === 1 && (
@@ -159,9 +161,9 @@ export function NewPermit() {
             />
           )}
           {form.step === 3 && <DetailStep form={form} setField={setField} />}
-          {form.step === 4 && <ReviewStep form={form} />}
+          {form.step === 4 && <ReviewStep form={form} onOpen={(index) => patch({ step: index })} />}
           {form.step === 5 && (
-            <AuthorizationStep form={form} link={link.link} signError={signError} setSignError={setSignError} blockers={blockers} />
+            <AuthorizationStep form={form} link={link.link} signError={signError} setSignError={setSignError} onOpen={(index) => patch({ step: index })} />
           )}
         </div>
         <aside className="workflow-context">
@@ -258,6 +260,8 @@ export function NewPermit() {
           )}
         </div>
       </footer>
+      </>
+      ) : null}
     </div>
   );
 }
@@ -300,7 +304,8 @@ function ScopeStep({
           label="Area"
           value={selected}
           placeholder="Select area"
-          disabled={catalog.status !== "ready"}
+          searchable={false}
+          emptyMessage={areaPickerMessage(catalog)}
           options={areas.map((area) => ({ id: area.id, label: area.name }))}
           onChange={(id) => patch(areaSelection(areas, id))}
         />
@@ -520,10 +525,68 @@ function ChoiceStep({
   );
 }
 
-function ReviewStep({ form }: { form: PermitDraft }) {
+function TypeChooser({ onSelect }: { onSelect: (kind: PermitKind) => void }) {
+  return (
+    <div className="type-select">
+      <div className="kicker">NEW PERMIT</div>
+      <h1>Select Permit Type</h1>
+      <div className="type-choices">
+        {PERMIT_TYPES.map((type) => (
+          <button key={type.id} type="button" onClick={() => onSelect(type.id)}>
+            <strong>{type.title}</strong>
+            <span>{TYPE_SUMMARY[type.id]}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const STEP_PURPOSE = [
+  "What work is being performed and where?",
+  "What can harm people, equipment or the plant?",
+  "How are those hazards controlled?",
+  "What additional permit-specific requirements apply?",
+  "Is the permit complete and accurate?",
+  "Who must approve or accept the permit before work begins?",
+];
+
+const TYPE_SUMMARY: Record<PermitKind, string> = {
+  general: "Routine and non-intrusive work",
+  "hot-work": "Welding, cutting, grinding and other ignition-producing work",
+  "confined-space": "Entry into a configured confined space",
+  "opening-blinding": "Process opening, line breaking, blinding and related work",
+  excavation: "Excavation and ground-disturbance work",
+  "live-electrical": "Work involving energized electrical systems",
+};
+
+function reviewStepFor(gap: string): number {
+  if (gap === "At least one hazard") return 1;
+  if (gap === "Controls") return 2;
+  if (gap === "PPE") return 3;
+  return 0;
+}
+
+function ReviewStep({ form, onOpen }: { form: PermitDraft; onOpen: (step: number) => void }) {
   const details = detailFields(form.kind).filter((item) => (form.fields[item.key] ?? "").trim());
+  const gaps = preparationGaps(form);
+  const sections = preparationSections(form);
+  const first = gaps[0];
   return (
     <div className="review-grid">
+      <section className="readiness" aria-label="Review status">
+        {sections.map((section) => (
+          <p key={section.label}><span>{section.label}</span><strong>{section.complete ? "COMPLETE" : "INCOMPLETE"}</strong></p>
+        ))}
+        <p><span>People</span><strong>{form.requester.trim() && form.craft.trim() ? "COMPLETE" : "REQUIRED"}</strong></p>
+        <p><span>Authorization Readiness</span><strong>{gaps.length === 0 ? "COMPLETE" : "PENDING"}</strong></p>
+        {first ? (
+          <div className="readiness-action">
+            <p>{first}</p>
+            <button type="button" className="btn" onClick={() => onOpen(reviewStepFor(first))}>Review {first}</button>
+          </div>
+        ) : null}
+      </section>
       <Section index="01" title="SCOPE">
         <div className="field-grid">
           <Field label="Permit type" value={kindTitle(form.kind)} />
@@ -592,16 +655,18 @@ function AuthorizationStep({
   link,
   signError,
   setSignError,
-  blockers,
+  onOpen,
 }: {
   form: PermitDraft;
   link: string;
   signError: string;
   setSignError: (roleId: string) => void;
-  blockers: string[];
+  onOpen: (step: number) => void;
 }) {
   const { updateForm } = usePermits();
-  const roles = authorizationRoles(form);
+  const roles = authorizationRoles(form).filter((role) => role.required || form.signatures[role.id]);
+  const gaps = preparationGaps(form);
+  const first = gaps[0];
 
   return (
     <Section index="06" title="AUTHORIZATION">
@@ -681,16 +746,12 @@ function AuthorizationStep({
         ))}
         {form.lifecycleStatus === "PENDING_REVIEW" ? (
           <p>Pending review. Saved locally. This permit is not authorized for work.</p>
-        ) : preparationGaps(form).length > 0 ? (
-          <>
-            <p>PERMIT NOT READY</p>
-            <p>Complete:</p>
-            <ul>
-              {preparationGaps(form).map((item) => (
-                <li key={item}>{item}</li>
-              ))}
-            </ul>
-          </>
+        ) : first ? (
+          <div className="readiness-action">
+            <p>{gaps.length} {gaps.length === 1 ? "ITEM REQUIRES ATTENTION" : "ITEMS REQUIRE ATTENTION"}</p>
+            <p>{first}</p>
+            <button type="button" className="btn" onClick={() => onOpen(reviewStepFor(first))}>Review {first}</button>
+          </div>
         ) : (
           <>
             <p>Plant Link {link === "ready" ? "is ready" : "is offline"}.</p>
@@ -703,15 +764,7 @@ function AuthorizationStep({
           </>
         )}
         <p>Names recorded here are on this device. They are not authenticated signatures.</p>
-        {blockers.length > 0 ? (
-          <ul>
-            {blockers.map((item) => (
-              <li key={item}>{item}</li>
-            ))}
-          </ul>
-        ) : (
-          <p>Required role names are recorded. That does not authorize work.</p>
-        )}
+        {gaps.length === 0 ? <p>Required role names are recorded. That does not authorize work.</p> : null}
       </div>
     </Section>
   );
