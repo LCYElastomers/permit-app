@@ -40,6 +40,7 @@ public enum CredentialAuditType
     PIN_ENROLLMENT_RESET,
     PIN_LOCKED,
     PIN_UNLOCKED,
+    USER_PROFILE_UPDATED,
 }
 
 public sealed class UserCredential

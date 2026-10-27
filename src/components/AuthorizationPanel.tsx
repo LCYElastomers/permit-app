@@ -4,11 +4,52 @@ import { PinInput } from "./PinInput";
 import { useDevice } from "../services/device";
 import { useIdentity } from "../services/identity";
 import { blockingItemCopy, lifecyclePrompt } from "../services/lifecyclePrompt";
+import { approvalActionLabel, authorizationHistory, currentAuthorization, permitWhen, revisionLabel, summaryLine } from "../services/permitDetailPresentation";
 import { actOnPlantPermit, canPerform, getPlantPermit, notifyPlantPermitsChanged, permitFromPlant, pinMessage, returnPlantPermitForCorrection } from "../services/plantDirectory";
 import { serverPermitType } from "../services/generalWorkDraft";
 import { usePermits } from "../state/PermitStore";
 import { kindTitle } from "../workflow";
 import type { Permit } from "../types";
+
+export function AuthorizationHistory({ permit }: { permit: Permit }) {
+  const record = permit.plantRecord;
+  const [historyOpen, setHistoryOpen] = useState(false);
+  if (!record) return null;
+  const history = authorizationHistory(
+    record.approvals,
+    (record.authorizationHistory ?? []).map((item) => ({
+      revision: item.revision,
+      action: approvalActionLabel(item.action, ""),
+      person: item.displayName,
+      at: item.at,
+      permitUserCode: item.permitUserCode,
+      userId: item.userId,
+    })),
+  );
+  if (history.length === 0) return null;
+  return (
+    <div className="auth-history-wrap">
+      <button type="button" className="btn btn-ghost" onClick={() => setHistoryOpen((open) => !open)}>
+        {historyOpen ? "Hide authorization history" : "View authorization history"}
+      </button>
+      {historyOpen ? (
+        <ol className="auth-history">
+          {history.map((item, index) => (
+            <li key={`${item.revision}-${item.action}-${item.at}-${index}`}>
+              {revisionLabel(item.revision) ? <div className="kicker">{revisionLabel(item.revision)}</div> : null}
+              <strong>{item.action}</strong>
+              {item.person ? <div>{item.person}</div> : null}
+              {item.at ? <div>{permitWhen(item.at)}</div> : null}
+              {item.permitUserCode || item.userId ? (
+                <div className="auth-identity mono">{[item.permitUserCode, item.userId].filter(Boolean).join(" · ")}</div>
+              ) : null}
+            </li>
+          ))}
+        </ol>
+      ) : null}
+    </div>
+  );
+}
 
 export function AuthorizationPanel({ permit, onUpdated }: { permit: Permit; onUpdated: (permit: Permit) => void }) {
   const identity = useIdentity();
@@ -43,6 +84,7 @@ export function AuthorizationPanel({ permit, onUpdated }: { permit: Permit; onUp
     permitType: serverPermitType(permit.kind),
   });
   const edit = (step = 0) => openCorrection(permit, step);
+  const summary = currentAuthorization(record.approvals, record.revision);
   const closeReturn = () => {
     setReturning(false);
     setMessage("");
@@ -89,24 +131,34 @@ export function AuthorizationPanel({ permit, onUpdated }: { permit: Permit; onUp
   return (
     <>
       <section className="detail-readiness">
-        <div className="kicker">{shown.nextTitle}</div>
-        <p>{shown.nextDetail}</p>
+        <div className="next-action">
+          <div className="kicker">Next action</div>
+          <strong>{shown.nextTitle}</strong>
+          {shown.nextDetail ? <p>{shown.nextDetail}</p> : null}
+        </div>
         {shown.gaps.length > 0 ? (
+          <ul>
+            {shown.gaps.map((gap) => (
+              <li key={gap}>
+                <strong>{gap}</strong>
+                <div>{blockingItemCopy(gap)}</div>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        {shown.personnel.length > 0 ? (
           <>
-            <div className="kicker">Blocking items</div>
-            <ul>
-              {shown.gaps.map((gap) => (
-                <li key={gap}>
-                  <strong>{gap}</strong>
-                  <div>{blockingItemCopy(gap)}</div>
-                </li>
+            <div className="kicker">{shown.nextTitle === "COMPLETE REQUIRED PERSONNEL" ? "Required" : "Required before activation"}</div>
+            <ul className="personnel-need">
+              {shown.personnel.map((item) => (
+                <li key={item}>{item}</li>
               ))}
             </ul>
           </>
         ) : null}
-        {shown.blocked && shown.gaps.length === 0 ? <p>{shown.blocked}</p> : null}
-        {shown.action ? (
-          <button type="button" className="btn" onClick={() => { setMessage(""); setPin(""); setConfirming(true); }}>{shown.nextTitle}</button>
+        {shown.blocked && shown.gaps.length === 0 && shown.personnel.length === 0 ? <p>{shown.blocked}</p> : null}
+        {shown.action && shown.actionLabel ? (
+          <button type="button" className="btn" onClick={() => { setMessage(""); setPin(""); setConfirming(true); }}>{shown.actionLabel}</button>
         ) : null}
         {shown.correction === "edit" ? (
           <button type="button" className="btn" onClick={() => edit(shown.focusStep)}>Edit permit</button>
@@ -116,13 +168,13 @@ export function AuthorizationPanel({ permit, onUpdated }: { permit: Permit; onUp
             Return for correction
           </button>
         ) : null}
-        {record.approvals.length > 0 ? (
-          <>
-            <div className="kicker">Authorization history</div>
-            {record.approvals.map((item) => (
-              <p key={`${item.actingRole}-${item.at}`}>{item.actingRole.replaceAll("_", " ")} · {item.displayName} · {item.permitUserCode} · {item.at ?? ""}</p>
+        {summary.length > 0 ? (
+          <div className="auth-summary">
+            <div className="kicker">Authorization</div>
+            {summary.map((item) => (
+              <p key={item.actingRole}>{summaryLine(item.actingRole, item.displayName, item.at)}</p>
             ))}
-          </>
+          </div>
         ) : null}
         {message && !returning && !confirming ? <p className="form-error">{message}</p> : null}
       </section>
@@ -136,7 +188,7 @@ export function AuthorizationPanel({ permit, onUpdated }: { permit: Permit; onUp
           onSave={() => void run()}
           error={message || undefined}
         >
-          <p className="correction-copy">{permit.area || "No area"} · {identity.user?.displayName} · {identity.user?.permitUserCode} · {shown.actingRole?.replaceAll("_", " ")}</p>
+          <p className="correction-copy">{permit.area || "No area"} · {identity.user?.displayName}</p>
           <PinInput label="PIN" purpose="current" value={pin} onChange={setPin} />
         </AdminEditorModal>
       ) : null}

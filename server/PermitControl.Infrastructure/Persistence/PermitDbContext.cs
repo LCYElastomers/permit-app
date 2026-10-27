@@ -12,6 +12,7 @@ public sealed class PermitDbContext(DbContextOptions<PermitDbContext> options) :
     public DbSet<UserPinHistory> UserPinHistories => Set<UserPinHistory>();
     public DbSet<UserQualification> UserQualifications => Set<UserQualification>();
     public DbSet<CredentialAudit> CredentialAudits => Set<CredentialAudit>();
+    public DbSet<UserNotificationPreference> UserNotificationPreferences => Set<UserNotificationPreference>();
     public DbSet<UserSession> UserSessions => Set<UserSession>();
     public DbSet<UserCodeCounter> UserCodeCounters => Set<UserCodeCounter>();
     public DbSet<PermitPolicySetting> PermitPolicies => Set<PermitPolicySetting>();

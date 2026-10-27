@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { usePermits } from "../state/PermitStore";
 import type { Permit } from "../types";
+import { permitWhen } from "../services/permitDetailPresentation";
 import { permitType, personName } from "../permitTypes";
 import { usePlantClock } from "../plantClock";
 import { assetLine, authorizationHold, kindTitle, screenLabel } from "../workflow";
@@ -9,7 +10,7 @@ import { useComposition } from "../components/Composition";
 import { catalogLabel } from "../services/catalogLabels";
 import { detailDocumentTarget, documentActionPlacement } from "../services/permitDocumentActions";
 import { Field, Section, StateMark } from "../components/ui";
-import { AuthorizationPanel } from "../components/AuthorizationPanel";
+import { AuthorizationHistory, AuthorizationPanel } from "../components/AuthorizationPanel";
 import { plantStatusCopy } from "../services/lifecyclePrompt";
 
 export function PermitDetail() {
@@ -87,10 +88,12 @@ export function PermitDetail() {
           <div className="wo-line mono">{permit.workOrder}</div>
         </div>
         <div className="detail-actions">
-        <div className="next-action">
-          <div className="kicker">NEXT ACTION</div>
-          <strong>{nextActionLabel(permit)}</strong>
-        </div>
+        {permit.plantRecord ? null : (
+          <div className="next-action">
+            <div className="kicker">Next action</div>
+            <strong>{nextActionLabel(permit)}</strong>
+          </div>
+        )}
         {permit.plantRecord ? (
           <AuthorizationPanel permit={permit} onUpdated={replacePlantPermit} />
         ) : permit.sample === false ? (
@@ -156,6 +159,7 @@ export function PermitDetail() {
           </div>
         )}
         {documentPlacement === "toolbar" ? <PermitDocumentActions target={documents} placement="toolbar" /> : null}
+        {permit.plantRecord ? <AuthorizationHistory permit={permit} /> : null}
         </div>
       </header>
 
@@ -369,16 +373,18 @@ export function PermitDetail() {
             {attachment ? <p className="doc-note">{attachment.note}</p> : null}
           </Section>
 
-          <Section index="08" title="HISTORY">
-            <ol className="history">
-              {permit.history.map((event, index) => (
-                <li key={`${event.time}-${event.label}-${index}`} className={event.tone}>
-                  <span className="mono">{event.time}</span>
-                  <span>{event.label}</span>
-                </li>
-              ))}
-            </ol>
-          </Section>
+          {permit.plantRecord ? null : (
+            <Section index="08" title="HISTORY">
+              <ol className="history">
+                {permit.history.map((event, index) => (
+                  <li key={`${event.time}-${event.label}-${index}`} className={event.tone}>
+                    <span className="mono">{permitWhen(event.time)}</span>
+                    <span>{event.label}</span>
+                  </li>
+                ))}
+              </ol>
+            </Section>
+          )}
         </aside>
       </div>
     </div>
@@ -386,11 +392,9 @@ export function PermitDetail() {
 }
 
 function nextActionLabel(permit: Permit): string {
-  const status = permit.plantRecord?.status ?? "";
-  if (status === "PENDING_REVIEW" || permit.status === "pending") return "AUTHORIZE PERMIT";
-  if (status === "AUTHORIZED") return "ACCEPT PERMIT";
-  if (status === "ACTIVE" || permit.status === "active") return "WORK AUTHORIZED";
-  if (status === "SUSPENDED" || permit.status === "suspended") return "WORK NOT AUTHORIZED";
+  if (permit.status === "active") return "WORK AUTHORIZED";
+  if (permit.status === "suspended") return "REVIEW FOR REAUTHORIZATION";
+  if (permit.status === "closed" || permit.status === "expired") return "RECORD CLOSED";
   return "REVIEW PERMIT";
 }
 

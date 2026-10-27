@@ -20,6 +20,11 @@ export interface PlantUser {
   lockedUntil: string | null;
   roles: string[];
   qualifications: { id: string; qualificationType: string; effectiveDate: string | null; expirationDate: string | null; enabled: boolean; notes: string | null }[];
+  email?: string | null;
+  mobilePhone?: string | null;
+  mobileVerifiedAt?: string | null;
+  alternatePhone?: string | null;
+  notificationPreferences?: { channel: string; topic: string; enabled: boolean }[];
 }
 
 export interface PlantSession {
@@ -40,6 +45,18 @@ export interface PlantApproval {
   permitUserCode: string;
   jobTitle: string | null;
   at: string | null;
+  decision?: string | null;
+  revision?: number | null;
+  userId?: string | null;
+}
+
+export interface PlantAuthorizationHistory {
+  revision: number;
+  action: string;
+  displayName: string;
+  at: string | null;
+  permitUserCode: string | null;
+  userId: string | null;
 }
 
 export interface PlantPermit {
@@ -60,6 +77,7 @@ export interface PlantPermit {
   modules: string[];
   approvals: PlantApproval[];
   missing: string[];
+  authorizationHistory?: PlantAuthorizationHistory[];
 }
 
 const TOKEN = "permit-control-session";
@@ -101,6 +119,19 @@ export async function confirmPlantUser(userId: string, pin: string) {
 
 export async function currentPlantUser(token: string) {
   return apiRequest<PlantUser>("/api/v1/identity/session", { headers: authHeaders(token) });
+}
+
+export async function updateOwnProfile(token: string, profile: {
+  email: string;
+  mobilePhone: string;
+  alternatePhone: string;
+  preferences: { channel: string; topic: string; enabled: boolean }[];
+}) {
+  return apiRequest<PlantUser>("/api/v1/identity/profile", {
+    method: "PUT",
+    headers: authHeaders(token),
+    body: JSON.stringify(profile),
+  });
 }
 
 export async function enrollPin(token: string, pin: string, confirmPin: string) {
@@ -283,6 +314,16 @@ export function pinMessage(error: unknown): string {
       return "That value cannot be stored. Administration accepts labels and controlled choices only.";
     case "form-version-locked":
       return "That field belongs to a published form version. Save it as the next version.";
+    case "email-invalid":
+      return "Enter a valid work email.";
+    case "phone-invalid":
+      return "Enter a valid phone number.";
+    case "mobile-required":
+      return "Add a mobile phone before choosing SMS.";
+    case "email-required":
+      return "Add a work email before choosing email notices.";
+    case "preference-invalid":
+      return "That notification choice is not available.";
     default:
       return "Permit Control could not complete that action.";
   }
@@ -351,6 +392,7 @@ export function permitFromPlant(record: PlantPermit): Permit {
       createdBy: record.createdBy ?? null,
       allowSelfAuthorization: record.allowSelfAuthorization ?? false,
       approvals: record.approvals,
+      authorizationHistory: record.authorizationHistory ?? [],
     },
   };
 }
@@ -366,5 +408,9 @@ function editBody(user: PlantUser) {
     department: user.department,
     enabled: user.enabled,
     roles: user.roles,
+    email: user.email ?? "",
+    mobilePhone: user.mobilePhone ?? "",
+    alternatePhone: user.alternatePhone ?? "",
+    updateContact: true,
   };
 }

@@ -249,7 +249,7 @@ export function IdentityMenu() {
           <strong>{user.displayName}</strong>
           <div className="mono">{user.permitUserCode}</div>
           <div>{user.jobTitle || role}</div>
-          <button type="button" role="menuitem" onClick={() => { setSecurity(false); setSwitching(false); setPin(""); setCurrent(""); setConfirm(""); }}>Profile</button>
+          <button type="button" role="menuitem" onClick={() => { setOpen(false); setSecurity(false); setSwitching(false); setPin(""); setCurrent(""); setConfirm(""); go("profile"); }}>Profile</button>
           <button type="button" role="menuitem" onClick={() => { setSecurity(true); setSwitching(false); setPin(""); setCurrent(""); setConfirm(""); setMessage(""); }}>Security / Change PIN</button>
           <button
             type="button"

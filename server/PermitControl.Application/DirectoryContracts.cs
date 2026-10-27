@@ -19,6 +19,7 @@ public interface IPlantDirectory
     Task<string?> ResetEnrollmentAsync(string? token, Guid userId, string pin, Guid? deviceId, string? reason, CancellationToken cancellationToken);
     Task<string?> UnlockAsync(string? token, Guid userId, string pin, Guid? deviceId, CancellationToken cancellationToken);
     Task<string?> SetEnabledAsync(string? token, Guid userId, bool enabled, string? pin, Guid? deviceId, CancellationToken cancellationToken);
+    Task<(string? Error, UserProfileView? User)> UpdateOwnProfileAsync(string? token, SelfProfileEdit edit, CancellationToken cancellationToken);
     Task<IReadOnlyList<PermitLifecycleView>> ListPermitsAsync(string? status, CancellationToken cancellationToken);
     Task<PermitLifecycleView?> GetPermitAsync(Guid permitId, CancellationToken cancellationToken);
     Task<string?> SubmitAsync(string? token, Guid permitId, Guid? deviceId, CancellationToken cancellationToken);
@@ -31,6 +32,9 @@ public interface IPlantDirectory
 public sealed record IdentityBootstrap(string Kind, SessionStart? Session, IReadOnlyList<UserChoice> Choices);
 public sealed record UserChoice(Guid Id, string PermitUserCode, string DisplayName, string JobTitle);
 public sealed record SessionStart(string Token, UserProfileView User);
-public sealed record UserProfileEdit(string DisplayName, string? WindowsDomain, string WindowsUsername, string PersonnelReference, string PersonnelCode, string JobTitle, string? Department, bool Enabled, IReadOnlyList<string> Roles);
-public sealed record ApprovalView(string ActingRole, string DisplayName, string PermitUserCode, string? JobTitle, DateTimeOffset? At);
-public sealed record PermitLifecycleView(Guid Id, string PermitNumber, string PermitType, string Status, int Revision, string JobDescription, string WorkOrder, string? AreaName, IReadOnlyList<string> Hazards, IReadOnlyList<string> Controls, IReadOnlyList<string> Ppe, IReadOnlyList<string> Modules, IReadOnlyList<ApprovalView> Approvals, IReadOnlyList<string> Missing, string? EquipmentTag, Guid? CreatedBy, bool AllowSelfAuthorization);
+public sealed record UserProfileEdit(string DisplayName, string? WindowsDomain, string WindowsUsername, string PersonnelReference, string PersonnelCode, string JobTitle, string? Department, bool Enabled, IReadOnlyList<string> Roles, string? Email = null, string? MobilePhone = null, string? AlternatePhone = null, bool UpdateContact = false);
+public sealed record NotificationPreferenceEdit(string Channel, string Topic, bool Enabled);
+public sealed record SelfProfileEdit(string? Email, string? MobilePhone, string? AlternatePhone, IReadOnlyList<NotificationPreferenceEdit> Preferences);
+public sealed record ApprovalView(string ActingRole, string DisplayName, string PermitUserCode, string? JobTitle, DateTimeOffset? At, string Decision = "", int Revision = 0, Guid? UserId = null);
+public sealed record AuthorizationHistoryEntry(int Revision, string Action, string DisplayName, DateTimeOffset? At, string? PermitUserCode, Guid? UserId);
+public sealed record PermitLifecycleView(Guid Id, string PermitNumber, string PermitType, string Status, int Revision, string JobDescription, string WorkOrder, string? AreaName, IReadOnlyList<string> Hazards, IReadOnlyList<string> Controls, IReadOnlyList<string> Ppe, IReadOnlyList<string> Modules, IReadOnlyList<ApprovalView> Approvals, IReadOnlyList<string> Missing, string? EquipmentTag, Guid? CreatedBy, bool AllowSelfAuthorization, IReadOnlyList<AuthorizationHistoryEntry>? AuthorizationHistory = null);

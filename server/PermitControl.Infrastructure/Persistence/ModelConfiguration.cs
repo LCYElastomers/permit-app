@@ -33,6 +33,9 @@ internal static class ModelConfiguration
             entity.Property(item => item.PersonnelCode).HasMaxLength(40).IsRequired();
             entity.Property(item => item.JobTitle).HasMaxLength(120).IsRequired();
             entity.Property(item => item.Department).HasMaxLength(120);
+            entity.Property(item => item.MobilePhone).HasMaxLength(20);
+            entity.Property(item => item.MobileVerifiedAt).HasColumnType("timestamptz");
+            entity.Property(item => item.AlternatePhone).HasMaxLength(20);
             entity.Property(item => item.ExternalSubjectId).HasMaxLength(200);
             entity.Property(item => item.AuthProvider).HasConversion<string>().HasMaxLength(16);
             entity.Property(item => item.CreatedAt).HasColumnType("timestamptz");
@@ -111,6 +114,15 @@ internal static class ModelConfiguration
             entity.HasIndex(item => new { item.TargetUserId, item.OccurredAt });
             entity.HasOne<User>().WithMany().HasForeignKey(item => item.TargetUserId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<User>().WithMany().HasForeignKey(item => item.PerformedByUserId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        model.Entity<UserNotificationPreference>(entity =>
+        {
+            entity.ToTable("user_notification_preferences");
+            entity.HasKey(item => new { item.UserId, item.Channel, item.Topic });
+            entity.Property(item => item.Channel).HasMaxLength(16).IsRequired();
+            entity.Property(item => item.Topic).HasMaxLength(40).IsRequired();
+            entity.HasOne(item => item.User).WithMany().HasForeignKey(item => item.UserId).OnDelete(DeleteBehavior.Restrict);
         });
 
         model.Entity<UserSession>(entity =>

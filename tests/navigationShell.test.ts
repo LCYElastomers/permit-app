@@ -29,6 +29,8 @@ describe("navigation shell", () => {
     expect(workflow).not.toContain('aria-label="Permit type"');
     expect(workflow).toContain("PERMIT READINESS");
     const detail = source("../src/screens/PermitDetail.tsx");
-    expect(detail).toContain("NEXT ACTION");
+    const authorization = source("../src/components/AuthorizationPanel.tsx");
+    expect(detail).toContain("<AuthorizationPanel");
+    expect(authorization).toContain("Next action");
   });
 });

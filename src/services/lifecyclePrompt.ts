@@ -1,3 +1,5 @@
+import { qualificationLabel } from "./permitDetailPresentation";
+
 export interface ReadinessItem {
   label: string;
   state: "COMPLETE" | "PENDING" | "INCOMPLETE";
@@ -10,6 +12,8 @@ export interface LifecyclePrompt {
   nextTitle: string;
   nextDetail: string;
   action: "authorize" | "accept" | "activate" | null;
+  actionLabel: string | null;
+  personnel: string[];
   actingRole: "PERMIT_AUTHORIZER" | "CRAFT_RECEIVER" | null;
   requiredAuthority: string | null;
   blocked: string | null;
@@ -41,6 +45,7 @@ export function plantStatusCopy(status: string): { title: string; detail: string
   if (status === "ACTIVE") return { title: "ACTIVE", detail: "WORK AUTHORIZED", workAuthorized: true };
   if (status === "AUTHORIZED") return { title: "AUTHORIZED", detail: "NOT ACTIVE FOR WORK", workAuthorized: false };
   if (status === "PENDING_REVIEW") return { title: "PENDING REVIEW", detail: "NOT AUTHORIZED FOR WORK", workAuthorized: false };
+  if (status === "SUSPENDED") return { title: "SUSPENDED", detail: "WORK NOT AUTHORIZED", workAuthorized: false };
   return { title: status.replaceAll("_", " "), detail: "NOT ACTIVE FOR WORK", workAuthorized: false };
 }
 
@@ -97,20 +102,25 @@ export function lifecyclePrompt(input: {
     : input.status === "AUTHORIZED" ? "return"
     : "none";
   const selfBlocked = !input.allowSelfAuthorization && input.actorId !== null && input.actorId === input.createdBy;
+  const personnel = input.missing.map(qualificationLabel);
   let action: LifecyclePrompt["action"] = null;
+  let actionLabel: string | null = null;
   let actingRole: LifecyclePrompt["actingRole"] = null;
   let nextTitle = "No further action";
   let nextDetail = "This permit has no pending lifecycle action.";
   let requiredAuthority: string | null = null;
   let blocked: string | null = null;
 
-  if (input.status === "PENDING_REVIEW") {
+  if (input.status === "DRAFT") {
+    nextTitle = "COMPLETE PERMIT";
+    nextDetail = "Finish the required permit information.";
+  } else if (input.status === "PENDING_REVIEW") {
     nextTitle = "AUTHORIZE PERMIT";
     requiredAuthority = "PERMIT AUTHORIZER";
     if (preparationBlocked) {
-      nextTitle = "AUTHORIZATION BLOCKED";
+      nextTitle = "COMPLETE REQUIRED INFORMATION";
       nextDetail = "Required information is incomplete.";
-      blocked = `Complete: ${gaps.join(", ")}`;
+      blocked = gaps.join(", ");
     } else if (!input.canAuthorize) {
       nextDetail = "Permit authorization required";
       blocked = "Required authority: PERMIT AUTHORIZER";
@@ -120,33 +130,37 @@ export function lifecyclePrompt(input: {
     } else {
       nextDetail = "Confirm your Permit Control PIN to authorize this permit.";
       action = "authorize";
+      actionLabel = "AUTHORIZE PERMIT";
       actingRole = "PERMIT_AUTHORIZER";
     }
   } else if (input.status === "AUTHORIZED" && preparationBlocked) {
-    nextTitle = "NOT READY FOR ACTIVATION";
+    nextTitle = "COMPLETE REQUIRED INFORMATION";
     nextDetail = "Required information is incomplete. Return this permit for correction before work may be activated.";
-    blocked = `Complete: ${gaps.join(", ")}`;
+    blocked = gaps.join(", ");
   } else if (input.status === "AUTHORIZED" && !receiver) {
-    nextTitle = "CRAFT / PERMIT RECEIVER ACCEPTANCE";
+    nextTitle = "PERMIT RECEIVER ACCEPTANCE";
     requiredAuthority = "CRAFT RECEIVER";
     if (!input.canAccept) {
-      nextDetail = "Craft / permit receiver acceptance required";
+      nextDetail = "Permit receiver acceptance required";
       blocked = "Required authority: CRAFT RECEIVER";
     } else {
       nextDetail = "Confirm your Permit Control PIN to accept this permit.";
       action = "accept";
+      actionLabel = "ACCEPT PERMIT";
       actingRole = "CRAFT_RECEIVER";
     }
   } else if (input.status === "AUTHORIZED" && receiver) {
-    nextTitle = "READY TO ACTIVATE";
     if (!people) {
-      nextDetail = "Required qualifications are still missing";
-      blocked = input.missing.join(", ");
+      nextTitle = "COMPLETE REQUIRED PERSONNEL";
+      nextDetail = "Required qualifications are still missing.";
     } else if (input.canAuthorize || input.canAccept) {
+      nextTitle = "READY TO ACTIVATE";
       nextDetail = "Confirm your Permit Control PIN to activate this permit.";
       action = "activate";
+      actionLabel = "ACTIVATE PERMIT";
       actingRole = input.canAccept ? "CRAFT_RECEIVER" : "PERMIT_AUTHORIZER";
     } else {
+      nextTitle = "READY TO ACTIVATE";
       nextDetail = "Activation requires a permit authorizer or craft receiver";
       blocked = "Required authority: PERMIT AUTHORIZER or CRAFT RECEIVER";
     }
@@ -154,11 +168,11 @@ export function lifecyclePrompt(input: {
     nextTitle = "WORK AUTHORIZED";
     nextDetail = "This permit is active.";
   } else if (input.status === "SUSPENDED") {
-    nextTitle = "WORK SUSPENDED";
-    nextDetail = "Reinstate this permit through reauthorization before work resumes.";
+    nextTitle = "REVIEW FOR REAUTHORIZATION";
+    nextDetail = "WORK NOT AUTHORIZED";
   }
 
-  return { ...status, nextTitle, nextDetail, action, actingRole, requiredAuthority, blocked, readiness, correction, focus, focusStep, gaps };
+  return { ...status, nextTitle, nextDetail, action, actionLabel, personnel, actingRole, requiredAuthority, blocked, readiness, correction, focus, focusStep, gaps };
 }
 
 export function preparationSection(gap: string | undefined): number {

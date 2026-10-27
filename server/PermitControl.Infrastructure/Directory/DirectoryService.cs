@@ -90,7 +90,7 @@ public sealed class DirectoryService(PermitDbContext database) : IPlantDirectory
 
     public async Task<(string? Error, UserProfileView? User)> CreateUserAsync(string? token, UserProfileEdit edit, CancellationToken cancellationToken)
     {
-        await RequireAsync(token, nameof(AppRole.ADMIN), cancellationToken);
+        var actor = await RequireAsync(token, nameof(AppRole.ADMIN), cancellationToken);
         if (edit.Roles.Any(role => !PermitCapabilities.Known(role))) return ("role-invalid", null);
         var (domain, username) = WindowsAccounts.Normalize(edit.WindowsDomain, edit.WindowsUsername);
         if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(edit.DisplayName)) return ("profile-invalid", null);
@@ -123,6 +123,13 @@ public sealed class DirectoryService(PermitDbContext database) : IPlantDirectory
             database.UserRoles.Add(new UserRole { UserId = user.Id, RoleId = roleId });
         }
 
+        if (edit.UpdateContact)
+        {
+            var email = string.IsNullOrWhiteSpace(edit.Email) ? user.Email : edit.Email;
+            var contactError = await ApplyContactAsync(user, actor.User.Id, email, edit.MobilePhone, edit.AlternatePhone, null, cancellationToken);
+            if (contactError is not null) return (contactError, null);
+        }
+
         await database.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return (null, await ViewAsync(user, true, cancellationToken));
@@ -130,7 +137,7 @@ public sealed class DirectoryService(PermitDbContext database) : IPlantDirectory
 
     public async Task<string?> UpdateUserAsync(string? token, Guid userId, UserProfileEdit edit, CancellationToken cancellationToken)
     {
-        await RequireAsync(token, nameof(AppRole.ADMIN), cancellationToken);
+        var actor = await RequireAsync(token, nameof(AppRole.ADMIN), cancellationToken);
         var user = await database.Users.FirstOrDefaultAsync(item => item.Id == userId, cancellationToken);
         if (user is null) return "user-not-found";
         var code = user.PermitUserCode;
@@ -146,8 +153,32 @@ public sealed class DirectoryService(PermitDbContext database) : IPlantDirectory
         user.Enabled = edit.Enabled;
         user.UpdatedAt = Now();
         if (user.PermitUserCode != code) return "identity-changed";
+        if (edit.UpdateContact)
+        {
+            var contactError = await ApplyContactAsync(user, actor.User.Id, edit.Email, edit.MobilePhone, edit.AlternatePhone, null, cancellationToken);
+            if (contactError is not null) return contactError;
+        }
+        user.UpdatedAt = Now();
         await database.SaveChangesAsync(cancellationToken);
         return null;
+    }
+
+    public async Task<(string? Error, UserProfileView? User)> UpdateOwnProfileAsync(string? token, SelfProfileEdit edit, CancellationToken cancellationToken)
+    {
+        var actor = await ActorAsync(token, cancellationToken) ?? throw new DirectoryRejected("session-required");
+        var user = await database.Users.FirstOrDefaultAsync(item => item.Id == actor.User.Id, cancellationToken);
+        if (user is null) return ("user-not-found", null);
+        var error = await ApplyContactAsync(
+            user,
+            actor.User.Id,
+            edit.Email,
+            edit.MobilePhone,
+            edit.AlternatePhone,
+            edit.Preferences?.Select(item => (item.Channel, item.Topic, item.Enabled)).ToArray() ?? [],
+            cancellationToken);
+        if (error is not null) return (error, null);
+        await database.SaveChangesAsync(cancellationToken);
+        return (null, await ViewAsync(user, false, cancellationToken));
     }
 
     public async Task<string?> SetRolesAsync(string? token, Guid userId, IReadOnlyList<string> roles, string? pin, Guid? deviceId, CancellationToken cancellationToken)
@@ -397,7 +428,36 @@ public sealed class DirectoryService(PermitDbContext database) : IPlantDirectory
         var credential = await database.UserCredentials.AsNoTracking().FirstAsync(item => item.UserId == user.Id, cancellationToken);
         var roles = await RoleNamesAsync(user.Id, cancellationToken);
         var qualifications = await database.UserQualifications.AsNoTracking().Where(item => item.UserId == user.Id).ToListAsync(cancellationToken);
-        return UserProfiles.View(user, credential, roles, qualifications, includeAttempts);
+        var preferences = await database.UserNotificationPreferences.AsNoTracking().Where(item => item.UserId == user.Id).ToListAsync(cancellationToken);
+        return UserProfiles.View(user, credential, roles, qualifications, preferences, includeAttempts);
+    }
+
+    private async Task<string?> ApplyContactAsync(User user, Guid performedBy, string? email, string? mobile, string? alternate, IReadOnlyList<(string Channel, string Topic, bool Enabled)>? preferences, CancellationToken cancellationToken)
+    {
+        var tracked = await database.UserNotificationPreferences.Where(item => item.UserId == user.Id).ToListAsync(cancellationToken);
+        var working = tracked.Select(item => new UserNotificationPreference { UserId = item.UserId, Channel = item.Channel, Topic = item.Topic, Enabled = item.Enabled }).ToList();
+        ContactRules.NormalizePhone(mobile, out var normalizedMobile);
+        var requested = preferences ?? working.Select(item => item.Channel == NotificationCatalog.Sms && normalizedMobile is null ? (item.Channel, item.Topic, false) : (item.Channel, item.Topic, item.Enabled)).ToArray();
+        var error = ProfileContactRules.Apply(user, working, email, mobile, alternate, requested, out var changed);
+        if (error is not null) return error;
+        if (changed.Count == 0) return null;
+        if (changed.Contains("NotificationPreferences"))
+        {
+            database.UserNotificationPreferences.RemoveRange(tracked);
+            database.UserNotificationPreferences.AddRange(working);
+        }
+        var summary = string.Join(",", changed);
+        database.CredentialAudits.Add(new CredentialAudit
+        {
+            Id = Guid.NewGuid(),
+            EventType = CredentialAuditType.USER_PROFILE_UPDATED,
+            TargetUserId = user.Id,
+            PerformedByUserId = performedBy,
+            OccurredAt = Now(),
+            ReasonCode = summary.Length <= 80 ? summary : summary[..80],
+        });
+        user.UpdatedAt = Now();
+        return null;
     }
 
     private async Task<PermitLifecycleView> PermitViewAsync(Permit permit, CancellationToken cancellationToken)
@@ -408,6 +468,27 @@ public sealed class DirectoryService(PermitDbContext database) : IPlantDirectory
         var modules = await database.PermitModules.AsNoTracking().Where(item => item.PermitId == permit.Id).Select(item => item.Kind.ToString()).ToListAsync(cancellationToken);
         var moduleKinds = await database.PermitModules.AsNoTracking().Where(item => item.PermitId == permit.Id).Select(item => item.Kind).ToListAsync(cancellationToken);
         var approvals = await database.PermitApprovals.AsNoTracking().Where(item => item.PermitId == permit.Id).ToListAsync(cancellationToken);
+        var historyTypes = new[]
+        {
+            PermitEventType.SUBMITTED,
+            PermitEventType.PERMIT_SUBMITTED,
+            PermitEventType.AUTHORIZED,
+            PermitEventType.PERMIT_AUTHORIZED,
+            PermitEventType.ACCEPTED,
+            PermitEventType.PERMIT_ACCEPTED,
+            PermitEventType.ACTIVATED,
+            PermitEventType.PERMIT_ACTIVATED,
+            PermitEventType.PERMIT_RETURNED_FOR_CORRECTION,
+            PermitEventType.SUSPENDED,
+            PermitEventType.PERMIT_SUSPENDED,
+            PermitEventType.REAUTHORIZED,
+            PermitEventType.PERMIT_REAUTHORIZED,
+        };
+        var history = await database.PermitEvents.AsNoTracking()
+            .Where(item => item.PermitId == permit.Id && historyTypes.Contains(item.EventType))
+            .OrderByDescending(item => item.OccurredAt)
+            .Select(item => new AuthorizationHistoryEntry(item.PermitRevision, item.EventType.ToString(), item.DisplayNameSnapshot ?? "", item.OccurredAt, item.PermitUserCodeSnapshot, item.UserId))
+            .ToListAsync(cancellationToken);
         var participantIds = await database.PermitParticipants.AsNoTracking().Where(item => item.PermitId == permit.Id && item.UserId != null).Select(item => item.UserId!.Value).ToListAsync(cancellationToken);
         var qualified = await database.UserQualifications.AsNoTracking().Where(item => participantIds.Contains(item.UserId) && item.Enabled).Select(item => item.QualificationType).ToListAsync(cancellationToken);
         var missing = SpecialtyRequirements.Missing(permit.PermitType, moduleKinds, qualified).Select(item => item.ToString()).ToArray();
@@ -424,11 +505,12 @@ public sealed class DirectoryService(PermitDbContext database) : IPlantDirectory
             controls,
             ppe,
             modules,
-            approvals.Select(item => new ApprovalView(item.ActingRole ?? item.RoleName, item.DisplayNameSnapshot ?? "", item.PermitUserCodeSnapshot ?? "", item.JobTitleSnapshot, item.DecidedAt)).ToArray(),
+            approvals.Select(item => new ApprovalView(item.ActingRole ?? item.RoleName, item.DisplayNameSnapshot ?? "", item.PermitUserCodeSnapshot ?? "", item.JobTitleSnapshot, item.DecidedAt, item.Decision, item.PermitRevision, item.UserId)).ToArray(),
             missing,
             permit.Equipment?.Tag,
             permit.CreatedBy,
-            await database.PermitPolicies.AsNoTracking().Where(item => item.Key == PermitPolicies.AllowSelfAuthorization).Select(item => item.Enabled).FirstOrDefaultAsync(cancellationToken));
+            await database.PermitPolicies.AsNoTracking().Where(item => item.Key == PermitPolicies.AllowSelfAuthorization).Select(item => item.Enabled).FirstOrDefaultAsync(cancellationToken),
+            history);
     }
 
     private async Task<int> AllocateCodeAsync(CancellationToken cancellationToken)

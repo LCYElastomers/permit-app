@@ -84,6 +84,9 @@ function profileSignature(user: PlantUser) {
     personnelCode: user.personnelCode,
     jobTitle: user.jobTitle,
     department: user.department ?? "",
+    email: user.email ?? "",
+    mobilePhone: user.mobilePhone ?? "",
+    alternatePhone: user.alternatePhone ?? "",
   });
 }
 
@@ -321,6 +324,12 @@ function UserEditor({
             <AdminField label="Personnel code" width="small"><input value={draft.personnelCode} onChange={(event) => patch({ personnelCode: event.target.value })} /></AdminField>
             <AdminField label="Job title" width="standard"><input value={draft.jobTitle} onChange={(event) => patch({ jobTitle: event.target.value })} /></AdminField>
             <AdminField label="Department" width="standard"><input value={draft.department ?? ""} onChange={(event) => patch({ department: event.target.value })} /></AdminField>
+            <AdminField label="Work email" width="standard"><input value={draft.email ?? ""} inputMode="email" autoComplete="email" onChange={(event) => patch({ email: event.target.value })} /></AdminField>
+            <AdminField label="Mobile phone" width="medium"><input value={draft.mobilePhone ?? ""} type="tel" autoComplete="tel" onChange={(event) => patch({ mobilePhone: event.target.value })} /></AdminField>
+            <AdminField label="Alternate phone" width="medium"><input value={draft.alternatePhone ?? ""} type="tel" autoComplete="tel" onChange={(event) => patch({ alternatePhone: event.target.value })} /></AdminField>
+            <AdminField label="Mobile verification" width="medium" help="Changing the mobile number clears verification.">
+              <input value={draft.mobileVerifiedAt ? "Verified" : "NOT VERIFIED"} readOnly />
+            </AdminField>
             <label className="admin-check">
               <input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} />
               <span>Enabled</span>

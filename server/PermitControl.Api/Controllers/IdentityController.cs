@@ -44,6 +44,14 @@ public sealed class IdentityController(IDatabaseAvailability database, IPlantDir
             return error is null ? NoContent() : Status(error);
         });
 
+    [HttpPut("profile")]
+    public Task<ActionResult> Profile([FromBody] SelfProfileEdit edit, CancellationToken cancellationToken) =>
+        Run(async () =>
+        {
+            var (error, user) = await directory.UpdateOwnProfileAsync(Token(), edit, cancellationToken);
+            return error is null ? Ok(user) : Status(error);
+        });
+
     private string? Token() => Request.Headers.Authorization.ToString();
 
     private ActionResult? Unavailable() => database.IsConfigured ? null : StatusCode(StatusCodes.Status503ServiceUnavailable, new { error = "database-not-configured" });

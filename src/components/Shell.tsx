@@ -23,6 +23,7 @@ import { SuspendedScreen } from "../screens/SuspendedScreen";
 import { TemplatesScreen } from "../screens/TemplatesScreen";
 import { UsersScreen } from "../screens/UsersScreen";
 import { AdministrationScreen } from "../screens/AdministrationScreen";
+import { ProfileScreen } from "../screens/ProfileScreen";
 import { IdentityMenu, SessionBanner } from "./SessionBanner";
 
 const OPERATIONS: { id: ListScreen; label: string }[] = [
@@ -173,6 +174,7 @@ export function Shell() {
           {screen === "equipment" && <EquipmentScreen />}
           {screen === "users" && <UsersScreen />}
           {screen === "administration" && <AdministrationScreen />}
+          {screen === "profile" && <ProfileScreen />}
           {screen === "detail" && <PermitDetail key={selectedId ?? "none"} />}
         </main>
         {composition !== "desktop" && moreOpen ? (

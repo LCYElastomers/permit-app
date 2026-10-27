@@ -18,11 +18,16 @@ public sealed record UserProfileView(
     int? FailedAttempts,
     DateTimeOffset? LockedUntil,
     IReadOnlyList<string> Roles,
-    IReadOnlyList<QualificationView> Qualifications);
+    IReadOnlyList<QualificationView> Qualifications,
+    string Email,
+    string? MobilePhone,
+    DateTimeOffset? MobileVerifiedAt,
+    string? AlternatePhone,
+    IReadOnlyList<NotificationPreferenceView> NotificationPreferences);
 
 public static class UserProfiles
 {
-    public static UserProfileView View(User user, UserCredential credential, IReadOnlyList<string> roles, IReadOnlyList<UserQualification> qualifications, bool includeAttempts) => new(
+    public static UserProfileView View(User user, UserCredential credential, IReadOnlyList<string> roles, IReadOnlyList<UserQualification> qualifications, IReadOnlyList<UserNotificationPreference> preferences, bool includeAttempts) => new(
         user.Id,
         user.PermitUserCode,
         user.DisplayName,
@@ -38,5 +43,10 @@ public static class UserProfiles
         includeAttempts ? credential.FailedAttempts : null,
         credential.LockedUntil,
         roles,
-        qualifications.Select(item => new QualificationView(item.Id, item.QualificationType.ToString(), item.EffectiveDate, item.ExpirationDate, item.Enabled, item.Notes)).ToArray());
+        qualifications.Select(item => new QualificationView(item.Id, item.QualificationType.ToString(), item.EffectiveDate, item.ExpirationDate, item.Enabled, item.Notes)).ToArray(),
+        user.Email,
+        user.MobilePhone,
+        user.MobileVerifiedAt,
+        user.AlternatePhone,
+        preferences.OrderBy(item => item.Channel).ThenBy(item => item.Topic).Select(item => new NotificationPreferenceView(item.Channel, item.Topic, item.Enabled)).ToArray());
 }

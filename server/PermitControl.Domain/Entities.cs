@@ -13,6 +13,9 @@ public sealed class User
     public string PersonnelCode { get; set; } = "";
     public string JobTitle { get; set; } = "";
     public string? Department { get; set; }
+    public string? MobilePhone { get; set; }
+    public DateTimeOffset? MobileVerifiedAt { get; set; }
+    public string? AlternatePhone { get; set; }
     public AuthProvider AuthProvider { get; set; } = AuthProvider.LOCAL;
     public string? ExternalSubjectId { get; set; }
     public bool Enabled { get; set; } = true;

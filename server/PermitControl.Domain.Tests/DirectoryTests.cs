@@ -125,7 +125,7 @@ public sealed class DirectoryTests
         Assert.Equal("pin-locked", world.Verify(DirectorySeed.Bobby, Pin, Now.AddHours(130).AddMinutes(1)));
         Assert.Null(world.Verify(DirectorySeed.Bobby, Pin, Now.AddHours(130).AddMinutes(16)));
         Assert.Equal(0, world.Credentials.Single(item => item.UserId == DirectorySeed.Bobby).FailedAttempts);
-        var profile = UserProfiles.View(world.Users.Single(user => user.Id == DirectorySeed.Bobby), credential, world.RolesOf(DirectorySeed.Bobby), [], false);
+        var profile = UserProfiles.View(world.Users.Single(user => user.Id == DirectorySeed.Bobby), credential, world.RolesOf(DirectorySeed.Bobby), [], [], false);
         var json = JsonSerializer.Serialize(profile);
         Assert.DoesNotContain("PinHash", json, StringComparison.Ordinal);
         Assert.DoesNotContain(Pin, json, StringComparison.Ordinal);

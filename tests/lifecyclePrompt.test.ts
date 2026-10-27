@@ -65,7 +65,7 @@ describe("pending review lifecycle", () => {
   it("blocks authorization when required PPE is missing and names PPE", () => {
     const prompt = lifecyclePrompt({ ...base, status: "PENDING_REVIEW", ppe: [] });
     expect(prompt.action).toBeNull();
-    expect(prompt.nextTitle).toBe("AUTHORIZATION BLOCKED");
+    expect(prompt.nextTitle).toBe("COMPLETE REQUIRED INFORMATION");
     expect(prompt.blocked).toContain("PPE");
     expect(prompt.gaps).toEqual(["PPE"]);
     expect(prompt.correction).toBe("edit");
@@ -109,7 +109,8 @@ describe("pending review lifecycle", () => {
     expect(prompt.focusStep).toBe(3);
     expect(prompt.workAuthorized).toBe(false);
     expect(prompt.title).toBe("AUTHORIZED");
-    expect(prompt.nextTitle).toBe("NOT READY FOR ACTIVATION");
+    expect(prompt.nextTitle).toBe("COMPLETE REQUIRED INFORMATION");
+    expect(prompt.action).not.toBe("authorize");
   });
 
   it("withholds casual editing from active, suspended, and closed permits", () => {
@@ -132,7 +133,9 @@ describe("pending review lifecycle", () => {
       approvals: [{ actingRole: "PERMIT_AUTHORIZER" }, { actingRole: "CRAFT_RECEIVER" }],
     });
     expect(prompt.action).toBeNull();
-    expect(prompt.blocked).toContain("FIRE_WATCH");
+    expect(prompt.nextTitle).toBe("COMPLETE REQUIRED PERSONNEL");
+    expect(prompt.personnel).toContain("Fire Watch");
+    expect(prompt.actionLabel).toBeNull();
   });
 });
 

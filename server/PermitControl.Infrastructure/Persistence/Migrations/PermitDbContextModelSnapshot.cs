@@ -1406,6 +1406,10 @@ namespace PermitControl.Infrastructure.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<string>("AlternatePhone")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
                     b.Property<string>("AuthProvider")
                         .IsRequired()
                         .HasMaxLength(16)
@@ -1439,6 +1443,13 @@ namespace PermitControl.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasMaxLength(120)
                         .HasColumnType("character varying(120)");
+
+                    b.Property<string>("MobilePhone")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTimeOffset?>("MobileVerifiedAt")
+                        .HasColumnType("timestamptz");
 
                     b.Property<string>("PermitUserCode")
                         .IsRequired()
@@ -1749,6 +1760,27 @@ namespace PermitControl.Infrastructure.Persistence.Migrations
                             State = "NOT_ENROLLED",
                             UserId = new Guid("b0000008-0000-4000-8000-000000000008")
                         });
+                });
+
+            modelBuilder.Entity("PermitControl.Domain.UserNotificationPreference", b =>
+                {
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Channel")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<string>("Topic")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("boolean");
+
+                    b.HasKey("UserId", "Channel", "Topic");
+
+                    b.ToTable("user_notification_preferences", (string)null);
                 });
 
             modelBuilder.Entity("PermitControl.Domain.UserPinHistory", b =>
@@ -2283,6 +2315,17 @@ namespace PermitControl.Infrastructure.Persistence.Migrations
                 });
 
             modelBuilder.Entity("PermitControl.Domain.UserCredential", b =>
+                {
+                    b.HasOne("PermitControl.Domain.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("PermitControl.Domain.UserNotificationPreference", b =>
                 {
                     b.HasOne("PermitControl.Domain.User", "User")
                         .WithMany()
