@@ -114,6 +114,7 @@ export interface Permit {
   conditions: Condition[];
   serverPermitId?: string | null;
   authority?: PermitAuthority;
+  lifecycleStatus?: string;
   sample?: boolean;
   plantRecord?: {
     status: string;

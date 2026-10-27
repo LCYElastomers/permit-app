@@ -3,6 +3,7 @@ import { contractors } from "../data/mock";
 import { GENERAL_EXCLUSIONS, PERMIT_TYPES, typeRecommendations } from "../permitTypes";
 import { plantClock } from "../plantClock";
 import { areaIdForName, areaPickerMessage, areaSelection, type AreaCatalog } from "../services/areas";
+import { PICKER_SEARCH_MINIMUM } from "../services/picker";
 import { catalogLabel } from "../services/catalogLabels";
 import { useAreaCatalog } from "../services/useAreaCatalog";
 import { useDevice } from "../services/device";
@@ -306,7 +307,7 @@ function ScopeStep({
           label="Area"
           value={selected}
           placeholder="Select area"
-          searchable={false}
+          searchable={areas.length >= PICKER_SEARCH_MINIMUM}
           emptyMessage={areaPickerMessage(catalog)}
           options={areas.map((area) => ({ id: area.id, label: area.name }))}
           onChange={(id) => patch(areaSelection(areas, id))}

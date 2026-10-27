@@ -54,16 +54,18 @@ export function PermitDocumentActions({
   if (resolved === "toolbar") {
     return (
       <div className="document-toolbar" aria-label="Documents">
-        <span className="kicker">DOCUMENTS</span>
-        <button type="button" className="btn" onClick={() => void request("PRINT")}>
-          View PDF
-        </button>
-        <button type="button" className="btn" onClick={() => void request("PRINT")}>
-          Print Permit
-        </button>
-        <button type="button" className="btn" onClick={() => void request("SNAPSHOT")}>
-          Export PDF
-        </button>
+        <span className="kicker">Documents</span>
+        <div className="document-buttons">
+          <button type="button" className="btn" onClick={() => void request("PRINT")}>
+            View PDF
+          </button>
+          <button type="button" className="btn" onClick={() => void request("PRINT")}>
+            Print Permit
+          </button>
+          <button type="button" className="btn" onClick={() => void request("SNAPSHOT")}>
+            Export PDF
+          </button>
+        </div>
         {note ? <p className="document-note">{note}</p> : null}
       </div>
     );

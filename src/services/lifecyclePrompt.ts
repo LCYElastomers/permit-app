@@ -107,12 +107,12 @@ export function lifecyclePrompt(input: {
   let action: LifecyclePrompt["action"] = null;
   let actionLabel: string | null = null;
   let actingRole: LifecyclePrompt["actingRole"] = null;
-  let nextTitle = "No further action";
+  let nextTitle = "NO FURTHER ACTION";
   let nextDetail = "This permit has no pending lifecycle action.";
   let requiredAuthority: string | null = null;
   let blocked: string | null = null;
 
-  if (input.status === "DRAFT") {
+    if (input.status === "DRAFT") {
     nextTitle = "COMPLETE PERMIT";
     nextDetail = "Finish the required permit information.";
   } else if (input.status === "PENDING_REVIEW") {
@@ -120,16 +120,16 @@ export function lifecyclePrompt(input: {
     requiredAuthority = "PERMIT AUTHORIZER";
     if (preparationBlocked) {
       nextTitle = "COMPLETE REQUIRED INFORMATION";
-      nextDetail = "Required information is incomplete.";
+      nextDetail = "Required Permit information is still missing.";
       blocked = gaps.join(", ");
     } else if (!input.canAuthorize) {
-      nextDetail = "Permit authorization required";
-      blocked = "Required authority: PERMIT AUTHORIZER";
+      nextTitle = "PERMIT AUTHORIZER REQUIRED";
+      nextDetail = "The current Permit Control user does not have authority to authorize this Permit.";
     } else if (selfBlocked) {
-      nextDetail = "Self-authorization is not allowed";
-      blocked = "You cannot authorize a permit you created or submitted.";
+      nextTitle = "SELF AUTHORIZATION NOT PERMITTED";
+      nextDetail = "This Permit must be authorized by another Permit Authorizer.";
     } else {
-      nextDetail = "Confirm your Permit Control PIN to authorize this permit.";
+      nextDetail = "Permit preparation is complete and ready for authorization.";
       action = "authorize";
       actionLabel = "AUTHORIZE PERMIT";
       actingRole = "PERMIT_AUTHORIZER";
@@ -167,10 +167,10 @@ export function lifecyclePrompt(input: {
     }
   } else if (input.status === "ACTIVE") {
     nextTitle = "WORK AUTHORIZED";
-    nextDetail = "This permit is active.";
+    nextDetail = "Permit is currently active.";
   } else if (input.status === "SUSPENDED") {
     nextTitle = "REVIEW FOR REAUTHORIZATION";
-    nextDetail = "WORK NOT AUTHORIZED";
+    nextDetail = "Work is not authorized until this Permit is reviewed for reauthorization.";
   }
 
   const withdraw = input.status === "AUTHORIZED" && input.canAuthorize;
@@ -191,6 +191,147 @@ export function blockingItemCopy(gap: string): string {
   if (gap === "Hazards") return "Hazards must be identified before this Permit can proceed.";
   if (gap === "Controls") return "Controls must be recorded before this Permit can proceed.";
   return `${gap} must be completed before this Permit can proceed.`;
+}
+
+/** Session gates that sit in front of an otherwise available lifecycle action. */
+export function presentLifecycleGate(
+  prompt: LifecyclePrompt,
+  gate: { plantReady: boolean; pinActive: boolean },
+): LifecyclePrompt {
+  if (!prompt.action) return prompt;
+  if (!gate.plantReady) {
+    return {
+      ...prompt,
+      action: null,
+      actionLabel: null,
+      actingRole: null,
+      nextTitle: "PLANT CONNECTION REQUIRED",
+      nextDetail: prompt.action === "authorize"
+        ? "Connect to the plant before authorizing this Permit."
+        : "Connect to the plant before confirming this Permit.",
+      blocked: null,
+    };
+  }
+  if (!gate.pinActive) {
+    return {
+      ...prompt,
+      action: null,
+      actionLabel: null,
+      actingRole: null,
+      nextTitle: "PIN ENROLLMENT REQUIRED",
+      nextDetail: "Create your Permit Control PIN before authorizing work.",
+      blocked: null,
+    };
+  }
+  return prompt;
+}
+
+export type DetailSource = "plant" | "synchronized" | "local" | "sample";
+
+/** Authority comes from the permit record, not from the screen that opened it. */
+export function permitDetailSource(permit: {
+  sample?: boolean;
+  authority?: string;
+  serverPermitId?: string | null;
+  plantRecord?: unknown;
+}): DetailSource {
+  if (permit.plantRecord) return "plant";
+  if (permit.sample === false && (permit.authority === "authoritative" || Boolean(permit.serverPermitId))) return "synchronized";
+  if (permit.sample === false) return "local";
+  return "sample";
+}
+
+export function detailStatusCopy(permit: {
+  status: string;
+  sample?: boolean;
+  authority?: string;
+  serverPermitId?: string | null;
+  lifecycleStatus?: string;
+  plantRecord?: { status: string } | null;
+}): { title: string; detail: string; active: boolean } {
+  if (permit.plantRecord) {
+    const copy = plantStatusCopy(permit.plantRecord.status);
+    return { title: copy.title, detail: copy.detail, active: copy.workAuthorized };
+  }
+  if (permit.sample === false && permit.authority !== "authoritative" && !permit.serverPermitId) {
+    return { title: "LOCAL DRAFT", detail: "SAVED LOCALLY · PENDING SYNC", active: false };
+  }
+  if (permit.lifecycleStatus) {
+    const copy = plantStatusCopy(permit.lifecycleStatus);
+    return { title: copy.title, detail: copy.detail, active: copy.workAuthorized };
+  }
+  if (permit.status === "active") return { title: "ACTIVE", detail: "WORK AUTHORIZED", active: true };
+  if (permit.status === "suspended") return { title: "SUSPENDED", detail: "WORK NOT AUTHORIZED", active: false };
+  if (permit.status === "closed") return { title: "CLOSED", detail: "NOT ACTIVE FOR WORK", active: false };
+  if (permit.status === "expired") return { title: "EXPIRED", detail: "WORK NOT AUTHORIZED", active: false };
+  return { title: "PENDING REVIEW", detail: "NOT AUTHORIZED FOR WORK", active: false };
+}
+
+export function stationDetailPrompt(input: {
+  source: Exclude<DetailSource, "plant">;
+  status: string;
+  plantReady: boolean;
+  editable: boolean;
+  resolveFailed?: boolean;
+}): {
+  nextTitle: string;
+  nextDetail: string;
+  edit: boolean;
+  suspend: boolean;
+  extend: boolean;
+  close: boolean;
+  reinstate: boolean;
+} {
+  const none = { edit: false, suspend: false, extend: false, close: false, reinstate: false };
+  if (input.source === "synchronized" && !input.plantReady) {
+    return {
+      ...none,
+      edit: input.editable,
+      nextTitle: "PLANT CONNECTION REQUIRED",
+      nextDetail: "Connect to the plant before authorizing this Permit.",
+    };
+  }
+  if (input.source === "synchronized") {
+    return {
+      ...none,
+      edit: input.editable,
+      nextTitle: input.resolveFailed ? "PLANT RECORD UNAVAILABLE" : "READING PLANT RECORD",
+      nextDetail: input.resolveFailed
+        ? "This Permit is synchronized, but the plant record could not be read."
+        : "The plant record for this Permit is being read.",
+    };
+  }
+  if (input.source === "local") {
+    return {
+      ...none,
+      edit: input.editable,
+      nextTitle: "COMPLETE PERMIT",
+      nextDetail: "This Permit is saved on this device and is not yet a plant record.",
+    };
+  }
+  if (input.status === "active") {
+    return {
+      ...none,
+      suspend: true,
+      extend: true,
+      close: true,
+      nextTitle: "WORK AUTHORIZED",
+      nextDetail: "Permit is currently active.",
+    };
+  }
+  if (input.status === "suspended") {
+    return {
+      ...none,
+      reinstate: true,
+      nextTitle: "REVIEW FOR REAUTHORIZATION",
+      nextDetail: "Work is not authorized until this Permit is reviewed for reauthorization.",
+    };
+  }
+  return {
+    ...none,
+    nextTitle: "NO FURTHER ACTION",
+    nextDetail: "Station samples are not plant records.",
+  };
 }
 
 function preparationGapLabels(input: { scope: boolean; order: boolean; hazards: boolean; ppeReady: boolean }) {

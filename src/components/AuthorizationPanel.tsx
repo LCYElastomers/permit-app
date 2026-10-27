@@ -3,8 +3,8 @@ import { AdminEditorModal } from "./admin";
 import { PinInput } from "./PinInput";
 import { useDevice } from "../services/device";
 import { useIdentity } from "../services/identity";
-import { blockingItemCopy, lifecyclePrompt } from "../services/lifecyclePrompt";
-import { approvalActionLabel, authorizationHistory, currentAuthorization, effectiveApprovals, permitWhen, revisionLabel, summaryLine } from "../services/permitDetailPresentation";
+import { blockingItemCopy, lifecyclePrompt, presentLifecycleGate } from "../services/lifecyclePrompt";
+import { approvalActionLabel, authorizationFacts, authorizationHistory, currentAuthorization, effectiveApprovals, permitWhen, personnelReadiness, revisionLabel } from "../services/permitDetailPresentation";
 import { actOnPlantPermit, canPerform, getPlantPermit, notifyPlantPermitsChanged, permitFromPlant, pinMessage, returnPlantPermitForCorrection, withdrawPlantAuthorization } from "../services/plantDirectory";
 import { serverPermitType } from "../services/generalWorkDraft";
 import { usePermits } from "../state/PermitStore";
@@ -72,7 +72,7 @@ export function AuthorizationPanel({ permit, onUpdated }: { permit: Permit; onUp
   }, [identity.user?.id, permit.serverPermitId]);
   if (!record || !permit.serverPermitId) return null;
   const effective = effectiveApprovals(record.approvals, record.authorizationHistory ?? []);
-  const shown = lifecyclePrompt({
+  const shown = presentLifecycleGate(lifecyclePrompt({
     status: record.status,
     jobDescription: permit.jobDescription,
     workOrder: permit.workOrder,
@@ -89,6 +89,9 @@ export function AuthorizationPanel({ permit, onUpdated }: { permit: Permit; onUp
     createdBy: record.createdBy ?? null,
     allowSelfAuthorization: record.allowSelfAuthorization ?? false,
     permitType: serverPermitType(permit.kind),
+  }), {
+    plantReady: link.link === "ready" && Boolean(identity.token),
+    pinActive: identity.user?.pinState === "ACTIVE",
   });
   const edit = (step = 0) => openCorrection(permit, step);
   const summary = currentAuthorization(effective, record.revision);
@@ -177,48 +180,65 @@ export function AuthorizationPanel({ permit, onUpdated }: { permit: Permit; onUp
           <strong>{shown.nextTitle}</strong>
           {shown.nextDetail ? <p>{shown.nextDetail}</p> : null}
         </div>
-        {shown.gaps.length > 0 ? (
-          <ul>
-            {shown.gaps.map((gap) => (
-              <li key={gap}>
-                <strong>{gap}</strong>
-                <div>{blockingItemCopy(gap)}</div>
-              </li>
-            ))}
-          </ul>
-        ) : null}
-        {shown.personnel.length > 0 ? (
-          <>
-            <div className="kicker">{shown.nextTitle === "COMPLETE REQUIRED PERSONNEL" ? "Required" : "Required before activation"}</div>
+        {shown.gaps.length > 0 || (shown.personnel.length > 0 && !shown.action) ? (
+          <div className="personnel-block">
+            <div className="kicker">{record.status === "PENDING_REVIEW" || shown.gaps.length > 0 ? "Required before authorization" : "Required before activation"}</div>
             <ul className="personnel-need">
-              {shown.personnel.map((item) => (
-                <li key={item}>{item}</li>
+              {shown.gaps.map((gap) => (
+                <li key={gap}>
+                  <span>{gap}</span>
+                  <span className="personnel-state">REQUIRED</span>
+                </li>
+              ))}
+              {personnelReadiness(shown.personnel, [
+                { label: "Attendant", name: permit.attendant },
+                { label: "Authorized Entrant", name: permit.entrants.filter(Boolean).join(", ") },
+                { label: "Fire Watch", name: permit.fireWatch },
+              ]).map((item) => (
+                <li key={item.label}>
+                  <span>{item.label}</span>
+                  <span className={item.status === "REQUIRED" ? "personnel-state" : "personnel-state is-complete"}>{item.status}</span>
+                </li>
               ))}
             </ul>
-          </>
+          </div>
         ) : null}
-        {shown.blocked && shown.gaps.length === 0 && shown.personnel.length === 0 ? <p>{shown.blocked}</p> : null}
-        {shown.action && shown.actionLabel ? (
-          <button type="button" className="btn" onClick={() => { setMessage(""); setPin(""); setConfirming(true); }}>{shown.actionLabel}</button>
-        ) : null}
-        {shown.correction === "edit" ? (
-          <button type="button" className="btn" onClick={() => edit(shown.focusStep)}>Edit permit</button>
-        ) : null}
-        {shown.correction === "return" ? (
-          <button type="button" className="btn" id="return-for-correction" onClick={() => { setMessage(""); setReturning(true); }}>
-            Return for correction
-          </button>
-        ) : null}
-        {shown.withdraw ? (
-          <button type="button" className="btn btn-ghost" id="withdraw-authorization" onClick={() => { setPin(""); setMessage(""); setWithdrawing(true); }}>
-            WITHDRAW AUTHORIZATION
-          </button>
+        {shown.blocked && shown.gaps.length === 0 && shown.personnel.length === 0 ? <p className="readiness-note">{shown.blocked}</p> : null}
+        {shown.action || shown.correction === "edit" || shown.correction === "return" || shown.withdraw ? (
+          <div className="permit-actions">
+            <div className="kicker">Permit actions</div>
+            <div className="permit-action-row">
+              {shown.action && shown.actionLabel ? (
+                <button type="button" className="btn" onClick={() => { setMessage(""); setPin(""); setConfirming(true); }}>{shown.actionLabel}</button>
+              ) : null}
+              {shown.correction === "edit" ? (
+                <button type="button" className="btn" onClick={() => edit(shown.focusStep)}>Edit permit</button>
+              ) : null}
+              {shown.correction === "return" ? (
+                <button type="button" className="btn" id="return-for-correction" onClick={() => { setMessage(""); setReturning(true); }}>
+                  Return for correction
+                </button>
+              ) : null}
+              {shown.withdraw ? (
+                <button type="button" className="btn btn-withdraw" id="withdraw-authorization" onClick={() => { setPin(""); setMessage(""); setWithdrawing(true); }}>
+                  WITHDRAW AUTHORIZATION
+                </button>
+              ) : null}
+            </div>
+          </div>
         ) : null}
         {summary.length > 0 ? (
           <div className="auth-summary">
             <div className="kicker">Authorization</div>
             {summary.map((item) => (
-              <p key={item.actingRole}>{summaryLine(item.actingRole, item.displayName, item.at)}</p>
+              <div key={item.actingRole} className="auth-facts">
+                {authorizationFacts(item.actingRole, item.displayName, item.at).map((fact) => (
+                  <p key={fact.label}>
+                    <span>{fact.label}:</span>{" "}
+                    {fact.when ? <span className="auth-when">{fact.value}</span> : <span>{fact.value}</span>}
+                  </p>
+                ))}
+              </div>
             ))}
           </div>
         ) : null}

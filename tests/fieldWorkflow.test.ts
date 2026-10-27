@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { AREA_PICKER_EMPTY, areaPickerMessage, areaSelection, presentAreaCatalog } from "../src/services/areas";
-import { pickerIsMounted, visiblePickerOptions } from "../src/services/picker";
+import { PICKER_SEARCH_MINIMUM, pickerIsMounted, pickerShowsSearch, pickerViewportFrame, visiblePickerOptions } from "../src/services/picker";
 import { emptyDraft, canSubmitForReview, preparationGaps, preparationSections } from "../src/workflow";
 
 describe("area picker", () => {
@@ -34,7 +34,22 @@ describe("area picker", () => {
     expect(css).toContain("touch-action: none");
     expect(css).not.toMatch(/\.picker-sheet \{ display: none/);
     expect(permit).toContain('label="Area"');
-    expect(permit).toContain("searchable={false}");
+    expect(permit).toContain("searchable={areas.length >= PICKER_SEARCH_MINIMUM}");
+    expect(permit).toContain('label="Contractor company"');
+    expect(picker).toContain("visualViewport");
+    expect(picker).toContain("pickerViewportFrame");
+    expect(picker).toContain("{searchable ? (");
+    expect(picker).toContain('className="empty"');
+    expect(css).toContain(".picker-sheet.composition-desktop .picker-panel { width: min(520px, 100%); max-height: min(65%, 100%); }");
+    expect(css).toContain(".picker-sheet.composition-portrait .picker-panel { width: 100%; max-height: min(70%, 100%); }");
+    expect(css).toContain(".picker-sheet.composition-landscape .picker-panel { width: min(560px, 100%); max-height: min(65%, 100%); }");
+    expect(css).toContain("align-items: center;");
+    expect(css).toContain("justify-content: center;");
+    expect(css).toContain(".picker-list { flex: 0 1 auto; min-height: 0; overflow: auto; touch-action: pan-y; }");
+    expect(css).toContain(".picker-option {\n  display: flex;");
+    expect(css).toContain("min-height: 44px;");
+    expect(css).toContain(".picker-sheet.composition-portrait .picker-option,\n.picker-sheet.composition-landscape .picker-option { min-height: 48px; font-size: 16px; }");
+    expect(css).not.toContain(".picker-panel {\n  display: flex;\n  flex-direction: column;\n  width: min(640px, 100%);\n  max-height: 100%;");
     expect(permit).not.toContain("disabled={catalog.status");
     expect(permit).toContain("onChange={(id) => patch(areaSelection(areas, id))}");
   });
@@ -51,6 +66,11 @@ describe("area picker", () => {
     ]);
     expect(pickerIsMounted(false)).toBe(false);
     expect(pickerIsMounted(true)).toBe(true);
+    expect(pickerShowsSearch(false, 40)).toBe(false);
+    expect(pickerShowsSearch(true, 5)).toBe(false);
+    expect(pickerShowsSearch(true, PICKER_SEARCH_MINIMUM)).toBe(true);
+    expect(pickerViewportFrame({ height: 420, offsetTop: 80 }, 900)).toEqual({ top: 80, height: 420 });
+    expect(pickerViewportFrame(null, 900)).toEqual({ top: 0, height: 900 });
     const draft = { ...emptyDraft(), areaId: id, area: "Tank Farm", step: 0 };
     expect({ ...draft, step: draft.step + 1 }).toMatchObject({ areaId: id, area: "Tank Farm" });
   });

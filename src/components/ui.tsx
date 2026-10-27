@@ -1,7 +1,7 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { PermitStatus } from "../types";
-import { visiblePickerOptions } from "../services/picker";
+import { pickerViewportFrame, visiblePickerOptions } from "../services/picker";
 import { statusLabel } from "../workflow";
 import { useComposition } from "./Composition";
 
@@ -90,6 +90,12 @@ export function TouchSelect({
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  const [frame, setFrame] = useState(() => pickerViewportFrame(
+    typeof window === "undefined" || !window.visualViewport
+      ? null
+      : { height: window.visualViewport.height, offsetTop: window.visualViewport.offsetTop },
+    typeof window === "undefined" ? 0 : window.innerHeight,
+  ));
   const listId = useId();
   const titleId = `${listId}-title`;
   const selected = options.find((option) => option.id === value);
@@ -106,6 +112,27 @@ export function TouchSelect({
     media.addEventListener("change", apply);
     return () => media.removeEventListener("change", apply);
   }, []);
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    const read = () => {
+      const viewport = window.visualViewport;
+      setFrame(pickerViewportFrame(
+        viewport ? { height: viewport.height, offsetTop: viewport.offsetTop } : null,
+        window.innerHeight,
+      ));
+    };
+    read();
+    const viewport = window.visualViewport;
+    viewport?.addEventListener("resize", read);
+    viewport?.addEventListener("scroll", read);
+    window.addEventListener("resize", read);
+    return () => {
+      viewport?.removeEventListener("resize", read);
+      viewport?.removeEventListener("scroll", read);
+      window.removeEventListener("resize", read);
+    };
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -145,6 +172,7 @@ export function TouchSelect({
   const sheet = (
     <div
       className={`picker-sheet composition-${composition}`}
+      style={{ top: frame.top, height: frame.height }}
       onClick={(event) => {
         if (event.target === event.currentTarget) close();
       }}
@@ -158,26 +186,30 @@ export function TouchSelect({
         tabIndex={-1}
       >
         <div className="picker-bar">
-          <div className="picker-title" id={titleId}>{`SELECT ${label.toUpperCase()}`}</div>
+          <div className="picker-heading">
+            <div className="picker-title" id={titleId}>{`SELECT ${label.toUpperCase()}`}</div>
+            <div className="picker-actions">
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => {
+                  onChange("");
+                  close();
+                }}
+              >
+                Clear
+              </button>
+              <button type="button" className="btn" onClick={close}>
+                Close
+              </button>
+            </div>
+          </div>
           {searchable ? (
             <label className="form-field">
               <span>Search</span>
               <input ref={searchRef} type="text" value={query} onChange={(event) => setQuery(event.target.value)} />
             </label>
           ) : null}
-          <button
-            type="button"
-            className="btn btn-ghost"
-            onClick={() => {
-              onChange("");
-              close();
-            }}
-          >
-            Clear
-          </button>
-          <button type="button" className="btn" onClick={close}>
-            Close
-          </button>
         </div>
         <div className="picker-list" id={listId} role="listbox" aria-labelledby={titleId}>
           {shown.length === 0 ? <p className="empty">{options.length === 0 ? emptyMessage : "No matches."}</p> : null}

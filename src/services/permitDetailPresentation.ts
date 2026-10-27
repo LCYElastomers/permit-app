@@ -64,13 +64,9 @@ export function permitWhen(value: string | null | undefined): string {
   if (!value.includes("T")) return value;
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
+  const day = date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  const time = date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  return `${day} · ${time}`;
 }
 
 export function approvalActionLabel(decision: string | null | undefined, actingRole: string): string {
@@ -88,9 +84,28 @@ export function rolePresentation(actingRole: string): { role: string; verb: stri
 }
 
 export function summaryLine(actingRole: string, name: string, at: string | null): string {
+  return authorizationFacts(actingRole, name, at).map((fact) => `${fact.label}: ${fact.value}`).join("\n");
+}
+
+export function authorizationFacts(actingRole: string, name: string, at: string | null): { label: string; value: string; when: boolean }[] {
   const presented = rolePresentation(actingRole);
-  const when = permitWhen(at);
-  return when ? `${presented.role}: ${name} | ${presented.verb}: ${when}` : `${presented.role}: ${name}`;
+  const facts = [{ label: presented.role, value: name, when: false }];
+  const formatted = permitWhen(at);
+  if (!formatted) return facts;
+  const whenLabel = actingRole === "PERMIT_AUTHORIZER" ? "Permit Authorized" : actingRole === "CRAFT_RECEIVER" ? "Permit Accepted" : presented.verb;
+  facts.push({ label: whenLabel, value: formatted, when: true });
+  return facts;
+}
+
+export function personnelReadiness(missing: string[], assigned: { label: string; name: string }[] = []): { label: string; status: string }[] {
+  const open = new Set(missing);
+  const rows = missing.map((label) => ({ label, status: "REQUIRED" }));
+  for (const item of assigned) {
+    const name = item.name.trim();
+    if (!name || open.has(item.label)) continue;
+    rows.push({ label: item.label, status: `${name} · COMPLETE` });
+  }
+  return rows;
 }
 
 export function effectiveApprovals(

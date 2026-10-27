@@ -203,6 +203,8 @@ export function storedPermitRecord(draft: PermitDraft): Permit {
     sample: false,
     authority: synced ? "authoritative" : undefined,
     serverPermitId: synced ? draft.id : null,
+    lifecycleStatus: draft.lifecycleStatus,
+    revision: String(draft.currentRevision ?? 1).padStart(2, "0"),
     issued: "",
     closed: "",
     started: draft.plannedStart,

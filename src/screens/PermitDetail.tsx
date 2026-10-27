@@ -1,18 +1,19 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { usePermits } from "../state/PermitStore";
 import type { Permit } from "../types";
 import { permitWhen } from "../services/permitDetailPresentation";
 import { permitType, personName } from "../permitTypes";
-import { usePlantClock } from "../plantClock";
-import { assetLine, authorizationHold, kindTitle } from "../workflow";
+import { kindTitle } from "../workflow";
 import { ContextualBack } from "../components/ContextualBack";
 import { PermitDocumentActions } from "../components/PermitDocumentActions";
 import { useComposition } from "../components/Composition";
 import { catalogLabel } from "../services/catalogLabels";
 import { detailDocumentTarget, documentActionPlacement } from "../services/permitDocumentActions";
-import { Field, Section, StateMark } from "../components/ui";
+import { Field, Section } from "../components/ui";
 import { AuthorizationHistory, AuthorizationPanel } from "../components/AuthorizationPanel";
-import { plantStatusCopy } from "../services/lifecyclePrompt";
+import { detailStatusCopy, permitDetailSource, stationDetailPrompt } from "../services/lifecyclePrompt";
+import { useDevice } from "../services/device";
+import { getPlantPermit, permitFromPlant } from "../services/plantDirectory";
 
 export function PermitDetail() {
   const {
@@ -27,14 +28,49 @@ export function PermitDetail() {
     drafts,
     loadDraft,
   } = usePermits();
-  const clock = usePlantClock();
   const composition = useComposition();
+  const { link } = useDevice();
   const permit = permits.find((item) => item.id === selectedId);
+  const permitRef = useRef(permit);
+  permitRef.current = permit;
+  const replaceRef = useRef(replacePlantPermit);
+  replaceRef.current = replacePlantPermit;
   const [panel, setPanel] = useState<"none" | "suspend" | "close">("none");
+  const [resolveFailed, setResolveFailed] = useState(false);
   const [reason, setReason] = useState("");
   const [reasonError, setReasonError] = useState(false);
   const [notice, setNotice] = useState("");
   const [file, setFile] = useState<string | null>(null);
+  const source = permit ? permitDetailSource(permit) : "sample";
+  const plantReady = link.link === "ready";
+  useEffect(() => {
+    setResolveFailed(false);
+  }, [permit?.serverPermitId]);
+  useEffect(() => {
+    const current = permitRef.current;
+    if (!current || source !== "synchronized" || !current.serverPermitId || !plantReady) return;
+    let stopped = false;
+    void getPlantPermit(current.serverPermitId)
+      .then((record) => {
+        if (stopped) return;
+        const plant = permitFromPlant(record);
+        replaceRef.current({
+          ...plant,
+          company: plant.company || current.company,
+          equipment: plant.equipment || current.equipment,
+          location: plant.location || current.location,
+          requester: plant.requester || current.requester,
+          craft: plant.craft || current.craft,
+          area: plant.area || current.area,
+        });
+      })
+      .catch(() => {
+        if (!stopped) setResolveFailed(true);
+      });
+    return () => {
+      stopped = true;
+    };
+  }, [source, permit?.serverPermitId, plantReady]);
 
   if (!permit) {
     return (
@@ -46,113 +82,147 @@ export function PermitDetail() {
   }
 
   const locked = readonlyDetail || permit.status === "closed" || permit.status === "expired";
-  const hold = authorizationHold(permit, clock.hm);
   const attachment = permit.attachments.find((item) => item.name === file) ?? null;
   const requester = [permit.requester, permit.requesterGroup].filter(Boolean).join(" · ");
   const documents = detailDocumentTarget(permit);
   const documentPlacement = documentActionPlacement(composition);
   const localDraft = drafts.find((draft) => draft.id === permit.serverPermitId || draft.id === permit.id || (permit.id !== "" && draft.permitNumber === permit.id));
+  const statusCopy = detailStatusCopy(permit);
+  const station = source === "plant" ? null : stationDetailPrompt({
+    source,
+    status: permit.status,
+    plantReady,
+    editable: Boolean(localDraft && (localDraft.lifecycleStatus === "DRAFT" || localDraft.lifecycleStatus === "PENDING_REVIEW")),
+    resolveFailed,
+  });
 
   return (
     <div className="screen">
       <header className="detail-head">
         <ContextualBack permitNumber={permit.id} status={permit.plantRecord?.status ?? permit.status} />
-        <div>
+        <div className="detail-identity">
           <div className="detail-id mono">{permit.id}</div>
           <h1 className="detail-title">
             {kindTitle(permit.kind)}
-            <span className="rev mono">REV {permit.revision}</span>
+            <span className="rev mono">· REV {permit.revision}</span>
           </h1>
           <div className="status-row">
-            {permit.plantRecord ? (
-              <span className={`state ${permit.plantRecord.status === "ACTIVE" ? "state-ok" : "state-warn"}`}>
-                {plantStatusCopy(permit.plantRecord.status).title} · {plantStatusCopy(permit.plantRecord.status).detail}
-              </span>
-            ) : hold ? (
-              <div className={`stop-mark${hold === "expired" ? " is-expired" : ""}`}>
-                <strong>{hold === "suspended" ? "SUSPENDED" : "EXPIRED"}</strong>
-                <span>WORK NOT AUTHORIZED</span>
-              </div>
-            ) : (
-              <StateMark status={permit.status} />
-            )}
+            <div className={`detail-status${statusCopy.active ? " is-active" : ""}`}>
+              <strong>{statusCopy.title}</strong>
+              <span>{statusCopy.detail}</span>
+            </div>
           </div>
-          <div className="asset-line">{assetLine(permit)}</div>
-          <p className="detail-work">{permit.jobDescription}</p>
-          <div className="detail-timing mono">{windowOf(permit) || "No window recorded"}</div>
-          <div className="wo-line mono">{permit.workOrder}</div>
+          <dl className="detail-facts">
+            {permit.area ? (
+              <div>
+                <dt>Work location</dt>
+                <dd>{permit.area}</dd>
+              </div>
+            ) : null}
+            {permit.equipment || permit.location ? (
+              <div>
+                <dt>{permit.equipment ? "Equipment" : "Location"}</dt>
+                <dd className="mono">{permit.equipment || permit.location}</dd>
+              </div>
+            ) : null}
+            {permit.jobDescription ? (
+              <div className="wide">
+                <dt>Work scope</dt>
+                <dd>{permit.jobDescription}</dd>
+              </div>
+            ) : null}
+            {permit.workOrder ? (
+              <div>
+                <dt>Work order</dt>
+                <dd className="mono">{permit.workOrder}</dd>
+              </div>
+            ) : null}
+            {permit.company ? (
+              <div>
+                <dt>Company</dt>
+                <dd>{permit.company}</dd>
+              </div>
+            ) : null}
+            {windowOf(permit) ? (
+              <div>
+                <dt>Window</dt>
+                <dd className="mono">{windowOf(permit)}</dd>
+              </div>
+            ) : null}
+          </dl>
         </div>
         <div className="detail-actions">
-        {permit.plantRecord ? null : (
-          <div className="next-action">
-            <div className="kicker">Next action</div>
-            <strong>{nextActionLabel(permit)}</strong>
-          </div>
-        )}
-        {permit.plantRecord ? (
+        {source === "plant" ? (
           <AuthorizationPanel permit={permit} onUpdated={replacePlantPermit} />
-        ) : permit.sample === false ? (
-          <div className="notice">
-            <p>This device copy is not an authorization. Submit it to the plant record, then authorize it from Pending Review.</p>
-            {localDraft && (localDraft.lifecycleStatus === "DRAFT" || localDraft.lifecycleStatus === "PENDING_REVIEW") ? (
-              <button type="button" className="btn" onClick={() => loadDraft(localDraft.id)}>Edit permit</button>
+        ) : station ? (
+          <section className="detail-readiness">
+            <div className="next-action">
+              <div className="kicker">Next action</div>
+              <strong>{station.nextTitle}</strong>
+              {station.nextDetail ? <p>{station.nextDetail}</p> : null}
+            </div>
+            {station.edit || station.suspend || station.extend || station.close || station.reinstate ? (
+              <div className="permit-actions">
+                <div className="kicker">Permit actions</div>
+                <div className="permit-action-row">
+                  {station.edit && localDraft ? (
+                    <button type="button" className="btn" onClick={() => loadDraft(localDraft.id)}>Edit permit</button>
+                  ) : null}
+                  {station.reinstate ? (
+                    <button
+                      type="button"
+                      className="btn btn-hold"
+                      onClick={() => {
+                        reinstatePermit(permit.id);
+                        setPanel("none");
+                        setNotice("Permit returned to the previous status.");
+                      }}
+                    >
+                      Reinstate
+                    </button>
+                  ) : null}
+                  {station.suspend && !locked ? (
+                    <button
+                      type="button"
+                      className="btn btn-hold safety-action"
+                      onClick={() => {
+                        setPanel(panel === "suspend" ? "none" : "suspend");
+                        setNotice("");
+                      }}
+                    >
+                      Suspend Permit
+                    </button>
+                  ) : null}
+                  {station.extend && !locked ? (
+                    <button
+                      type="button"
+                      className="btn"
+                      onClick={() => {
+                        const next = extendPermit(permit.id);
+                        setPanel("none");
+                        setNotice(next ? `Expiration is now ${next}.` : "This permit has no expiration to extend.");
+                      }}
+                    >
+                      Extend
+                    </button>
+                  ) : null}
+                  {station.close && !locked ? (
+                    <button
+                      type="button"
+                      className="btn btn-danger"
+                      onClick={() => {
+                        setPanel(panel === "close" ? "none" : "close");
+                        setNotice("");
+                      }}
+                    >
+                      Close Permit
+                    </button>
+                  ) : null}
+                </div>
+              </div>
             ) : null}
-          </div>
-        ) : locked ? (
-          <div className="readonly-plate">
-            <span>RECORD</span>
-            <strong>{permit.status === "expired" ? "EXPIRED" : "CLOSED"}</strong>
-            {permit.status === "expired" ? <span>WORK NOT AUTHORIZED</span> : null}
-          </div>
-        ) : (
-          <div className="action-bar">
-            {permit.status === "suspended" ? (
-              <button
-                type="button"
-                className="btn btn-hold"
-                onClick={() => {
-                  reinstatePermit(permit.id);
-                  setPanel("none");
-                  setNotice("Permit returned to the previous status.");
-                }}
-              >
-                Reinstate
-              </button>
-            ) : (
-              <button
-                type="button"
-                className="btn btn-hold safety-action"
-                onClick={() => {
-                  setPanel(panel === "suspend" ? "none" : "suspend");
-                  setNotice("");
-                }}
-              >
-                Suspend Permit
-              </button>
-            )}
-            <button
-              type="button"
-              className="btn"
-              onClick={() => {
-                const next = extendPermit(permit.id);
-                setPanel("none");
-                setNotice(next ? `Expiration is now ${next}.` : "This permit has no expiration to extend.");
-              }}
-            >
-              Extend
-            </button>
-            <button
-              type="button"
-              className="btn btn-danger"
-              onClick={() => {
-                setPanel(panel === "close" ? "none" : "close");
-                setNotice("");
-              }}
-            >
-              Close Permit
-            </button>
-          </div>
-        )}
+          </section>
+        ) : null}
         {documentPlacement === "toolbar" ? <PermitDocumentActions target={documents} placement="toolbar" /> : null}
         {permit.plantRecord ? <AuthorizationHistory permit={permit} /> : null}
         </div>
@@ -384,13 +454,6 @@ export function PermitDetail() {
       </div>
     </div>
   );
-}
-
-function nextActionLabel(permit: Permit): string {
-  if (permit.status === "active") return "WORK AUTHORIZED";
-  if (permit.status === "suspended") return "REVIEW FOR REAUTHORIZATION";
-  if (permit.status === "closed" || permit.status === "expired") return "RECORD CLOSED";
-  return "REVIEW PERMIT";
 }
 
 function windowOf(permit: Permit): string {
