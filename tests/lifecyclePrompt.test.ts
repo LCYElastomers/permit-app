@@ -121,6 +121,11 @@ describe("pending review lifecycle", () => {
     expect(lifecyclePrompt({ ...base, status: "EXPIRED" }).correction).toBe("none");
     expect(lifecyclePrompt({ ...base, status: "SUPERSEDED" }).correction).toBe("none");
     expect(lifecyclePrompt({ ...base, status: "ACTIVE" }).detail).toBe("WORK AUTHORIZED");
+    expect(lifecyclePrompt({ ...base, status: "ACTIVE" }).withdraw).toBe(false);
+    expect(lifecyclePrompt({ ...base, status: "PENDING_REVIEW" }).withdraw).toBe(false);
+    expect(lifecyclePrompt({ ...base, status: "AUTHORIZED", canAuthorize: true }).withdraw).toBe(true);
+    expect(lifecyclePrompt({ ...base, status: "AUTHORIZED", canAuthorize: false }).withdraw).toBe(false);
+    expect(lifecyclePrompt({ ...base, status: "SUSPENDED" }).withdraw).toBe(false);
     expect(lifecyclePrompt({ ...base, status: "PENDING_REVIEW", ppe: [] }).detail).toBe("NOT AUTHORIZED FOR WORK");
   });
 

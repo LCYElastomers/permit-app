@@ -1,6 +1,7 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { usePlantClock } from "../plantClock";
 import { plantSnapshot } from "../plantStatus";
+import type { MemoryKey } from "../services/navigationContext";
 import { usePermits } from "../state/PermitStore";
 import type { PermitKind } from "../types";
 import { kindShort } from "../workflow";
@@ -43,12 +44,15 @@ export interface BrowseRow {
   text: string[];
 }
 
-export function usePermitBrowse() {
-  const [query, setQuery] = useState("");
-  const [area, setArea] = useState("");
-  const [kind, setKind] = useState("");
-  const [company, setCompany] = useState("");
+export function usePermitBrowse(key: MemoryKey) {
+  const { listMemory, patchListMemory } = usePermits();
+  const memory = listMemory(key);
+  const setQuery = (query: string) => patchListMemory(key, { query });
+  const setArea = (area: string) => patchListMemory(key, { area });
+  const setKind = (kind: string) => patchListMemory(key, { kind });
+  const setCompany = (company: string) => patchListMemory(key, { company });
   const accept = (row: BrowseRow) => {
+    const { query, area, kind, company } = memory;
     if (area && row.area !== area) return false;
     if (kind && row.kind !== kind) return false;
     if (company && row.company !== company) return false;
@@ -56,7 +60,18 @@ export function usePermitBrowse() {
     if (!needle) return true;
     return row.text.join(" ").toLowerCase().includes(needle);
   };
-  return { query, setQuery, area, setArea, kind, setKind, company, setCompany, accept };
+  return {
+    query: memory.query,
+    setQuery,
+    area: memory.area,
+    setArea,
+    kind: memory.kind,
+    setKind,
+    company: memory.company,
+    setCompany,
+    sort: memory.sort,
+    accept,
+  };
 }
 
 export function PermitBrowseBar({

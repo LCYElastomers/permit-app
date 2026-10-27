@@ -122,7 +122,7 @@ export interface Permit {
     createdBy?: string | null;
     allowSelfAuthorization?: boolean;
     approvals: { actingRole: string; displayName: string; permitUserCode: string; jobTitle: string | null; at: string | null; decision?: string | null; revision?: number | null; userId?: string | null }[];
-    authorizationHistory?: { revision: number; action: string; displayName: string; at: string | null; permitUserCode: string | null; userId: string | null }[];
+    authorizationHistory?: { revision: number; action: string; displayName: string; at: string | null; permitUserCode: string | null; userId: string | null; reason?: string | null }[];
   };
 }
 

@@ -29,10 +29,11 @@ import {
 import { useComposition } from "../components/Composition";
 import { PermitDocumentActions } from "../components/PermitDocumentActions";
 import { Field, Section, TouchSelect } from "../components/ui";
+import { ContextualBack } from "../components/ContextualBack";
 const COMPANIES = contractors.filter((item) => item.name !== "LCY").map((item) => item.name);
 
 export function NewPermit() {
-  const { form, updateForm, saveDraft, resetForm } = usePermits();
+  const { form, updateForm, saveDraft, resetForm, originSnapshot } = usePermits();
   const catalog = useAreaCatalog();
   const composition = useComposition();
   const { link } = useDevice();
@@ -68,6 +69,7 @@ export function NewPermit() {
       )}
       {typeChosen ? (
       <>
+      {originSnapshot?.captured ? <ContextualBack permitNumber={form.permitNumber ?? undefined} /> : null}
       <div className="steps">
         {STEPS.map((item, index) => (
           <button

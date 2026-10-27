@@ -5,11 +5,12 @@ import { permitType } from "../permitTypes";
 import { expiryLabel, expiryState, kindShort, kindTitle } from "../workflow";
 import { Kv, ScreenHead } from "../components/ui";
 import { PermitBrowseBar, PermitStatusFilters, usePermitBrowse, type BrowseRow, type PermitFilter } from "../components/PermitFilters";
+import { bySort } from "../services/navigationContext";
 import { PlantRefresh, stationSamplePermits, useAuthoritativePermits } from "../services/plantLists";
 
 export function ActivePermits({ filter = "active" }: { filter?: PermitFilter }) {
   const { permits, drafts, openPermit, openStoredPermit, openPlantPermit, showActive, listArea } = usePermits();
-  const browse = usePermitBrowse();
+  const browse = usePermitBrowse(filter === "expiring" ? "expiring" : "active");
   const { plant, refresh, ready } = useAuthoritativePermits(["ACTIVE"]);
   const plantNumbers = new Set(plant.map((permit) => permit.id));
   const real = drafts.filter((draft) => draft.lifecycleStatus === "ACTIVE" && !(draft.permitNumber && plantNumbers.has(draft.permitNumber)));
@@ -18,7 +19,7 @@ export function ActivePermits({ filter = "active" }: { filter?: PermitFilter }) 
   const active = stationSamplePermits(permits, "active")
     .filter((permit) => (listArea ? permit.area === listArea : true))
     .slice()
-    .sort((a, b) => b.started.localeCompare(a.started));
+    .sort((a, b) => bySort(browse.sort, a, b));
   const shown = (filter === "expiring" ? active.filter((permit) => expiryState(permit.expires, clock.hm) !== "ok") : active)
     .filter((permit) => browse.accept(sampleRow(permit)));
   const plantShown = plant.filter((permit) => browse.accept(plantRow(permit)));
@@ -51,14 +52,14 @@ export function ActivePermits({ filter = "active" }: { filter?: PermitFilter }) 
             <span>
               Area <strong>{listArea}</strong>
             </span>
-            <button type="button" className="btn btn-ghost" onClick={() => showActive("all")}>
+            <button type="button" className="btn btn-ghost" onClick={() => showActive(filter === "expiring" ? "expiring" : "all")}>
               Clear
             </button>
           </div>
         ) : null}
       </div>
       {plantShown.map((permit) => (
-        <button key={permit.serverPermitId} type="button" className="permit-row" onClick={() => openPlantPermit(permit, "active")}>
+        <button key={permit.serverPermitId} type="button" className="permit-row" onClick={() => openPlantPermit(permit, filter === "expiring" ? "expiring" : "active")}>
           <div className="row-top">
             <span className="pid mono">{permit.id}</span>
             <span className="kind">{kindTitle(permit.kind)}</span>
@@ -68,7 +69,7 @@ export function ActivePermits({ filter = "active" }: { filter?: PermitFilter }) 
         </button>
       ))}
       {realShown.map((draft) => (
-        <button key={draft.id} type="button" className="permit-row" onClick={() => openStoredPermit(draft.id, "active")}>
+        <button key={draft.id} type="button" className="permit-row" onClick={() => openStoredPermit(draft.id, filter === "expiring" ? "expiring" : "active")}>
           <div className="row-top">
             <span className="pid mono">{draft.permitNumber ?? "LOCAL"}</span>
             <span className="kind">{kindTitle(draft.kind)}</span>
@@ -87,7 +88,7 @@ export function ActivePermits({ filter = "active" }: { filter?: PermitFilter }) 
             permit={permit}
             expiry={expiryState(permit.expires, clock.hm)}
             remaining={expiryLabel(permit.expires, clock.hm)}
-            onOpen={() => openPermit(permit.id, "active")}
+            onOpen={() => openPermit(permit.id, filter === "expiring" ? "expiring" : "active")}
           />
         ))
       )}

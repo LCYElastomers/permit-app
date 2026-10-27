@@ -57,6 +57,7 @@ export interface PlantAuthorizationHistory {
   at: string | null;
   permitUserCode: string | null;
   userId: string | null;
+  reason?: string | null;
 }
 
 export interface PlantPermit {
@@ -266,6 +267,14 @@ export async function returnPlantPermitForCorrection(token: string, id: string, 
   });
 }
 
+export async function withdrawPlantAuthorization(token: string, id: string, pin: string, revision: number, reason: string, comments: string) {
+  await apiRequest<unknown>(`/api/v1/permits/${id}/withdraw-authorization`, {
+    method: "POST",
+    headers: authHeaders(token),
+    body: JSON.stringify({ pin, revision, reason, comments: comments.trim() || null, deviceId: null }),
+  });
+}
+
 export async function actOnPlantPermit(token: string, id: string, action: "authorize" | "accept" | "activate", pin: string, revision: number, actingRole?: string) {
   await apiRequest<unknown>(`/api/v1/permits/${id}/${action}`, {
     method: "POST",
@@ -305,6 +314,12 @@ export function pinMessage(error: unknown): string {
       return "The permit is missing required preparation.";
     case "lifecycle-conflict":
       return "This permit is not in the right status for that action.";
+    case "reason-required":
+      return "Select a reason for withdrawing authorization.";
+    case "comments-required":
+      return "Comments are required when the reason is Other.";
+    case "comments-invalid":
+      return "Comments are too long.";
     case "area-history-preserved":
       return "This area is already used by a permit. Its name stays with that history. You can disable it.";
     case "equipment-history-preserved":

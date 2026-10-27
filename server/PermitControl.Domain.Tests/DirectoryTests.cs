@@ -224,6 +224,65 @@ public sealed class DirectoryTests
     }
 
     [Fact]
+    public void Authorization_can_be_withdrawn_without_erasing_history_or_advancing_the_revision()
+    {
+        var world = Ready();
+        var permit = world.AddPermit(PermitType.GENERAL_WORK, "Gauge", "WO-1", PermitModuleKind.CORE);
+        var number = permit.PermitNumber;
+        var id = permit.Id;
+        var viewer = new User { DisplayName = "Viewer Only", WindowsUsername = "viewer.withdraw" };
+        Assert.Null(world.CreateUser(DirectorySeed.Bobby, viewer, [nameof(AppRole.VIEWER)], Now));
+        Assert.Null(world.Submit(permit.Id, DirectorySeed.Patrick, Now));
+        Assert.Equal("lifecycle-conflict", world.WithdrawAuthorization(permit.Id, DirectorySeed.Bobby, Pin, 1, WithdrawalReasons.PermitRequiresCorrection, null, Now));
+        Assert.Null(world.Authorize(permit.Id, DirectorySeed.Bobby, Pin, 1, Now.AddMinutes(1)));
+        Assert.Null(world.Accept(permit.Id, DirectorySeed.Bobby, Pin, 1, Now.AddMinutes(2)));
+        Assert.Equal("capability-required", world.WithdrawAuthorization(permit.Id, viewer.Id, Pin, 1, WithdrawalReasons.PermitRequiresCorrection, null, Now.AddMinutes(3)));
+        Assert.Equal("pin-not-accepted", world.WithdrawAuthorization(permit.Id, DirectorySeed.Bobby, "000001", 1, WithdrawalReasons.PermitRequiresCorrection, null, Now.AddMinutes(3)));
+        Assert.Equal("reason-required", world.WithdrawAuthorization(permit.Id, DirectorySeed.Bobby, Pin, 1, "NOT_A_REASON", null, Now.AddMinutes(3)));
+        Assert.Equal("comments-required", world.WithdrawAuthorization(permit.Id, DirectorySeed.Bobby, Pin, 1, WithdrawalReasons.Other, "  ", Now.AddMinutes(3)));
+        Assert.Equal(PermitStatus.AUTHORIZED, world.Permits.Single(item => item.Id == id).Status);
+        var device = Guid.NewGuid();
+        Assert.Null(world.WithdrawAuthorization(permit.Id, DirectorySeed.Bobby, Pin, 1, WithdrawalReasons.PermitRequiresCorrection, null, Now.AddMinutes(4), device));
+        var current = world.Permits.Single(item => item.Id == id);
+        Assert.Equal(PermitStatus.PENDING_REVIEW, current.Status);
+        Assert.NotEqual(PermitStatus.ACTIVE, current.Status);
+        Assert.Equal("NOT AUTHORIZED FOR WORK", PermitDocumentStatus.Describe(current.Status).Authority);
+        Assert.Equal(number, current.PermitNumber);
+        Assert.Equal(id, current.Id);
+        Assert.Equal(1, current.CurrentRevision);
+        var authorized = world.Events.Single(item => item.PermitId == id && item.EventType == PermitEventType.PERMIT_AUTHORIZED);
+        var withdrawn = world.Events.Single(item => item.PermitId == id && item.EventType == PermitEventType.PERMIT_AUTHORIZATION_WITHDRAWN);
+        Assert.Equal(DirectorySeed.Bobby, authorized.UserId);
+        Assert.Equal(DirectorySeed.Bobby, withdrawn.UserId);
+        Assert.Equal(1, withdrawn.PermitRevision);
+        Assert.Equal(nameof(AppRole.PERMIT_AUTHORIZER), withdrawn.ActingRole);
+        Assert.Equal("PCU-0001", withdrawn.PermitUserCodeSnapshot);
+        Assert.Equal("Bobby Fitzgerald", withdrawn.DisplayNameSnapshot);
+        Assert.Equal("IT Manager", withdrawn.JobTitleSnapshot);
+        Assert.Equal(Now.AddMinutes(4), withdrawn.OccurredAt);
+        Assert.Equal(withdrawn.OccurredAt, withdrawn.RecordedAt);
+        Assert.Equal(device, withdrawn.DeviceId);
+        Assert.Contains(WithdrawalReasons.PermitRequiresCorrection, withdrawn.Payload);
+        Assert.DoesNotContain(Pin, withdrawn.Payload);
+        Assert.Equal("Permit Requires Correction", WithdrawalReasons.Display(withdrawn.EventType, withdrawn.Payload));
+        Assert.Contains(world.Approvals, item => item.PermitId == id && item.Decision == "AUTHORIZED");
+        Assert.Contains(world.Events, item => item.PermitId == id && item.EventType == PermitEventType.PERMIT_ACCEPTED);
+        Assert.Equal("lifecycle-conflict", world.Activate(id, DirectorySeed.Bobby, Pin, 1, Now.AddMinutes(5), nameof(AppRole.PERMIT_AUTHORIZER)));
+        Assert.Null(world.Authorize(id, DirectorySeed.Mike, Pin, 1, Now.AddMinutes(6)));
+        Assert.Equal("lifecycle-conflict", world.Activate(id, DirectorySeed.Bobby, Pin, 1, Now.AddMinutes(7), nameof(AppRole.CRAFT_RECEIVER)));
+        Assert.Null(world.Accept(id, DirectorySeed.Bobby, Pin, 1, Now.AddMinutes(8)));
+        Assert.Null(world.Activate(id, DirectorySeed.Bobby, Pin, 1, Now.AddMinutes(9), nameof(AppRole.CRAFT_RECEIVER)));
+        Assert.Equal(PermitStatus.ACTIVE, world.Permits.Single(item => item.Id == id).Status);
+        Assert.Equal("lifecycle-conflict", world.WithdrawAuthorization(id, DirectorySeed.Bobby, Pin, 1, WithdrawalReasons.ScopeChanged, null, Now.AddMinutes(10)));
+        Assert.Equal(PermitStatus.ACTIVE, world.Permits.Single(item => item.Id == id).Status);
+        foreach (var status in new[] { PermitStatus.SUSPENDED, PermitStatus.CLOSED, PermitStatus.CANCELLED, PermitStatus.EXPIRED, PermitStatus.SUPERSEDED })
+        {
+            current.Status = status;
+            Assert.Equal("lifecycle-conflict", world.WithdrawAuthorization(id, DirectorySeed.Bobby, Pin, 1, WithdrawalReasons.ConditionsChanged, null, Now.AddMinutes(11)));
+        }
+    }
+
+    [Fact]
     public void Administration_allocates_the_next_code_and_keeps_disabled_codes()
     {
         var world = Ready();

@@ -3,15 +3,16 @@ import { permitType } from "../permitTypes";
 import { kindShort, kindTitle } from "../workflow";
 import { Kv, ScreenHead } from "../components/ui";
 import { PermitBrowseBar, PermitStatusFilters, usePermitBrowse, type BrowseRow } from "../components/PermitFilters";
+import { bySort } from "../services/navigationContext";
 import { PlantRefresh, stationSamplePermits, useAuthoritativePermits } from "../services/plantLists";
 
 export function SuspendedScreen() {
   const { permits, drafts, openPermit, openStoredPermit, openPlantPermit } = usePermits();
-  const browse = usePermitBrowse();
+  const browse = usePermitBrowse("suspended");
   const { plant, refresh, ready } = useAuthoritativePermits(["SUSPENDED"]);
   const plantNumbers = new Set(plant.map((permit) => permit.id));
   const real = drafts.filter((draft) => draft.lifecycleStatus === "SUSPENDED" && !(draft.permitNumber && plantNumbers.has(draft.permitNumber)));
-  const held = stationSamplePermits(permits, "suspended");
+  const held = stationSamplePermits(permits, "suspended").slice().sort((a, b) => bySort(browse.sort, a, b));
   const plantShown = plant.filter((permit) => browse.accept(heldRow(permit.id, permit.kind, permit.area, permit.company, [permit.work, permit.workOrder, permit.equipment])));
   const realShown = real.filter((draft) => browse.accept(heldRow(draft.permitNumber ?? "", draft.kind, draft.area, "", [draft.description, draft.place, draft.workOrder])));
   const heldShown = held.filter((permit) => browse.accept(heldRow(permit.id, permit.kind, permit.area, permit.company, [permit.work, permit.suspension?.reason ?? "", permit.workOrder, permit.equipment, permit.location])));

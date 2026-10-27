@@ -16,6 +16,7 @@ import {
 import { UsersScreen } from "./UsersScreen";
 import { useDevice } from "../services/device";
 import { useIdentity } from "../services/identity";
+import { administrationReturn } from "../services/navigationContext";
 import { canPerform, listPlantUsers, pinMessage } from "../services/plantDirectory";
 import { PinInput } from "../components/PinInput";
 import { safeDiagnostic } from "../services/lifecyclePrompt";
@@ -150,11 +151,26 @@ export function AdministrationScreen() {
     setNotice(null);
   };
   const crumbs = breadcrumbs(section, typeCode, formType, formSection);
+  const back = administrationReturn({ section, typeCode, formSection });
+  const followBack = () => {
+    if (!back) return;
+    if (back.target === "home") open("home");
+    if (back.target === "types") {
+      setSection("types");
+      setTypeCode(null);
+      setFormSection(null);
+      setEditingField(null);
+    }
+    if (back.target === "forms") {
+      setFormSection(null);
+      setEditingField(null);
+    }
+  };
 
   return (
     <div className="screen">
       <AdminPage>
-        <AdminHeader title={pageTitle(section, typeCode, formSection, false)} purpose={pagePurpose(section, typeCode, formSection, false)} context={context} onBack={section === "home" ? undefined : () => open("home")} />
+        <AdminHeader title={pageTitle(section, typeCode, formSection, false)} purpose={pagePurpose(section, typeCode, formSection, false)} context={context} backLabel={back?.label} onBack={back ? followBack : undefined} />
         <AdminBreadcrumbs items={crumbs} onSelect={(id) => followCrumb(id, open, setTypeCode, setFormType, setFormSection, setEditingField, setSection)} />
         {notice ? <AdminError title={notice.title} onRetry={() => void load()}>{notice.body}</AdminError> : null}
         {section === "home" ? <Home bundle={bundle} onOpen={(id) => { if (id === "system") setSystemFocus("link"); open(id); }} onSystem={(focus) => { setSystemFocus(focus); open("system"); }} /> : null}

@@ -4,7 +4,8 @@ import type { Permit } from "../types";
 import { permitWhen } from "../services/permitDetailPresentation";
 import { permitType, personName } from "../permitTypes";
 import { usePlantClock } from "../plantClock";
-import { assetLine, authorizationHold, kindTitle, screenLabel } from "../workflow";
+import { assetLine, authorizationHold, kindTitle } from "../workflow";
+import { ContextualBack } from "../components/ContextualBack";
 import { PermitDocumentActions } from "../components/PermitDocumentActions";
 import { useComposition } from "../components/Composition";
 import { catalogLabel } from "../services/catalogLabels";
@@ -18,8 +19,6 @@ export function PermitDetail() {
     permits,
     selectedId,
     readonlyDetail,
-    origin,
-    go,
     suspendPermit,
     extendPermit,
     closePermit,
@@ -41,9 +40,7 @@ export function PermitDetail() {
     return (
       <div className="screen">
         <p className="empty">That permit is not on this station.</p>
-        <button type="button" className="btn" onClick={() => go("active")}>
-          Permits
-        </button>
+        <ContextualBack />
       </div>
     );
   }
@@ -59,10 +56,8 @@ export function PermitDetail() {
   return (
     <div className="screen">
       <header className="detail-head">
+        <ContextualBack permitNumber={permit.id} status={permit.plantRecord?.status ?? permit.status} />
         <div>
-          <button type="button" className="crumb" onClick={() => go(origin)}>
-            {screenLabel(origin)}
-          </button>
           <div className="detail-id mono">{permit.id}</div>
           <h1 className="detail-title">
             {kindTitle(permit.kind)}

@@ -5,10 +5,12 @@ import { canPerform, type PlantUser } from "../src/services/plantDirectory";
 import {
   authorizationHistory,
   currentAuthorization,
+  effectiveApprovals,
   permitWhen,
   qualificationLabel,
   summaryLine,
   type ApprovalFact,
+  type HistoryFact,
 } from "../src/services/permitDetailPresentation";
 
 const source = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8");
@@ -45,6 +47,7 @@ describe("permit detail next action", () => {
     expect(prompt.action).toBe("authorize");
     expect(prompt.actionLabel).toBe("AUTHORIZE PERMIT");
     expect(prompt.nextTitle).toBe("AUTHORIZE PERMIT");
+    expect(prompt.withdraw).toBe(false);
   });
 
   it("keeps authorization available when the acting user is a super administrator", () => {
@@ -67,6 +70,7 @@ describe("permit detail next action", () => {
     expect(prompt.actionLabel).toBeNull();
     expect(prompt.nextTitle).toBe("COMPLETE REQUIRED PERSONNEL");
     expect(prompt.nextTitle).not.toBe("AUTHORIZE PERMIT");
+    expect(prompt.withdraw).toBe(true);
   });
 
   it("names missing qualifications for people instead of enum codes", () => {
@@ -123,6 +127,44 @@ describe("permit detail authorization summary", () => {
     expect(history.every((item) => item.userId === "b0000001-0000-4000-8000-000000000001")).toBe(true);
     expect(history[0].action).toBe("Permit accepted");
   });
+
+  it("drops a withdrawn authorization from the current summary and keeps both events in history", () => {
+    const withdrawnAt = "2026-10-27T15:12:00.000Z";
+    const historyRows = [
+      { revision: 4, action: "PERMIT_AUTHORIZED", at: "2026-10-27T14:38:34.743Z" },
+      { revision: 4, action: "PERMIT_ACCEPTED", at: "2026-10-27T14:40:00.000Z" },
+      { revision: 4, action: "PERMIT_AUTHORIZATION_WITHDRAWN", at: withdrawnAt },
+    ];
+    const effective = effectiveApprovals(approvals, historyRows);
+    expect(currentAuthorization(effective, 4)).toEqual([]);
+    const recorded: HistoryFact[] = [
+      {
+        revision: 4,
+        action: "Authorization withdrawn",
+        person: "Bobby Fitzgerald",
+        at: withdrawnAt,
+        permitUserCode: "PCU-0001",
+        userId: "b0000001-0000-4000-8000-000000000001",
+        reason: "Permit Requires Correction",
+        code: "PERMIT_AUTHORIZATION_WITHDRAWN",
+      },
+      {
+        revision: 4,
+        action: "Permit authorized",
+        person: "Bobby Fitzgerald",
+        at: "2026-10-27T14:38:34.743Z",
+        permitUserCode: "PCU-0001",
+        userId: "b0000001-0000-4000-8000-000000000001",
+        code: "PERMIT_AUTHORIZED",
+      },
+    ];
+    const history = authorizationHistory(approvals, recorded);
+    expect(history[0].action).toBe("Authorization withdrawn");
+    expect(history[0].reason).toBe("Permit Requires Correction");
+    expect(history[1].action).toBe("Permit authorized");
+    expect(permitWhen(history[0].at)).toMatch(/Oct 27, 2026/);
+    expect(permitWhen(history[0].at)).not.toContain("T15:12");
+  });
 });
 
 describe("permit detail presentation structure", () => {
@@ -136,7 +178,18 @@ describe("permit detail presentation structure", () => {
     expect(detail).toContain("<AuthorizationHistory");
     expect(source("../src/services/lifecyclePrompt.ts")).toContain('actionLabel = "AUTHORIZE PERMIT"');
     expect(panel).toContain("{shown.actionLabel}");
+    expect(panel).toContain("WITHDRAW AUTHORIZATION");
+    expect(panel).toContain("Plant Link must be READY before authorization can be withdrawn.");
+    expect(panel).toContain("withdrawPlantAuthorization");
+    expect(panel).toContain("Permit Requires Correction");
     expect(panel).toContain("View authorization history");
+    expect(panel).toContain("Reason: {item.reason}");
+    expect(detail).toContain("Suspend Permit");
+    const readiness = panel.indexOf('className="detail-readiness"');
+    const visible = panel.slice(readiness, panel.indexOf("{confirming && shown.action", readiness));
+    expect(visible).not.toContain("PERMIT_AUTHORIZED");
+    expect(visible).not.toContain("PERMIT_AUTHORIZATION_WITHDRAWN");
+    expect(visible).not.toContain("ATTENDANT,AUTHORIZED_ENTRANT");
     expect(panel).toContain("useState(false)");
     expect(panel).toContain("historyOpen ? (");
     expect(panel).not.toContain('item.at ?? ""');

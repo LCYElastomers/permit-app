@@ -38,6 +38,11 @@ public static class SafetyTransitions
             return TransitionOutcome.RejectedStale;
         }
 
+        if (incoming == PermitEventType.PERMIT_AUTHORIZATION_WITHDRAWN && current != PermitStatus.AUTHORIZED)
+        {
+            return TransitionOutcome.RejectedStale;
+        }
+
         if (current == PermitStatus.SUSPENDED
             && incoming == PermitEventType.REAUTHORIZED
             && incomingOccurredAt < currentStateAt)
@@ -110,7 +115,7 @@ public sealed class PermitSyncState
         PermitEventType.ACTIVATED => PermitStatus.ACTIVE,
         PermitEventType.SUSPENDED => PermitStatus.SUSPENDED,
         PermitEventType.REAUTHORIZED => current == PermitStatus.SUSPENDED ? PermitStatus.AUTHORIZED : current,
-        PermitEventType.PERMIT_RETURNED_FOR_CORRECTION => PermitStatus.PENDING_REVIEW,
+        PermitEventType.PERMIT_RETURNED_FOR_CORRECTION or PermitEventType.PERMIT_AUTHORIZATION_WITHDRAWN => PermitStatus.PENDING_REVIEW,
         PermitEventType.CLOSED => PermitStatus.CLOSED,
         _ => current,
     };

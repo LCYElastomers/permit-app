@@ -39,6 +39,10 @@ public sealed class PermitLifecycleController(IDatabaseAvailability database, IP
     public Task<ActionResult> ReturnForCorrection(Guid id, [FromBody] RevisionRequest request, CancellationToken cancellationToken) =>
         Act(() => directory.ReturnForCorrectionAsync(Token(), id, request.Revision, request.DeviceId, cancellationToken));
 
+    [HttpPost("{id:guid}/withdraw-authorization")]
+    public Task<ActionResult> WithdrawAuthorization(Guid id, [FromBody] WithdrawAuthorizationRequest request, CancellationToken cancellationToken) =>
+        Act(() => directory.WithdrawAuthorizationAsync(Token(), id, request.Pin, request.Revision, request.Reason, request.Comments, request.DeviceId, cancellationToken));
+
     [HttpPost("{id:guid}/activate")]
     public Task<ActionResult> Activate(Guid id, [FromBody] ActivateRequest request, CancellationToken cancellationToken) =>
         Act(() => directory.ActivateAsync(Token(), id, request.Pin, request.Revision, request.ActingRole, request.DeviceId, cancellationToken));
@@ -71,3 +75,4 @@ public sealed record LifecycleRequest(Guid? DeviceId);
 public sealed record RevisionRequest(int Revision, Guid? DeviceId);
 public sealed record PinLifecycleRequest(string Pin, int Revision, Guid? DeviceId);
 public sealed record ActivateRequest(string Pin, int Revision, string? ActingRole, Guid? DeviceId);
+public sealed record WithdrawAuthorizationRequest(string Pin, int Revision, string? Reason, string? Comments, Guid? DeviceId);

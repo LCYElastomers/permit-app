@@ -132,8 +132,12 @@ public sealed class DirectoryWorld
             actingRole,
             now,
             hasher,
-            deviceId));
+            deviceId,
+            Events.Where(item => item.PermitId == permitId).ToList()));
     }
+
+    public string? WithdrawAuthorization(Guid permitId, Guid actorId, string pin, int revision, string? reason, string? comments, DateTimeOffset now, Guid? deviceId = null) =>
+        Apply(LifecycleCommands.WithdrawAuthorization(Permit(permitId), User(actorId), Credential(actorId), RolesOf(actorId), pin, revision, reason, comments, now, hasher, deviceId));
 
     public string? CreateUser(Guid actorId, User profile, IReadOnlyList<string> roles, DateTimeOffset now)
     {

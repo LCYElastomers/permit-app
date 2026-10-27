@@ -280,7 +280,8 @@ public static class LifecycleCommands
         string? actingRole,
         DateTimeOffset now,
         IPinHasher hasher,
-        Guid? deviceId)
+        Guid? deviceId,
+        IReadOnlyList<PermitEvent>? history = null)
     {
         var role = string.IsNullOrWhiteSpace(actingRole) ? nameof(AppRole.PERMIT_AUTHORIZER) : actingRole;
         if (role is not (nameof(AppRole.PERMIT_AUTHORIZER) or nameof(AppRole.CRAFT_RECEIVER)) || !PermitCapabilities.Has(roles, role))
@@ -290,7 +291,14 @@ public static class LifecycleCommands
 
         if (permit.Status != PermitStatus.AUTHORIZED) return new CommandResult("lifecycle-conflict");
         if (permit.CurrentRevision != revision) return new CommandResult("revision-conflict");
-        if (approvals.All(item => item.Decision != "AUTHORIZED") || approvals.All(item => item.Decision != "ACCEPTED"))
+        var withdrawnAt = history?
+            .Where(item => item.EventType == PermitEventType.PERMIT_AUTHORIZATION_WITHDRAWN)
+            .Select(item => (DateTimeOffset?)item.OccurredAt)
+            .DefaultIfEmpty(null)
+            .Max();
+        bool Counts(PermitApproval item, string decision) =>
+            item.Decision == decision && (withdrawnAt is null || item.DecidedAt > withdrawnAt);
+        if (!approvals.Any(item => Counts(item, "AUTHORIZED")) || !approvals.Any(item => Counts(item, "ACCEPTED")))
         {
             return new CommandResult("lifecycle-conflict");
         }
@@ -341,6 +349,33 @@ public static class LifecycleCommands
             : nameof(AppRole.REQUESTER);
         var result = Record(permit, actor, acting, "RETURNED_FOR_CORRECTION", PermitEventType.PERMIT_RETURNED_FOR_CORRECTION, now, deviceId);
         return result with { Approval = null, Revision = recorded };
+    }
+
+    public static CommandResult WithdrawAuthorization(
+        Permit permit,
+        User actor,
+        UserCredential credential,
+        IReadOnlyCollection<string> roles,
+        string pin,
+        int revision,
+        string? reason,
+        string? comments,
+        DateTimeOffset now,
+        IPinHasher hasher,
+        Guid? deviceId)
+    {
+        if (!PermitCapabilities.Has(roles, nameof(AppRole.PERMIT_AUTHORIZER))) return new CommandResult("capability-required");
+        if (permit.Status != PermitStatus.AUTHORIZED) return new CommandResult("lifecycle-conflict");
+        if (permit.CurrentRevision != revision) return new CommandResult("revision-conflict");
+        var reasonError = WithdrawalReasons.Validate(reason, comments);
+        if (reasonError is not null) return new CommandResult(reasonError);
+        var pinError = Confirmed(credential, pin, now, hasher, deviceId);
+        if (pinError.Error is not null) return pinError;
+        permit.Status = PermitStatus.PENDING_REVIEW;
+        permit.UpdatedAt = now;
+        var recorded = Record(permit, actor, nameof(AppRole.PERMIT_AUTHORIZER), "AUTHORIZATION_WITHDRAWN", PermitEventType.PERMIT_AUTHORIZATION_WITHDRAWN, now, deviceId);
+        if (recorded.Event is not null) recorded.Event.Payload = WithdrawalReasons.Payload(reason!.Trim(), comments);
+        return recorded with { Approval = null };
     }
 
     private static CommandResult Confirmed(UserCredential credential, string pin, DateTimeOffset now, IPinHasher hasher, Guid? deviceId)

@@ -1,18 +1,19 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { usePermits } from "../state/PermitStore";
-import type { PermitKind, PermitStatus } from "../types";
 import { PERMIT_TYPES } from "../permitTypes";
+import { bySort } from "../services/navigationContext";
 import { kindShort } from "../workflow";
 import { ScreenHead, StateMark } from "../components/ui";
 
 export function ArchiveScreen() {
-  const { permits, openPermit } = usePermits();
-  const [query, setQuery] = useState("");
-  const [type, setType] = useState<"" | PermitKind>("");
-  const [area, setArea] = useState("");
-  const [year, setYear] = useState("");
-  const [status, setStatus] = useState<"" | PermitStatus>("");
-  const [company, setCompany] = useState("");
+  const { permits, openPermit, listMemory, patchListMemory } = usePermits();
+  const memory = listMemory("archive");
+  const query = memory.query;
+  const type = memory.kind;
+  const area = memory.area;
+  const year = memory.year;
+  const status = memory.status;
+  const company = memory.company;
 
   const archived = useMemo(
     () => permits.filter((permit) => permit.status === "closed" || permit.status === "expired"),
@@ -48,7 +49,7 @@ export function ArchiveScreen() {
       return hay.includes(q);
     })
     .slice()
-    .sort((a, b) => b.issuedKey.localeCompare(a.issuedKey) || b.id.localeCompare(a.id));
+    .sort((a, b) => bySort(memory.sort, a, b));
 
   return (
     <div className="screen fill">
@@ -58,13 +59,13 @@ export function ArchiveScreen() {
           <span>Search</span>
           <input
             value={query}
-            onChange={(event) => setQuery(event.target.value)}
+            onChange={(event) => patchListMemory("archive", { query: event.target.value })}
             placeholder="Search permit ID, equipment, work order, scope..."
           />
         </label>
         <label className="filter">
           <span>Permit Type</span>
-          <select value={type} onChange={(event) => setType(event.target.value as "" | PermitKind)}>
+          <select value={type} onChange={(event) => patchListMemory("archive", { kind: event.target.value })}>
             <option value="">All</option>
             {PERMIT_TYPES.map((type) => (
               <option key={type.id} value={type.id}>
@@ -75,7 +76,7 @@ export function ArchiveScreen() {
         </label>
         <label className="filter">
           <span>Area</span>
-          <select value={area} onChange={(event) => setArea(event.target.value)}>
+          <select value={area} onChange={(event) => patchListMemory("archive", { area: event.target.value })}>
             <option value="">All</option>
             {areas.map((item) => (
               <option key={item}>{item}</option>
@@ -84,7 +85,7 @@ export function ArchiveScreen() {
         </label>
         <label className="filter">
           <span>Year</span>
-          <select value={year} onChange={(event) => setYear(event.target.value)}>
+          <select value={year} onChange={(event) => patchListMemory("archive", { year: event.target.value })}>
             <option value="">All</option>
             {years.map((item) => (
               <option key={item}>{item}</option>
@@ -93,7 +94,7 @@ export function ArchiveScreen() {
         </label>
         <label className="filter">
           <span>Status</span>
-          <select value={status} onChange={(event) => setStatus(event.target.value as "" | PermitStatus)}>
+          <select value={status} onChange={(event) => patchListMemory("archive", { status: event.target.value })}>
             <option value="">All</option>
             {statuses.map((item) => (
               <option key={item} value={item}>
@@ -104,7 +105,7 @@ export function ArchiveScreen() {
         </label>
         <label className="filter">
           <span>Company</span>
-          <select value={company} onChange={(event) => setCompany(event.target.value)}>
+          <select value={company} onChange={(event) => patchListMemory("archive", { company: event.target.value })}>
             <option value="">All</option>
             {companies.map((item) => (
               <option key={item}>{item}</option>

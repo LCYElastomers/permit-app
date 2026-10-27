@@ -5,16 +5,28 @@ import { kindTitle } from "../workflow";
 import { ScreenHead } from "../components/ui";
 
 export function DraftsScreen() {
-  const { drafts, loadDraft, openPlantPermit } = usePermits();
+  const { drafts, loadDraft, openPlantPermit, listMemory, patchListMemory } = usePermits();
+  const memory = listMemory("drafts");
   const { plant, refresh, ready } = useAuthoritativePermits(["DRAFT"]);
   const plantNumbers = new Set(plant.map((permit) => permit.id));
-  const open = drafts.filter((draft) => (draft.lifecycleStatus ?? "DRAFT") === "DRAFT" && !(draft.permitNumber && plantNumbers.has(draft.permitNumber)));
+  const needle = memory.query.trim().toLowerCase();
+  const matches = (text: string[]) => !needle || text.join(" ").toLowerCase().includes(needle);
+  const open = drafts.filter((draft) => (draft.lifecycleStatus ?? "DRAFT") === "DRAFT" && !(draft.permitNumber && plantNumbers.has(draft.permitNumber)) && matches([draft.permitNumber ?? "", draft.description, draft.area, draft.place, draft.workOrder]));
+  const plantShown = plant.filter((permit) => matches([permit.id, permit.work, permit.area, permit.workOrder]));
 
   return (
     <div className="screen">
-      <ScreenHead kicker="PERMITS" title="Drafts" meta={`${plant.length} PLANT DRAFTS · ${open.length} ON THIS DEVICE`} />
+      <ScreenHead kicker="PERMITS" title="Drafts" meta={`${plantShown.length} PLANT DRAFTS · ${open.length} ON THIS DEVICE`} />
+      <input
+        type="search"
+        className="permit-search"
+        placeholder="Search drafts..."
+        aria-label="Search drafts"
+        value={memory.query}
+        onChange={(event) => patchListMemory("drafts", { query: event.target.value })}
+      />
       <PlantRefresh ready={ready} onRefresh={() => void refresh()} />
-      {plant.map((permit) => (
+      {plantShown.map((permit) => (
         <button key={permit.serverPermitId} type="button" className="permit-row" onClick={() => openPlantPermit(permit, "drafts")}>
           <div className="row-top">
             <span className="pid mono">{permit.id}</span>
@@ -24,7 +36,7 @@ export function DraftsScreen() {
           <div className="row-work">{permit.work}</div>
         </button>
       ))}
-      {open.length === 0 && plant.length === 0 ? (
+      {open.length === 0 && plantShown.length === 0 ? (
         <p className="empty">No drafts saved on this device.</p>
       ) : open.length === 0 ? null : (
         <div className="drafts-board">

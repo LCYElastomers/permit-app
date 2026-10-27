@@ -4,8 +4,8 @@ import { PinInput } from "./PinInput";
 import { useDevice } from "../services/device";
 import { useIdentity } from "../services/identity";
 import { blockingItemCopy, lifecyclePrompt } from "../services/lifecyclePrompt";
-import { approvalActionLabel, authorizationHistory, currentAuthorization, permitWhen, revisionLabel, summaryLine } from "../services/permitDetailPresentation";
-import { actOnPlantPermit, canPerform, getPlantPermit, notifyPlantPermitsChanged, permitFromPlant, pinMessage, returnPlantPermitForCorrection } from "../services/plantDirectory";
+import { approvalActionLabel, authorizationHistory, currentAuthorization, effectiveApprovals, permitWhen, revisionLabel, summaryLine } from "../services/permitDetailPresentation";
+import { actOnPlantPermit, canPerform, getPlantPermit, notifyPlantPermitsChanged, permitFromPlant, pinMessage, returnPlantPermitForCorrection, withdrawPlantAuthorization } from "../services/plantDirectory";
 import { serverPermitType } from "../services/generalWorkDraft";
 import { usePermits } from "../state/PermitStore";
 import { kindTitle } from "../workflow";
@@ -24,6 +24,8 @@ export function AuthorizationHistory({ permit }: { permit: Permit }) {
       at: item.at,
       permitUserCode: item.permitUserCode,
       userId: item.userId,
+      reason: item.reason ?? null,
+      code: item.action,
     })),
   );
   if (history.length === 0) return null;
@@ -40,6 +42,7 @@ export function AuthorizationHistory({ permit }: { permit: Permit }) {
               <strong>{item.action}</strong>
               {item.person ? <div>{item.person}</div> : null}
               {item.at ? <div>{permitWhen(item.at)}</div> : null}
+              {item.reason ? <div>Reason: {item.reason}</div> : null}
               {item.permitUserCode || item.userId ? (
                 <div className="auth-identity mono">{[item.permitUserCode, item.userId].filter(Boolean).join(" · ")}</div>
               ) : null}
@@ -59,12 +62,16 @@ export function AuthorizationPanel({ permit, onUpdated }: { permit: Permit; onUp
   const [pin, setPin] = useState("");
   const [confirming, setConfirming] = useState(false);
   const [returning, setReturning] = useState(false);
+  const [withdrawing, setWithdrawing] = useState(false);
+  const [reason, setReason] = useState("CONDITIONS_CHANGED");
+  const [comments, setComments] = useState("");
   const [message, setMessage] = useState("");
   useEffect(() => {
     setPin("");
     setConfirming(false);
   }, [identity.user?.id, permit.serverPermitId]);
   if (!record || !permit.serverPermitId) return null;
+  const effective = effectiveApprovals(record.approvals, record.authorizationHistory ?? []);
   const shown = lifecyclePrompt({
     status: record.status,
     jobDescription: permit.jobDescription,
@@ -74,7 +81,7 @@ export function AuthorizationPanel({ permit, onUpdated }: { permit: Permit; onUp
     ppe: permit.ppe,
     modules: permit.conditions.map((item) => item.value),
     missing: record.missing,
-    approvals: record.approvals,
+    approvals: effective,
     canAuthorize: canPerform(identity.user, "PERMIT_AUTHORIZER"),
     canAccept: canPerform(identity.user, "CRAFT_RECEIVER"),
     canCorrect: canPerform(identity.user, "PERMIT_AUTHORIZER") || canPerform(identity.user, "REQUESTER"),
@@ -84,7 +91,7 @@ export function AuthorizationPanel({ permit, onUpdated }: { permit: Permit; onUp
     permitType: serverPermitType(permit.kind),
   });
   const edit = (step = 0) => openCorrection(permit, step);
-  const summary = currentAuthorization(record.approvals, record.revision);
+  const summary = currentAuthorization(effective, record.revision);
   const closeReturn = () => {
     setReturning(false);
     setMessage("");
@@ -107,6 +114,40 @@ export function AuthorizationPanel({ permit, onUpdated }: { permit: Permit; onUp
       setReturning(false);
       openCorrection(updated, shown.focusStep);
     } catch (error) {
+      setMessage(pinMessage(error));
+    }
+  };
+  const closeWithdraw = () => {
+    setWithdrawing(false);
+    setPin("");
+    setMessage("");
+    setComments("");
+    setReason("CONDITIONS_CHANGED");
+  };
+  const withdrawAuthorization = async () => {
+    if (!identity.token || !permit.serverPermitId) {
+      setMessage("Plant Link has not established a Permit Control session.");
+      return;
+    }
+    if (link.link !== "ready") {
+      setMessage("Plant Link must be READY before authorization can be withdrawn.");
+      return;
+    }
+    if (reason === "OTHER" && comments.trim().length === 0) {
+      setMessage("Comments are required when the reason is Other.");
+      return;
+    }
+    setMessage("");
+    try {
+      await withdrawPlantAuthorization(identity.token, permit.serverPermitId, pin, record.revision, reason, comments);
+      onUpdated(permitFromPlant(await getPlantPermit(permit.serverPermitId)));
+      notifyPlantPermitsChanged();
+      setPin("");
+      setWithdrawing(false);
+      setComments("");
+      setReason("CONDITIONS_CHANGED");
+    } catch (error) {
+      setPin("");
       setMessage(pinMessage(error));
     }
   };
@@ -168,6 +209,11 @@ export function AuthorizationPanel({ permit, onUpdated }: { permit: Permit; onUp
             Return for correction
           </button>
         ) : null}
+        {shown.withdraw ? (
+          <button type="button" className="btn btn-ghost" id="withdraw-authorization" onClick={() => { setPin(""); setMessage(""); setWithdrawing(true); }}>
+            WITHDRAW AUTHORIZATION
+          </button>
+        ) : null}
         {summary.length > 0 ? (
           <div className="auth-summary">
             <div className="kicker">Authorization</div>
@@ -176,7 +222,7 @@ export function AuthorizationPanel({ permit, onUpdated }: { permit: Permit; onUp
             ))}
           </div>
         ) : null}
-        {message && !returning && !confirming ? <p className="form-error">{message}</p> : null}
+        {message && !returning && !confirming && !withdrawing ? <p className="form-error">{message}</p> : null}
       </section>
       {confirming && shown.action ? (
         <AdminEditorModal
@@ -219,6 +265,39 @@ export function AuthorizationPanel({ permit, onUpdated }: { permit: Permit; onUp
               </ul>
             </>
           ) : null}
+        </AdminEditorModal>
+      ) : null}
+      {withdrawing ? (
+        <AdminEditorModal
+          title="WITHDRAW AUTHORIZATION"
+          code={permit.id}
+          subtitle={`${kindTitle(permit.kind)} · REV ${permit.revision}`}
+          primaryLabel="WITHDRAW AUTHORIZATION"
+          restoreId="withdraw-authorization"
+          onClose={closeWithdraw}
+          onSave={() => void withdrawAuthorization()}
+          error={message || undefined}
+        >
+          <p className="correction-copy">Permit {permit.id} · {kindTitle(permit.kind)} · REV {permit.revision}</p>
+          <p className="correction-copy">This Permit is currently AUTHORIZED but is not ACTIVE.</p>
+          <p className="correction-copy">Withdrawing authorization returns the Permit to Pending Review.</p>
+          <p className="correction-copy">Work remains NOT AUTHORIZED.</p>
+          <label className="field">
+            <span>Reason</span>
+            <select value={reason} onChange={(event) => setReason(event.target.value)}>
+              <option value="CONDITIONS_CHANGED">Conditions Changed</option>
+              <option value="PERMIT_REQUIRES_CORRECTION">Permit Requires Correction</option>
+              <option value="SCOPE_CHANGED">Scope Changed</option>
+              <option value="AUTHORIZATION_ENTERED_IN_ERROR">Authorization Entered in Error</option>
+              <option value="REQUIRED_INFORMATION_MISSING">Required Information Missing</option>
+              <option value="OTHER">Other</option>
+            </select>
+          </label>
+          <label className="field">
+            <span>Comments</span>
+            <textarea value={comments} rows={3} onChange={(event) => setComments(event.target.value)} />
+          </label>
+          <PinInput label="PIN" purpose="current" value={pin} onChange={setPin} />
         </AdminEditorModal>
       ) : null}
     </>

@@ -25,6 +25,7 @@ import { UsersScreen } from "../screens/UsersScreen";
 import { AdministrationScreen } from "../screens/AdministrationScreen";
 import { ProfileScreen } from "../screens/ProfileScreen";
 import { IdentityMenu, SessionBanner } from "./SessionBanner";
+import { bindStage, restoreStageScroll } from "../services/stageScroll";
 
 const OPERATIONS: { id: ListScreen; label: string }[] = [
   { id: "command", label: "Command Center" },
@@ -45,7 +46,7 @@ const FIELD_TABS: { id: "home" | "permits" | "new" | "drafts" | "more"; label: s
 const PERMIT_SCREENS: ListScreen[] = ["active", "pending", "suspended"];
 
 export function Shell() {
-  const { drafts, screen, origin, selectedId, go, activeView } = usePermits();
+  const { drafts, screen, origin, selectedId, go, activeView, restoreToken, restoreScrollTop } = usePermits();
   const { link, local } = useDevice();
   const identity = useIdentity();
   const composition = useComposition();
@@ -55,8 +56,19 @@ export function Shell() {
   const showAdmin = canPerform(identity.user, "ADMIN");
 
   useEffect(() => {
-    stageRef.current?.scrollTo(0, 0);
-  }, [screen, selectedId]);
+    const node = stageRef.current;
+    if (!node) return;
+    if (screen === "detail" || screen === "new") {
+      node.scrollTop = 0;
+      return;
+    }
+    const top = restoreScrollTop();
+    if (top <= 0) {
+      node.scrollTop = 0;
+      return;
+    }
+    restoreStageScroll(node, top);
+  }, [screen, selectedId, restoreToken, restoreScrollTop]);
 
   const countFor = (id: ListScreen): number | null => (id === "drafts" ? drafts.length : null);
 
@@ -161,7 +173,7 @@ export function Shell() {
           </div>
         ) : null}
         <SessionBanner />
-        <main className="stage" ref={stageRef}>
+        <main className="stage" ref={(node) => { stageRef.current = node; bindStage(node); }}>
           {screen === "command" && (composition === "portrait" ? <FieldHome /> : <CommandCenter />)}
           {screen === "active" && <ActivePermits filter={activeView === "expiring" ? "expiring" : "active"} />}
           {screen === "pending" && <PendingReview />}

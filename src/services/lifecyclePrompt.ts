@@ -19,6 +19,7 @@ export interface LifecyclePrompt {
   blocked: string | null;
   readiness: ReadinessItem[];
   correction: "edit" | "return" | "reauthorize" | "none";
+  withdraw: boolean;
   focus: "ppe" | null;
   focusStep: number;
   gaps: string[];
@@ -172,7 +173,8 @@ export function lifecyclePrompt(input: {
     nextDetail = "WORK NOT AUTHORIZED";
   }
 
-  return { ...status, nextTitle, nextDetail, action, actionLabel, personnel, actingRole, requiredAuthority, blocked, readiness, correction, focus, focusStep, gaps };
+  const withdraw = input.status === "AUTHORIZED" && input.canAuthorize;
+  return { ...status, nextTitle, nextDetail, action, actionLabel, personnel, actingRole, requiredAuthority, blocked, readiness, correction, withdraw, focus, focusStep, gaps };
 }
 
 export function preparationSection(gap: string | undefined): number {

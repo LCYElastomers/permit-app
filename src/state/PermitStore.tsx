@@ -2,7 +2,9 @@
 import {
   createContext,
   useContext,
+  useCallback,
   useEffect,
+  useRef,
   useState,
   type Dispatch,
   type ReactNode,
@@ -14,6 +16,15 @@ import { LocalStoreFailure } from "../services/localStore";
 import { onLocalStoreChanged } from "../services/localStore";
 import { GENERAL_EXCLUSIONS, permitType } from "../permitTypes";
 import { plantClock } from "../plantClock";
+import { readStageScroll } from "../services/stageScroll";
+import {
+  applyMemory,
+  initialMemories,
+  resolveNavigationOrigin,
+  type ListMemory,
+  type MemoryKey,
+  type NavigationOrigin,
+} from "../services/navigationContext";
 import type { ListScreen, Permit, PermitDraft, Screen } from "../types";
 import {
   authorizationRoles,
@@ -29,6 +40,7 @@ interface PermitStoreValue {
   drafts: PermitDraft[];
   screen: Screen;
   origin: ListScreen;
+  originSnapshot: NavigationOrigin | null;
   selectedId: string | null;
   readonlyDetail: boolean;
   listArea: string;
@@ -37,15 +49,20 @@ interface PermitStoreValue {
   updateForm: Dispatch<SetStateAction<PermitDraft>>;
   go: (screen: ListScreen) => void;
   showActive: (view?: "all" | "expiring", area?: string) => void;
-  openPermit: (id: string, from: ListScreen, readonly?: boolean) => void;
+  returnToOrigin: () => void;
+  listMemory: (key: MemoryKey) => ListMemory;
+  patchListMemory: (key: MemoryKey, patch: Partial<ListMemory>) => void;
+  restoreToken: number;
+  restoreScrollTop: () => number;
+  openPermit: (id: string, from: ListScreen | "expiring", readonly?: boolean) => void;
   suspendPermit: (id: string, reason: string) => void;
   extendPermit: (id: string) => string;
   closePermit: (id: string) => void;
   reinstatePermit: (id: string) => void;
   saveDraft: () => Promise<PermitDraft>;
   loadDraft: (id: string) => void;
-  openStoredPermit: (id: string, from: ListScreen) => void;
-  openPlantPermit: (permit: Permit, from: ListScreen) => void;
+  openStoredPermit: (id: string, from: ListScreen | "expiring") => void;
+  openPlantPermit: (permit: Permit, from: ListScreen | "expiring") => void;
   openCorrection: (permit: Permit, step?: number) => void;
   replacePlantPermit: (permit: Permit) => void;
   applyTemplate: (id: string) => void;
@@ -206,6 +223,13 @@ export function PermitProvider({ children }: { children: ReactNode }) {
   const [drafts, setDrafts] = useState<PermitDraft[]>([]);
   const [screen, setScreen] = useState<Screen>("command");
   const [origin, setOrigin] = useState<ListScreen>("command");
+  const [originSnapshot, setOriginSnapshot] = useState<NavigationOrigin | null>(null);
+  const [memories, setMemories] = useState(initialMemories);
+  const memoriesRef = useRef(memories);
+  memoriesRef.current = memories;
+  const restoreTop = useRef(0);
+  const [restoreToken, setRestoreToken] = useState(0);
+  const restoreScrollTop = useCallback(() => restoreTop.current, []);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [readonlyDetail, setReadonlyDetail] = useState(false);
   const [listArea, setListArea] = useState("");
@@ -243,10 +267,28 @@ export function PermitProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  const placeScroll = (top: number) => {
+    restoreTop.current = top;
+    setRestoreToken((value) => value + 1);
+  };
+
+  const capture = (from: ListScreen | "expiring") => {
+    const next = resolveNavigationOrigin(from, memoriesRef.current, readStageScroll());
+    setOriginSnapshot(next);
+    setOrigin(next.route);
+    if (next.permitStatus === "expiring") setActiveView("expiring");
+    const memoryKey = next.key === "active" || next.key === "pending" || next.key === "suspended" || next.key === "expiring" || next.key === "drafts" || next.key === "archive" ? next.key : null;
+    if (memoryKey) {
+      setMemories((current) => ({ ...current, [memoryKey]: applyMemory(current[memoryKey], { scroll: next.memory.scroll }) }));
+    }
+  };
+
   const go = (next: ListScreen) => {
     setScreen(next);
     setOrigin(next);
+    setOriginSnapshot(null);
     setSelectedId(null);
+    placeScroll(0);
     if (next === "new") setForm(emptyDraft());
     if (next === "active") {
       setListArea("");
@@ -259,13 +301,38 @@ export function PermitProvider({ children }: { children: ReactNode }) {
     setActiveView(view);
     setScreen("active");
     setOrigin("active");
+    setOriginSnapshot(null);
     setSelectedId(null);
+    placeScroll(0);
   };
 
-  const openPermit = (id: string, from: ListScreen, readonly = false) => {
+  const returnToOrigin = () => {
+    const returning = originSnapshot;
+    setSelectedId(null);
+    if (!returning?.captured) {
+      setScreen("active");
+      setOrigin("active");
+      setActiveView("all");
+      placeScroll(0);
+      return;
+    }
+    setScreen(returning.route);
+    setOrigin(returning.route);
+    if (returning.permitStatus === "expiring") setActiveView("expiring");
+    if (returning.permitStatus === "active") setActiveView("all");
+    placeScroll(returning.memory.scroll);
+  };
+
+  const listMemory = (key: MemoryKey) => memories[key];
+
+  const patchListMemory = (key: MemoryKey, patch: Partial<ListMemory>) => {
+    setMemories((current) => ({ ...current, [key]: applyMemory(current[key], patch) }));
+  };
+
+  const openPermit = (id: string, from: ListScreen | "expiring", readonly = false) => {
     const permit = permits.find((item) => item.id === id);
     const locked = readonly || permit?.status === "closed" || permit?.status === "expired";
-    setOrigin(from);
+    capture(from);
     setSelectedId(id);
     setReadonlyDetail(locked);
     setScreen("detail");
@@ -360,17 +427,17 @@ export function PermitProvider({ children }: { children: ReactNode }) {
   const loadDraft = (id: string) => {
     const draft = drafts.find((item) => item.id === id);
     if (!draft) return;
+    capture("drafts");
     setForm(structuredClone(draft));
     setScreen("new");
-    setOrigin("new");
   };
 
-  const openStoredPermit = (id: string, from: ListScreen) => {
+  const openStoredPermit = (id: string, from: ListScreen | "expiring") => {
     const draft = drafts.find((item) => item.id === id);
     if (!draft) return;
     const permit = storedPermitRecord(draft);
     setPermits((list) => [permit, ...list.filter((item) => item.id !== permit.id)]);
-    setOrigin(from);
+    capture(from);
     setSelectedId(permit.id);
     setReadonlyDetail(false);
     setScreen("detail");
@@ -389,7 +456,7 @@ export function PermitProvider({ children }: { children: ReactNode }) {
         currentRevision: permit.plantRecord?.revision ?? local.currentRevision ?? 1,
       });
       setScreen("new");
-      setOrigin("pending");
+      if (!originSnapshot?.captured) capture("pending");
       return;
     }
     setForm({
@@ -415,12 +482,12 @@ export function PermitProvider({ children }: { children: ReactNode }) {
       updated: "",
     });
     setScreen("new");
-    setOrigin("pending");
+    if (!originSnapshot?.captured) capture("pending");
   };
 
-  const openPlantPermit = (permit: Permit, from: ListScreen) => {
+  const openPlantPermit = (permit: Permit, from: ListScreen | "expiring") => {
     setPermits((list) => [permit, ...list.filter((item) => item.id !== permit.id)]);
-    setOrigin(from);
+    capture(from);
     setSelectedId(permit.id);
     setReadonlyDetail(false);
     setScreen("detail");
@@ -440,8 +507,8 @@ export function PermitProvider({ children }: { children: ReactNode }) {
       controls: [...template.controls],
       updated: plantClock().hm,
     });
+    capture("templates");
     setScreen("new");
-    setOrigin("new");
   };
 
   const issuePermit = () => {
@@ -455,6 +522,7 @@ export function PermitProvider({ children }: { children: ReactNode }) {
     }
     setForm(emptyDraft());
     setOrigin("active");
+    setOriginSnapshot(null);
     setSelectedId(id);
     setReadonlyDetail(false);
     setScreen("detail");
@@ -470,6 +538,7 @@ export function PermitProvider({ children }: { children: ReactNode }) {
         drafts,
         screen,
         origin,
+        originSnapshot,
         selectedId,
         readonlyDetail,
         listArea,
@@ -478,6 +547,11 @@ export function PermitProvider({ children }: { children: ReactNode }) {
         updateForm: setForm,
         go,
         showActive,
+        returnToOrigin,
+        listMemory,
+        patchListMemory,
+        restoreToken,
+        restoreScrollTop,
         openPermit,
         suspendPermit,
         extendPermit,

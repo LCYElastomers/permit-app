@@ -3,19 +3,20 @@ import { permitType } from "../permitTypes";
 import { kindShort, kindTitle } from "../workflow";
 import { Kv, ScreenHead, StateMark } from "../components/ui";
 import { PermitBrowseBar, PermitStatusFilters, usePermitBrowse, type BrowseRow } from "../components/PermitFilters";
+import { bySort } from "../services/navigationContext";
 import { PlantRefresh, stationSamplePermits, useAuthoritativePermits } from "../services/plantLists";
 
 const PENDING_STATUSES = ["PENDING_REVIEW", "AUTHORIZED"];
 
 export function PendingReview() {
   const { permits, drafts, openPermit, openStoredPermit, openPlantPermit } = usePermits();
-  const browse = usePermitBrowse();
+  const browse = usePermitBrowse("pending");
   const { plant, refresh, ready } = useAuthoritativePermits(PENDING_STATUSES);
   const plantNumbers = new Set(plant.map((permit) => permit.id));
   const real = drafts.filter((draft) => draft.lifecycleStatus === "PENDING_REVIEW" && !(draft.permitNumber && plantNumbers.has(draft.permitNumber)));
   const pending = stationSamplePermits(permits, "pending")
     .slice()
-    .sort((a, b) => b.id.localeCompare(a.id));
+    .sort((a, b) => bySort(browse.sort, a, b));
   const plantShown = plant.filter((permit) => browse.accept(rowOf(permit.id, permit.kind, permit.area, permit.company, [permit.work, permit.workOrder, permit.equipment])));
   const realShown = real.filter((draft) => browse.accept(rowOf(draft.permitNumber ?? "", draft.kind, draft.area, "", [draft.description, draft.place, draft.workOrder])));
   const pendingShown = pending.filter((permit) => browse.accept(rowOf(permit.id, permit.kind, permit.area, permit.company, [permit.work, permit.jobDescription, permit.workOrder, permit.equipment, permit.location])));

@@ -278,7 +278,7 @@ public sealed class DirectoryService(PermitDbContext database) : IPlantDirectory
     public async Task<string?> SubmitAsync(string? token, Guid permitId, Guid? deviceId, CancellationToken cancellationToken)
     {
         var actor = await RequireAsync(token, nameof(AppRole.REQUESTER), cancellationToken);
-        return await LifecycleAsync(permitId, (permit, hazards, _, _, _, _) =>
+        return await LifecycleAsync(permitId, (permit, hazards, _, _, _, _, _) =>
             LifecycleCommands.Submit(permit, actor.User, actor.Roles, hazards, Now(), deviceId), cancellationToken);
     }
 
@@ -286,32 +286,39 @@ public sealed class DirectoryService(PermitDbContext database) : IPlantDirectory
     {
         var actor = await RequireSessionAsync(token, cancellationToken);
         var allow = await database.PermitPolicies.Where(item => item.Key == PermitPolicies.AllowSelfAuthorization).Select(item => item.Enabled).FirstOrDefaultAsync(cancellationToken);
-        return await LifecycleAsync(permitId, (permit, hazards, ppe, _, approvals, _) =>
+        return await LifecycleAsync(permitId, (permit, hazards, ppe, _, approvals, _, _) =>
             LifecycleCommands.Authorize(permit, actor.User, actor.Credential, actor.Roles, approvals, hazards, ppe, allow, pin, revision, Now(), hasher, deviceId), cancellationToken);
     }
 
     public Task<string?> AcceptAsync(string? token, Guid permitId, string pin, int revision, Guid? deviceId, CancellationToken cancellationToken) =>
-        ActorLifecycle(token, permitId, (actor, permit, _, _, _, approvals, _) =>
+        ActorLifecycle(token, permitId, (actor, permit, _, _, _, approvals, _, _) =>
             LifecycleCommands.Accept(permit, actor.User, actor.Credential, actor.Roles, pin, revision, Now(), hasher, deviceId), cancellationToken);
 
     public Task<string?> ActivateAsync(string? token, Guid permitId, string pin, int revision, string? actingRole, Guid? deviceId, CancellationToken cancellationToken) =>
-        ActorLifecycle(token, permitId, (actor, permit, hazards, ppe, modules, approvals, qualified) =>
-            LifecycleCommands.Activate(permit, actor.User, actor.Credential, actor.Roles, approvals, modules, qualified, hazards, ppe, pin, revision, actingRole, Now(), hasher, deviceId), cancellationToken);
+        ActorLifecycle(token, permitId, (actor, permit, hazards, ppe, modules, approvals, qualified, history) =>
+            LifecycleCommands.Activate(permit, actor.User, actor.Credential, actor.Roles, approvals, modules, qualified, hazards, ppe, pin, revision, actingRole, Now(), hasher, deviceId, history), cancellationToken);
+
+    public async Task<string?> WithdrawAuthorizationAsync(string? token, Guid permitId, string pin, int revision, string? reason, string? comments, Guid? deviceId, CancellationToken cancellationToken)
+    {
+        var actor = await RequireSessionAsync(token, cancellationToken);
+        return await LifecycleAsync(permitId, (permit, _, _, _, _, _, _) =>
+            LifecycleCommands.WithdrawAuthorization(permit, actor.User, actor.Credential, actor.Roles, pin, revision, reason, comments, Now(), hasher, deviceId), cancellationToken);
+    }
 
     public async Task<string?> ReturnForCorrectionAsync(string? token, Guid permitId, int revision, Guid? deviceId, CancellationToken cancellationToken)
     {
         var actor = await RequireSessionAsync(token, cancellationToken);
-        return await LifecycleAsync(permitId, (permit, _, _, _, _, _) =>
+        return await LifecycleAsync(permitId, (permit, _, _, _, _, _, _) =>
             LifecycleCommands.ReturnForCorrection(permit, actor.User, actor.Roles, revision, Now(), deviceId), cancellationToken);
     }
 
-    private async Task<string?> ActorLifecycle(string? token, Guid permitId, Func<Actor, Permit, int, int, IReadOnlyCollection<PermitModuleKind>, List<PermitApproval>, IReadOnlyCollection<QualificationType>, CommandResult> command, CancellationToken cancellationToken)
+    private async Task<string?> ActorLifecycle(string? token, Guid permitId, Func<Actor, Permit, int, int, IReadOnlyCollection<PermitModuleKind>, List<PermitApproval>, IReadOnlyCollection<QualificationType>, IReadOnlyList<PermitEvent>, CommandResult> command, CancellationToken cancellationToken)
     {
         var actor = await RequireSessionAsync(token, cancellationToken);
-        return await LifecycleAsync(permitId, (permit, hazards, ppe, modules, approvals, qualified) => command(actor, permit, hazards, ppe, modules, approvals, qualified), cancellationToken);
+        return await LifecycleAsync(permitId, (permit, hazards, ppe, modules, approvals, qualified, history) => command(actor, permit, hazards, ppe, modules, approvals, qualified, history), cancellationToken);
     }
 
-    private async Task<string?> LifecycleAsync(Guid permitId, Func<Permit, int, int, IReadOnlyCollection<PermitModuleKind>, List<PermitApproval>, IReadOnlyCollection<QualificationType>, CommandResult> command, CancellationToken cancellationToken)
+    private async Task<string?> LifecycleAsync(Guid permitId, Func<Permit, int, int, IReadOnlyCollection<PermitModuleKind>, List<PermitApproval>, IReadOnlyCollection<QualificationType>, IReadOnlyList<PermitEvent>, CommandResult> command, CancellationToken cancellationToken)
     {
         await using var transaction = await database.Database.BeginTransactionAsync(cancellationToken);
         var permit = await database.Permits.FirstOrDefaultAsync(item => item.Id == permitId, cancellationToken);
@@ -320,11 +327,12 @@ public sealed class DirectoryService(PermitDbContext database) : IPlantDirectory
         var ppe = await database.PermitPpe.CountAsync(item => item.PermitId == permitId, cancellationToken);
         var modules = await database.PermitModules.Where(item => item.PermitId == permitId).Select(item => item.Kind).ToListAsync(cancellationToken);
         var approvals = await database.PermitApprovals.Where(item => item.PermitId == permitId).ToListAsync(cancellationToken);
+        var history = await database.PermitEvents.Where(item => item.PermitId == permitId).ToListAsync(cancellationToken);
         var participantIds = await database.PermitParticipants.Where(item => item.PermitId == permitId && item.UserId != null).Select(item => item.UserId!.Value).ToListAsync(cancellationToken);
         var now = Now();
         var qualified = await database.UserQualifications.Where(item => participantIds.Contains(item.UserId) && item.Enabled).ToListAsync(cancellationToken);
         var held = qualified.Where(item => (item.ExpirationDate is null || item.ExpirationDate > now) && (item.EffectiveDate is null || item.EffectiveDate <= now)).Select(item => item.QualificationType).ToArray();
-        var error = Apply(command(permit, hazards, ppe, modules, approvals, held));
+        var error = Apply(command(permit, hazards, ppe, modules, approvals, held, history));
         await database.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return error;
@@ -474,6 +482,7 @@ public sealed class DirectoryService(PermitDbContext database) : IPlantDirectory
             PermitEventType.PERMIT_SUBMITTED,
             PermitEventType.AUTHORIZED,
             PermitEventType.PERMIT_AUTHORIZED,
+            PermitEventType.PERMIT_AUTHORIZATION_WITHDRAWN,
             PermitEventType.ACCEPTED,
             PermitEventType.PERMIT_ACCEPTED,
             PermitEventType.ACTIVATED,
@@ -484,11 +493,13 @@ public sealed class DirectoryService(PermitDbContext database) : IPlantDirectory
             PermitEventType.REAUTHORIZED,
             PermitEventType.PERMIT_REAUTHORIZED,
         };
-        var history = await database.PermitEvents.AsNoTracking()
+        var historyEvents = await database.PermitEvents.AsNoTracking()
             .Where(item => item.PermitId == permit.Id && historyTypes.Contains(item.EventType))
             .OrderByDescending(item => item.OccurredAt)
-            .Select(item => new AuthorizationHistoryEntry(item.PermitRevision, item.EventType.ToString(), item.DisplayNameSnapshot ?? "", item.OccurredAt, item.PermitUserCodeSnapshot, item.UserId))
             .ToListAsync(cancellationToken);
+        var history = historyEvents
+            .Select(item => new AuthorizationHistoryEntry(item.PermitRevision, item.EventType.ToString(), item.DisplayNameSnapshot ?? "", item.OccurredAt, item.PermitUserCodeSnapshot, item.UserId, WithdrawalReasons.Display(item.EventType, item.Payload)))
+            .ToList();
         var participantIds = await database.PermitParticipants.AsNoTracking().Where(item => item.PermitId == permit.Id && item.UserId != null).Select(item => item.UserId!.Value).ToListAsync(cancellationToken);
         var qualified = await database.UserQualifications.AsNoTracking().Where(item => participantIds.Contains(item.UserId) && item.Enabled).Select(item => item.QualificationType).ToListAsync(cancellationToken);
         var missing = SpecialtyRequirements.Missing(permit.PermitType, moduleKinds, qualified).Select(item => item.ToString()).ToArray();

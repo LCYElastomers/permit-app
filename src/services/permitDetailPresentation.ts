@@ -15,6 +15,7 @@ const HISTORY_ACTIONS: Record<string, string> = {
   PERMIT_SUBMITTED: "Submitted for review",
   AUTHORIZED: "Permit authorized",
   PERMIT_AUTHORIZED: "Permit authorized",
+  PERMIT_AUTHORIZATION_WITHDRAWN: "Authorization withdrawn",
   ACCEPTED: "Permit accepted",
   PERMIT_ACCEPTED: "Permit accepted",
   ACTIVATED: "Permit activated",
@@ -44,6 +45,8 @@ export interface HistoryFact {
   at: string | null;
   permitUserCode: string | null;
   userId: string | null;
+  reason?: string | null;
+  code?: string | null;
 }
 
 export function qualificationLabel(code: string): string {
@@ -90,6 +93,19 @@ export function summaryLine(actingRole: string, name: string, at: string | null)
   return when ? `${presented.role}: ${name} | ${presented.verb}: ${when}` : `${presented.role}: ${name}`;
 }
 
+export function effectiveApprovals(
+  approvals: ApprovalFact[],
+  history: { action: string; at: string | null }[],
+): ApprovalFact[] {
+  const cutoff = history
+    .filter((item) => item.action === "PERMIT_AUTHORIZATION_WITHDRAWN" && item.at)
+    .map((item) => item.at as string)
+    .sort()
+    .at(-1);
+  if (!cutoff) return approvals;
+  return approvals.filter((item) => (item.at ?? "") > cutoff);
+}
+
 export function currentAuthorization(approvals: ApprovalFact[], revision: number): ApprovalFact[] {
   const hasRevision = approvals.some((item) => (item.revision ?? 0) > 0);
   const pool = hasRevision ? approvals.filter((item) => item.revision === revision) : approvals;
@@ -114,6 +130,8 @@ export function authorizationHistory(approvals: ApprovalFact[], recorded?: Histo
         at: item.at,
         permitUserCode: item.permitUserCode || null,
         userId: item.userId ?? null,
+        reason: null,
+        code: item.decision ?? null,
       }));
   return [...source].sort((left, right) => (right.revision ?? 0) - (left.revision ?? 0) || (right.at ?? "").localeCompare(left.at ?? ""));
 }

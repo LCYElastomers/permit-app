@@ -12,18 +12,20 @@ export function AdminHeader({
   purpose,
   context,
   onBack,
+  backLabel = "Administration",
 }: {
   title: string;
   purpose?: string;
   context?: string;
   onBack?: () => void;
+  backLabel?: string;
 }) {
   return (
     <header className="admin-header">
       <div>
         {onBack ? (
           <button type="button" className="admin-back" onClick={onBack}>
-            ← Administration
+            ← {backLabel}
           </button>
         ) : (
           <div className="kicker">Administration</div>

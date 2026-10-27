@@ -27,6 +27,7 @@ public interface IPlantDirectory
     Task<string?> AcceptAsync(string? token, Guid permitId, string pin, int revision, Guid? deviceId, CancellationToken cancellationToken);
     Task<string?> ActivateAsync(string? token, Guid permitId, string pin, int revision, string? actingRole, Guid? deviceId, CancellationToken cancellationToken);
     Task<string?> ReturnForCorrectionAsync(string? token, Guid permitId, int revision, Guid? deviceId, CancellationToken cancellationToken);
+    Task<string?> WithdrawAuthorizationAsync(string? token, Guid permitId, string pin, int revision, string? reason, string? comments, Guid? deviceId, CancellationToken cancellationToken);
 }
 
 public sealed record IdentityBootstrap(string Kind, SessionStart? Session, IReadOnlyList<UserChoice> Choices);
@@ -36,5 +37,5 @@ public sealed record UserProfileEdit(string DisplayName, string? WindowsDomain, 
 public sealed record NotificationPreferenceEdit(string Channel, string Topic, bool Enabled);
 public sealed record SelfProfileEdit(string? Email, string? MobilePhone, string? AlternatePhone, IReadOnlyList<NotificationPreferenceEdit> Preferences);
 public sealed record ApprovalView(string ActingRole, string DisplayName, string PermitUserCode, string? JobTitle, DateTimeOffset? At, string Decision = "", int Revision = 0, Guid? UserId = null);
-public sealed record AuthorizationHistoryEntry(int Revision, string Action, string DisplayName, DateTimeOffset? At, string? PermitUserCode, Guid? UserId);
+public sealed record AuthorizationHistoryEntry(int Revision, string Action, string DisplayName, DateTimeOffset? At, string? PermitUserCode, Guid? UserId, string? Reason = null);
 public sealed record PermitLifecycleView(Guid Id, string PermitNumber, string PermitType, string Status, int Revision, string JobDescription, string WorkOrder, string? AreaName, IReadOnlyList<string> Hazards, IReadOnlyList<string> Controls, IReadOnlyList<string> Ppe, IReadOnlyList<string> Modules, IReadOnlyList<ApprovalView> Approvals, IReadOnlyList<string> Missing, string? EquipmentTag, Guid? CreatedBy, bool AllowSelfAuthorization, IReadOnlyList<AuthorizationHistoryEntry>? AuthorizationHistory = null);

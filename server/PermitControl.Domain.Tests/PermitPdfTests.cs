@@ -117,6 +117,24 @@ public class PermitPdfTests
         Assert.NotEqual(records[0].Sha256, records[1].Sha256);
     }
 
+    [Fact]
+    public void A_later_pending_review_render_leaves_the_authorized_pdf_unchanged()
+    {
+        var renderer = new PdfSharpPermitRenderer();
+        var authorized = GeneralWorkDocuments.Compose(Sample(PermitStatus.AUTHORIZED), Guid.NewGuid(), GeneratedAt);
+        var authorizedBytes = renderer.Render(authorized);
+        var preserved = authorizedBytes.ToArray();
+        var pending = GeneralWorkDocuments.Compose(Sample(PermitStatus.PENDING_REVIEW), Guid.NewGuid(), GeneratedAt.AddMinutes(20));
+        var pendingBytes = renderer.Render(pending);
+
+        Assert.Equal(preserved, authorizedBytes);
+        Assert.Contains("AUTHORIZED", authorized.Banner);
+        Assert.Contains("NOT ACTIVE FOR WORK", authorized.Banner);
+        Assert.Contains("PENDING REVIEW", pending.Banner);
+        Assert.Contains("NOT AUTHORIZED FOR WORK", pending.Banner);
+        Assert.NotEqual(preserved, pendingBytes);
+    }
+
     [Theory]
     [InlineData(PermitStatus.DRAFT, "DRAFT", "NOT AUTHORIZED FOR WORK")]
     [InlineData(PermitStatus.PENDING_REVIEW, "PENDING REVIEW", "NOT AUTHORIZED FOR WORK")]
