@@ -55,13 +55,13 @@ export function PermitDocumentActions({
     return (
       <div className="document-toolbar" aria-label="Documents">
         <span className="kicker">DOCUMENTS</span>
-        <button type="button" className="btn btn-ghost" onClick={() => void request("PRINT")}>
+        <button type="button" className="btn" onClick={() => void request("PRINT")}>
           View PDF
         </button>
-        <button type="button" className="btn btn-ghost" onClick={() => void request("PRINT")}>
+        <button type="button" className="btn" onClick={() => void request("PRINT")}>
           Print Permit
         </button>
-        <button type="button" className="btn btn-ghost" onClick={() => void request("SNAPSHOT")}>
+        <button type="button" className="btn" onClick={() => void request("SNAPSHOT")}>
           Export PDF
         </button>
         {note ? <p className="document-note">{note}</p> : null}
@@ -74,13 +74,13 @@ export function PermitDocumentActions({
       <div className="kicker">DOCUMENTS</div>
       <p>Printed from the plant record. The PDF states the permit status. It does not change that status.</p>
       <div className="document-buttons">
-        <button type="button" className="btn btn-ghost" onClick={() => void request("PRINT")}>
+        <button type="button" className="btn" onClick={() => void request("PRINT")}>
           View Permit PDF
         </button>
-        <button type="button" className="btn btn-ghost" onClick={() => void request("PRINT")}>
+        <button type="button" className="btn" onClick={() => void request("PRINT")}>
           Print Permit
         </button>
-        <button type="button" className="btn btn-ghost" onClick={() => void request("SNAPSHOT")}>
+        <button type="button" className="btn" onClick={() => void request("SNAPSHOT")}>
           Export PDF
         </button>
       </div>
